@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { listActiveProducts } = vi.hoisted(() => ({ listActiveProducts: vi.fn() }));
+const { listCategories } = vi.hoisted(() => ({ listCategories: vi.fn() }));
 
 vi.mock("@/lib/firestore/products", () => ({ listActiveProducts }));
+vi.mock("@/lib/firestore/categories", () => ({ listCategories }));
 
-import { getFeaturedProducts } from "@/lib/catalog/home";
+import { FALLBACK_CATEGORIES, getFeaturedProducts, getHomeCategories } from "@/lib/catalog/home";
 
 const product = (id: string, featured: boolean) => ({
   id,
@@ -44,5 +46,38 @@ describe("getFeaturedProducts", () => {
     listActiveProducts.mockRejectedValueOnce(error);
 
     await expect(getFeaturedProducts()).rejects.toBe(error);
+  });
+});
+
+describe("getHomeCategories", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("retorna categorías activas desde Firestore", async () => {
+    const mockCategories = [
+      { id: "granizado", name: "Granizados", active: true, order: 1 },
+      { id: "cocktail", name: "Cocteles", active: true, order: 2 },
+    ];
+    listCategories.mockResolvedValueOnce(mockCategories);
+
+    await expect(getHomeCategories()).resolves.toEqual(mockCategories);
+  });
+
+  it("retorna FALLBACK_CATEGORIES si Firestore retorna lista vacía", async () => {
+    listCategories.mockResolvedValueOnce([]);
+
+    await expect(getHomeCategories()).resolves.toEqual(FALLBACK_CATEGORIES);
+  });
+
+  it("retorna FALLBACK_CATEGORIES si Firestore carece de configuración", async () => {
+    listCategories.mockRejectedValueOnce(new Error("Falta la variable FIREBASE_PROJECT_ID"));
+
+    await expect(getHomeCategories()).resolves.toEqual(FALLBACK_CATEGORIES);
+  });
+
+  it("no oculta errores reales de Firestore", async () => {
+    const error = new Error("Error interno de conexión a Firestore");
+    listCategories.mockRejectedValueOnce(error);
+
+    await expect(getHomeCategories()).rejects.toBe(error);
   });
 });

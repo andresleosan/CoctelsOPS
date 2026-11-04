@@ -33,3 +33,4 @@ export function getProductSizes(
 
   return [{ name: "Personal", price: product.price }];
 }
+

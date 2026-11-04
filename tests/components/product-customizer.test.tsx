@@ -233,3 +233,4 @@ describe("ProductCustomizer", () => {
     expect(screen.getByText("$25.000")).toBeInTheDocument();
   });
 });
+

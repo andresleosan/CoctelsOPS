@@ -20,7 +20,7 @@ Este backlog contiene la hoja de ruta de tareas ordenadas cronológicamente para
   - **Seguridad:** Asegurar que la API de validación y checkout (`src/lib/validation/orders.ts` y `/api/pedidos`) verifique los precios contra la configuración real del producto en servidor, impidiendo manipulación de precios desde el cliente.
   - **Archivos:** `src/components/products/ProductCustomizer.tsx`, `src/types/orders.ts`, `src/types/catalog.ts`, `src/lib/validation/orders.ts`, `tests/components/product-customizer.test.tsx`.
 
-- [ ] **TASK-03: Rediseño Mobile-First del Hero y Catálogo en la Landing Page (`DESIGN.md`)**
+- [x] **TASK-03: Rediseño Mobile-First del Hero y Catálogo en la Landing Page (`DESIGN.md`)**
   - **Objetivo:** Optimizar la experiencia de usuario en móvil de la página de inicio (`src/app/page.tsx`).
   - **Mejora:** Reducir la altura excesiva de 85vh del hero inicial a ~65vh en móvil, incorporando la mascota Opsy de forma armoniosa y mostrando los productos destacados y acceso directo a categorías visible en el primer scroll.
   - **Estética & A11y:** Asegurar tap targets >= 44px, contraste WCAG AA+, microinteracciones neón (`neon-shadow-magenta`, `neon-text-cyan`), y atributos `sizes` optimizados en `next/image` para LCP óptimo.
