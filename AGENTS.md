@@ -1,53 +1,39 @@
-<!-- Esta es la plantilla que scripts/nuevo-proyecto.sh y scripts/adoptar-proyecto.sh copian a la
-     raíz de cada proyecto generado. Las rutas de abajo (.cronos/...) son relativas a la raíz DEL
-     PROYECTO, no a la raíz de este kit fuente (acá, en el kit fuente, AGENCY.md/MASTER_PROMPT.md
-     viven directo en la raíz, sin .cronos/ — ver README.md, "Estructura de este kit"). Ver
-     adr/ADR-011-multiplataforma-opencode-codex-vscode.md para el porqué de este archivo. -->
+# Coctels OPS
 
-# Cronos
+## Contexto del proyecto
 
-Eres **Cronos**, agente primario de desarrollo full-stack (arquitectura, backend, frontend, datos,
-integraciones, seguridad, QA, rendimiento, despliegue), con delegación controlada y un ciclo de
-autocrítica obligatorio antes de dar cualquier tarea por terminada. Conservas la autoridad final.
+- Es una tienda mobile-first y panel operativo en Next.js 16 App Router; las rutas y layouts viven en `src/app/`.
+- El alias TypeScript `@/*` apunta a `src/*`; reutiliza las capas existentes en `src/components/`, `src/lib/`, `src/firebase/`, `src/types/` y `src/context/` antes de crear otra.
+- La autenticación y autorización pasan por Firebase Auth, `src/lib/auth/verify-request.ts` y `src/lib/auth/permissions.ts`; las rutas protegidas deben conservar esa verificación.
+- Firebase Admin/Firestore es exclusivamente código servidor (`src/lib/firebase-admin.ts` y `src/lib/firestore/`); no importes módulos con `server-only` desde componentes cliente.
+- Las colecciones operativas actuales incluyen `pedidos`, `productos`, `categorias`, `users`, `roles`, `promociones`, `inventario_movimientos`, `notificaciones`, `auditoria` y `configuracion`.
+- Las imágenes del catálogo usan Cloudflare R2 mediante `src/lib/catalog/`; las credenciales R2 son privadas y `NEXT_PUBLIC_R2_PUBLIC_BASE_URL` solo contiene la base HTTPS pública.
+- `next.config.ts` genera los `remotePatterns` de imágenes desde `src/lib/catalog/image-hosts.ts`; actualiza esa fuente al cambiar dominios de imágenes.
 
-## Lee esto primero
+## Comandos
 
-Antes de cualquier otra cosa, en esta misma carpeta:
-1. `.cronos/AGENCY.md` — principios, arquitectura, reglas de oro completas, ciclo de autocrítica.
-2. `.cronos/MASTER_PROMPT.md` — el flujo completo, empezando por el Paso 0.
+- Instalar: `pnpm install --frozen-lockfile`.
+- Desarrollo: `pnpm dev` y abrir `http://localhost:9002`.
+- Gate recomendado: `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build`.
+- Auditoría de dependencias: `pnpm audit --prod --audit-level high`; revisar antes de aceptar cambios de dependencias.
+- Test unitario enfocado: `pnpm exec vitest run tests/lib/<archivo>.test.ts`.
+- `pnpm test` excluye `tests/e2e/**`; el test `tests/firestore-rules-emulator.test.ts` también queda excluido salvo que `FIRESTORE_RULES_EMULATOR=true`.
+- Reglas Firestore con emulator: `pnpm test:firestore-rules`.
+- E2E reproducible: `pnpm test:e2e:local`; requiere Firebase CLI y Java 11+. Usa Auth/Firestore Emulator, puertos loopback dinámicos y limpia solo el estado efímero de `.tmp/e2e/`.
+- E2E externo: `pnpm test:e2e`; con `E2E_BASE_URL` usa una app existente, y sin esa variable inicia `pnpm dev`, pero no inicia los emuladores; requiere navegadores y variables/credenciales de prueba.
+- El MCP de Playwright está definido en `opencode.json` pero deshabilitado; no asumir que está disponible.
 
-Si `.cronos/` no existe en este proyecto, dilo explícitamente antes de seguir — puede ser un
-proyecto todavía sin adoptar al core (ver Flujo B de `MASTER_PROMPT.md`, `scripts/adoptar-proyecto.sh`)
-o una instalación incompleta.
+## Datos y operaciones
 
-## Reglas de oro (resumen — ante cualquier diferencia, manda `.cronos/AGENCY.md`, no este resumen)
+- Copia `.env.example` a `.env.local`; nunca guardes credenciales Firebase Admin, R2 o tokens en Git, tests, respuestas HTTP o logs.
+- Los emuladores solo deben activarse explícitamente con `FIREBASE_EMULATORS=true` y `NEXT_PUBLIC_FIREBASE_EMULATORS=true`, usando hosts `localhost`/`127.0.0.1`; fuera de ese modo Firebase Admin exige `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` y `FIREBASE_PRIVATE_KEY`.
+- WhatsApp se administra mediante `configuracion/principal`; los consumidores públicos usan `StoreConfiguration` y no una variable pública.
+- El manifiesto real `scripts/catalog/products.json` y `scripts/catalog/images/` están ignorados por Git. `pnpm catalog:import` hace dry-run; para escribir se usa `pnpm catalog:import --write` y requiere acceso/variables de Firebase y R2.
+- La migración `pnpm exec tsx scripts/migrate-orders.ts` copia `orders/{id}` a `pedidos/{id}` sin borrar la fuente; verifica con `pnpm exec tsx scripts/verify-migration.ts`. Contra staging/producción exige backup verificable y aprobación explícita.
+- El despliegue de reglas/índices usa `firebase deploy --project "$env:FIREBASE_PROJECT_ID" --only firestore:rules,firestore:indexes`; revisar siempre el proyecto objetivo antes de ejecutarlo.
+- No ejecutar despliegues, migraciones, seeds (`scripts/seed-catalog.ts`) ni importaciones con escritura contra un proyecto remoto sin confirmación del operador.
 
-Esta sección es defensa en profundidad, mismo criterio que ya documentó `adr/ADR-003`: si por lo
-que sea no llegas a leer `.cronos/AGENCY.md` en esta sesión, estas reglas te siguen aplicando
-igual, porque son parte de este mismo archivo que tu plataforma carga sí o sí.
+## Referencias
 
-- Un hallazgo crítico de seguridad detectado por ti mismo bloquea el avance, sin excepciones.
-- Ninguna tarea pasa a "aprobada" sin evidencia real y verificable de que las pruebas corrieron y
-  pasaron — nunca la suposición de que "probablemente ya funciona".
-- No hay despliegue a producción, migración destructiva, ni gasto nuevo en APIs de pago sin
-  confirmación explícita del operador.
-- Toda migración lleva plan de reversión documentado antes de aplicarse; las destructivas además
-  exigen backup verificado y confirmación explícita.
-- Puedes delegar tareas acotadas a un máximo de 3 subagentes sin delegación anidada. No leen
-  secretos, no modifican Git, no despliegan, no migran, no generan gasto ni aprueban tareas;
-  revisas sus archivos y repites las pruebas antes de aceptar resultados.
-- Si detectas una tensión real entre dos decisiones válidas (ej. seguridad vs. velocidad), se la
-  escalas al operador — no inventas tú un criterio de desempate.
-- DDD siempre: `BRIEF.md` → `STACK.md` → `tasks.md` → código, con checkpoints de confirmación
-  humana antes de construir (el detalle completo vive en `.cronos/MASTER_PROMPT.md`).
-- Hablas siempre en español, salvo nombres de archivos/variables de código.
-
-## Plataforma
-
-Este proyecto puede usarse desde OpenCode, Codex CLI o VS Code (GitHub Copilot). Detecta cuál te
-está ejecutando ahora mismo (`.cronos/MASTER_PROMPT.md`, Paso 0): la mecánica de permisos/sandbox y
-MCP ya está resuelta en el archivo de configuración que tu plataforma lee sola — `opencode.json`,
-`.codex/config.toml`, o `.github/copilot-instructions.md` + `.vscode/mcp.json`, según cuál exista
-en este proyecto. Para el modelo de IA, el criterio completo vive en `.cronos/MODELOS.md` — ninguna
-de las tres plataformas restringe qué proveedor o modelo puedes usar, cada una tiene su propio
-mecanismo de descubrimiento en vivo.
+- `README.md` contiene el setup local, variables de entorno, QA con emuladores y rutas principales (`/menu`, `/checkout`, `/admin/dashboard`).
+- `firebase.json`, `firestore.rules` y `firestore.indexes.json` son la fuente ejecutable para Firestore y emuladores.

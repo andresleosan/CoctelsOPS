@@ -10,6 +10,8 @@ import { getStoreConfiguration } from '@/lib/firestore/configuration';
 import { buildWhatsAppLink } from '@/lib/orders/whatsapp-message';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
 
+export const dynamic = 'force-dynamic';
+
 export default async function Home() {
   const [featuredProducts, configuration] = await Promise.all([
     getFeaturedProducts(),

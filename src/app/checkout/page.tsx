@@ -185,8 +185,8 @@ export default function CheckoutPage() {
               </CardHeader>
               <CardContent className="p-6 md:p-8 pt-0 md:pt-0 space-y-8">
                 <div className="space-y-4">
-                  {items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-sm md:text-base border-b border-white/10 pb-2">
+                  {items.map((item) => (
+                    <div key={item.id} className="flex justify-between items-center text-sm md:text-base border-b border-white/10 pb-2">
                       <span className="font-light">{item.quantity}x {item.name}</span>
                       <span className="font-bold">${(item.price * item.quantity).toLocaleString()}</span>
                     </div>
