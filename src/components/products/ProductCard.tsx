@@ -41,6 +41,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           )}
           <div className="absolute top-2.5 right-2.5 z-10">
             <Badge variant="secondary" className="bg-black/85 backdrop-blur-md text-primary font-black border border-primary/30 px-2.5 py-1 text-xs shadow-md">
+              {product.availableSizes && product.availableSizes.length > 1 ? "Desde " : ""}
               {formattedPrice ? `$${formattedPrice} COP` : `$${product.price.toLocaleString()} COP`}
             </Badge>
           </div>
@@ -53,6 +54,23 @@ export default function ProductCard({ product }: ProductCardProps) {
             <p className="text-xs text-muted-foreground line-clamp-2 min-h-[2rem] leading-relaxed">
               {product.description}
             </p>
+            {product.availableFlavors && product.availableFlavors.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2.5" aria-label="Sabores disponibles">
+                {product.availableFlavors.slice(0, 3).map((flavor) => (
+                  <span
+                    key={flavor}
+                    className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full bg-cyan-950/40 text-cyan-300 border border-cyan-500/30 tracking-wide"
+                  >
+                    {flavor}
+                  </span>
+                ))}
+                {product.availableFlavors.length > 3 && (
+                  <span className="inline-flex items-center text-[10px] text-muted-foreground px-1 self-center">
+                    +{product.availableFlavors.length - 3} más
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
         <CardFooter className="p-4 pt-0">

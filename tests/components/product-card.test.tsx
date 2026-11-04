@@ -69,4 +69,12 @@ describe("ProductCard", () => {
     fireEvent.click(button);
     expect(customizer).toHaveAttribute("data-open", "true");
   });
+
+  it("renderiza chips visuales con las notas de sabor disponibles", () => {
+    render(<ProductCard product={sampleProduct} />);
+
+    expect(screen.getByText("Fresa")).toBeInTheDocument();
+    expect(screen.getByText("Limón")).toBeInTheDocument();
+  });
 });
+

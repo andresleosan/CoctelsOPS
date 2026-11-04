@@ -26,6 +26,16 @@ Este backlog contiene la hoja de ruta de tareas ordenadas cronológicamente para
   - **Estética & A11y:** Asegurar tap targets >= 44px, contraste WCAG AA+, microinteracciones neón (`neon-shadow-magenta`, `neon-text-cyan`), y atributos `sizes` optimizados en `next/image` para LCP óptimo.
   - **Archivos:** `src/app/page.tsx`, `src/components/products/ProductCard.tsx`, `src/components/products/CocktailCarousel.tsx`.
 
+- [x] **TASK-03.1: Rediseño Mobile-First del Menú Público con Scroll Continuo y Sticky Category Bar (Referencia Mobbin: Shake Shack / Blank Street)**
+  - **Objetivo:** Transformar la experiencia de navegación del catálogo en `/menu` implementando el patrón visual de menú continuo con barra superior fija de categorías (*sticky category bar*).
+  - **Mejoras de Experiencia e Interfaz:**
+    - Barra de categorías sticky horizontal superior con iconos/indicadores de categoría (`Granizados`, `Cocteles`, `Sodas`, `Malteadas`) con sincronización bidireccional (scroll espía): al pulsar una categoría hace scroll suave a su sección, y al navegar se resalta con glow magenta neón (`neon-shadow-magenta`).
+    - Agrupación del catálogo por secciones de categoría con cabeceras estilizadas y anclas automáticas.
+    - Tarjetas compactas mobile-first para bebidas con imagen optimizada, notas de cata y perfil de sabor (ej. *Cítrico, Fruta fresca, Con Ron*), precio real en COP y botón táctil `(+)` accesible (>= 44px) para abrir el personalizador o añadir.
+    - Buscador reactivo integrado con limpieza en 1 tap y feedback inmediato sin perder la estructura de la carta.
+  - **Estética & Calidad:** Cumplimiento total de `DESIGN.md` (tap targets >= 44px, cero CLS, contraste WCAG AA+, dark mode glassmorphism) y pruebas de componentes en `tests/components/product-catalog-browser.test.tsx`.
+  - **Archivos:** `src/app/menu/page.tsx`, `src/components/products/ProductCatalogBrowser.tsx`, `src/components/products/ProductCard.tsx`, `tests/components/product-catalog-browser.test.tsx`.
+
 ---
 
 ### Fase 2: Plataforma SaaS Multi-Tenant y Panel Staff del Menú
