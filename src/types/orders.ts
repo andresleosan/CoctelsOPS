@@ -10,7 +10,7 @@ export const ORDER_STATUSES = [
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export type OrderCustomization = {
-  size: "Small" | "Medium" | "Large";
+  size: string;
   flavors: string[];
   addOns: string[];
 };

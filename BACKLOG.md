@@ -14,7 +14,7 @@ Este backlog contiene la hoja de ruta de tareas ordenadas cronológicamente para
   - **Calidad & Performance:** Evitar timestamps redundantes en IDs, tipar estrictamente sin aserciones inseguras, y asegurar transiciones visuales limpias en `src/app/cart/page.tsx`.
   - **Archivos:** `src/context/cart-context.tsx`, `src/app/cart/page.tsx`, `src/app/checkout/page.tsx`, `tests/context/cart-context.test.tsx`, `tests/components/cart-page.test.tsx`.
 
-- [ ] **TASK-02: Retiro de Multiplicadores Ficticios y Adaptación de Presentaciones Reales de Carta Canva**
+- [x] **TASK-02: Retiro de Multiplicadores Ficticios y Adaptación de Presentaciones Reales de Carta Canva**
   - **Objetivo:** Eliminar los multiplicadores `0.8 / 1.0 / 1.3` en `src/components/products/ProductCustomizer.tsx` y en el cálculo de precios.
   - **Mejora:** Adaptar la interfaz para soportar las presentaciones reales comprobadas en la carta (ej. Granizados 8 oz $10.000, 16 oz $15.000, 24 oz $25.000; Malteadas 14 oz $15.000; sodas, etc.) con selección explícita y precio real en COP.
   - **Seguridad:** Asegurar que la API de validación y checkout (`src/lib/validation/orders.ts` y `/api/pedidos`) verifique los precios contra la configuración real del producto en servidor, impidiendo manipulación de precios desde el cliente.

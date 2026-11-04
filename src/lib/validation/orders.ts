@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import type { Product } from "@/types/catalog";
-import type { CreateOrderInput, OrderCustomization, OrderItem, OrderStatus } from "@/types/orders";
+import type { CreateOrderInput, OrderItem, OrderStatus } from "@/types/orders";
 
 export class OrderValidationError extends Error {
   readonly status = 422;
@@ -14,7 +14,7 @@ export class OrderValidationError extends Error {
 }
 
 const customizationSchema = z.object({
-  size: z.enum(["Small", "Medium", "Large"]),
+  size: z.string().trim().min(1, "El tamaño es obligatorio").max(50),
   flavors: z.array(z.string().trim().min(1)).max(20),
   addOns: z.array(z.string().trim().min(1)).max(20),
 });
@@ -36,12 +36,6 @@ export const statusUpdateSchema = z.object({
   status: z.enum(["pendiente", "confirmado", "preparando", "en_camino", "entregado", "cancelado"]),
   reason: z.string().trim().max(240).optional(),
 });
-
-const sizeMultipliers: Record<OrderCustomization["size"], number> = {
-  Small: 0.8,
-  Medium: 1,
-  Large: 1.3,
-};
 
 export const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {
   pendiente: ["confirmado", "cancelado"],
@@ -74,6 +68,57 @@ function assertDistinct(values: string[], message: string): void {
   if (new Set(values).size !== values.length) throw new OrderValidationError(message);
 }
 
+/**
+ * Resuelve el precio exacto en COP de una presentación o tamaño configurado en el servidor.
+ * Descarta multiplicadores ficticios y garantiza integridad frente a alteraciones en cliente.
+ */
+export function resolvePresentationPrice(product: Product, size: string): number {
+  const normalizedSize = size.trim().toLowerCase();
+
+  // 1. Si el producto define presentaciones explícitas en el catálogo:
+  if (product.availableSizes && product.availableSizes.length > 0) {
+    const matched = product.availableSizes.find(
+      (s) => s.name.trim().toLowerCase() === normalizedSize
+    );
+    if (matched) return matched.price;
+
+    // Mapeo retrocompatible para pedidos legacy con "Small", "Medium" o "Large"
+    if (normalizedSize === "small" || normalizedSize === "pequeño") {
+      return product.availableSizes[0].price;
+    }
+    if (normalizedSize === "medium" || normalizedSize === "mediano") {
+      const midIndex = Math.min(1, product.availableSizes.length - 1);
+      return product.availableSizes[midIndex].price;
+    }
+    if (normalizedSize === "large" || normalizedSize === "grande") {
+      return product.availableSizes[product.availableSizes.length - 1].price;
+    }
+
+    throw new OrderValidationError(`El tamaño o presentación "${size}" no está disponible`);
+  }
+
+  // 2. Si el producto NO define availableSizes (producto heredado):
+  if (product.category === "granizado") {
+    if (normalizedSize === "8 oz" || normalizedSize === "8oz") return 10000;
+    if (normalizedSize === "16 oz" || normalizedSize === "16oz") return 15000;
+    if (normalizedSize === "24 oz" || normalizedSize === "24oz") return 25000;
+  }
+  if (product.category === "cocktail") {
+    if (normalizedSize === "14 oz" || normalizedSize === "14oz") return 15000;
+  }
+
+  const isAcceptedLegacy = ["small", "medium", "large", "estándar", "estandar", "personal", "única", "unica"].includes(normalizedSize);
+  if (isAcceptedLegacy) {
+    return product.price;
+  }
+
+  if (product.price > 0 && normalizedSize.length > 0) {
+    return product.price;
+  }
+
+  throw new OrderValidationError(`El tamaño o presentación "${size}" no está disponible`);
+}
+
 export function calculateOrder(input: CreateOrderInput, products: Product[]): CalculatedOrder {
   const quantities = new Map<string, number>();
   for (const item of input.items) {
@@ -89,7 +134,7 @@ export function calculateOrder(input: CreateOrderInput, products: Product[]): Ca
     if (!product) throw new OrderValidationError("Producto no encontrado");
     if (!product.active) throw new OrderValidationError("El producto no esta activo");
 
-    const { flavors, addOns } = item.customization;
+    const { flavors, addOns, size } = item.customization;
     assertDistinct(flavors, "No se pueden repetir sabores");
     assertDistinct(addOns, "No se pueden repetir adiciones");
     if (flavors.some((flavor) => !product.availableFlavors.includes(flavor))) {
@@ -101,7 +146,9 @@ export function calculateOrder(input: CreateOrderInput, products: Product[]): Ca
       if (!addOn) throw new OrderValidationError("La adicion no esta disponible");
       return addOn;
     });
-    const unitPrice = Math.round(product.price * sizeMultipliers[item.customization.size] + selectedAddOns.reduce((sum, addOn) => sum + addOn.price, 0));
+
+    const presentationPrice = resolvePresentationPrice(product, size);
+    const unitPrice = presentationPrice + selectedAddOns.reduce((sum, addOn) => sum + addOn.price, 0);
 
     return {
       productId: product.id,

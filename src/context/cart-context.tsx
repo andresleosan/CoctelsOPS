@@ -47,7 +47,6 @@ export function generateCartItemId(
   return `${productId}::size:${size}::flavors:${flavors}::addons:${addOns}`;
 }
 
-const VALID_SIZES: ReadonlyArray<OrderCustomization['size']> = ['Small', 'Medium', 'Large'];
 
 /**
  * Normaliza y valida una entrada cruda de ítem de carrito, garantizando tipos estrictos
@@ -76,8 +75,8 @@ export function normalizeCartItem(raw: unknown): CartItem | null {
 
   const rawCustomization = candidate.customization;
   const size: OrderCustomization['size'] =
-    rawCustomization?.size && VALID_SIZES.includes(rawCustomization.size)
-      ? rawCustomization.size
+    typeof rawCustomization?.size === 'string' && rawCustomization.size.trim().length > 0
+      ? rawCustomization.size.trim()
       : 'Medium';
 
   const flavors = Array.isArray(rawCustomization?.flavors)

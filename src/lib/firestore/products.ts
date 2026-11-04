@@ -30,6 +30,7 @@ export function productFromData(id: string, data: Record<string, unknown>): Prod
     price: data.price,
     image: data.image,
     category: data.category,
+    availableSizes: data.availableSizes,
     availableFlavors: data.availableFlavors,
     availableAddOns: data.availableAddOns,
     stock: data.stock,

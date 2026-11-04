@@ -428,3 +428,4 @@ describe('CartContext & CartProvider', () => {
     expect(localStorage.getItem(LEGACY_CART_STORAGE_KEY)).toBeNull();
   });
 });
+

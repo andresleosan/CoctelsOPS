@@ -10,12 +10,18 @@ const addOnSchema = z.object({
   price: z.number().positive("El precio de la adición debe ser mayor que cero"),
 });
 
+const sizeSchema = z.object({
+  name: z.string().trim().min(1, "El nombre de la presentación es obligatorio"),
+  price: z.number().positive("El precio de la presentación debe ser mayor que cero"),
+});
+
 export const productInputSchema = z.object({
   name: z.string().trim().min(1, "El nombre es obligatorio"),
   description: z.string().trim().min(1, "La descripción es obligatoria"),
   price: z.number().positive("El precio debe ser mayor que cero"),
   image: imageSchema,
   category: z.enum(PRODUCT_CATEGORIES),
+  availableSizes: z.array(sizeSchema).max(10).optional(),
   availableFlavors: z.array(z.string().trim().min(1)).max(20),
   availableAddOns: z.array(addOnSchema).max(20).superRefine((addOns, context) => {
     const names = new Set<string>();

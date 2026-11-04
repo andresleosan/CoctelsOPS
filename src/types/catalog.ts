@@ -9,6 +9,11 @@ export type ProductAddOn = {
   price: number;
 };
 
+export type ProductSize = {
+  name: string;
+  price: number;
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -16,6 +21,7 @@ export type Product = {
   price: number;
   image: string;
   category: ProductCategory;
+  availableSizes?: ProductSize[];
   availableFlavors: string[];
   availableAddOns: ProductAddOn[];
   stock: number;
