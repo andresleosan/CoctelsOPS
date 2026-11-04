@@ -1,6 +1,6 @@
 # BACKLOG.md — Lista Maestra de Tareas Coctels OPS
 
-Este backlog contiene la hoja de ruta de tareas ordenadas cronológicamente para la evolución de la aplicación **Coctels OPS**. Cada vez que ejecutes `/avanzar`, se tomará la primera tarea pendiente (`- [ ]`), se planificará respetando `DESIGN.md`, se implementará con código limpio y seguro, y se verificará con la suite de pruebas antes del commit y push.
+Este backlog contiene la hoja de ruta de tareas ordenadas cronológicamente para la evolución de la aplicación **Coctels OPS** y su expansión a plataforma SaaS para locales de granizados y cócteles. Cada vez que ejecutes `/avanzar`, se tomará la primera tarea pendiente (`- [ ]`), se planificará respetando `DESIGN.md`, se implementará con código limpio y seguro, y se verificará con la suite de pruebas antes del commit y push.
 
 ---
 
@@ -12,7 +12,7 @@ Este backlog contiene la hoja de ruta de tareas ordenadas cronológicamente para
   - **Objetivo:** Actualizar la persistencia del carrito a `coctels_ops_cart` (con migración retrocompatible de `granizado_go_cart`).
   - **Mejora:** Implementar acumulación inteligente de productos (si el cliente añade el mismo producto con exactamente la misma personalización de tamaño, sabor y adiciones, incrementar la cantidad en vez de crear filas duplicadas).
   - **Calidad & Performance:** Evitar timestamps redundantes en IDs, tipar estrictamente sin aserciones inseguras, y asegurar transiciones visuales limpias en `src/app/cart/page.tsx`.
-  - **Archivos:** `src/context/cart-context.tsx`, `src/app/cart/page.tsx`, `tests/context/cart-context.test.ts`.
+  - **Archivos:** `src/context/cart-context.tsx`, `src/app/cart/page.tsx`, `src/app/checkout/page.tsx`, `tests/context/cart-context.test.tsx`, `tests/components/cart-page.test.tsx`.
 
 - [ ] **TASK-02: Retiro de Multiplicadores Ficticios y Adaptación de Presentaciones Reales de Carta Canva**
   - **Objetivo:** Eliminar los multiplicadores `0.8 / 1.0 / 1.3` en `src/components/products/ProductCustomizer.tsx` y en el cálculo de precios.
@@ -28,39 +28,51 @@ Este backlog contiene la hoja de ruta de tareas ordenadas cronológicamente para
 
 ---
 
-### Fase 2: Panel Administrativo y Gestión Dinámica
+### Fase 2: Plataforma SaaS Multi-Tenant y Panel Staff del Menú
 
-- [ ] **TASK-04: Formulario de Productos con Filas Dinámicas y Corrección de Tokens de Contraste**
-  - **Objetivo:** Reemplazar los campos de texto crudos separados por comas (`Sabores`, `Adiciones`) en `src/components/admin/ProductForm.tsx` por controles interactivos con filas dinámicas (agregar/eliminar sabor, adición y precio individual).
-  - **UI Craft:** Solucionar los tokens de color del panel para erradicar cualquier caso de texto blanco o desvanecido sobre fondos claros (`text-slate-900`, bordes nítidos, focus ring visible).
-  - **Categorías:** Cargar las categorías dinámicas desde la persistencia (`/api/admin/categorias`) en lugar del selector estático cableado.
-  - **Archivos:** `src/components/admin/ProductForm.tsx`, `src/app/admin/productos/nueva/page.tsx`, `src/app/admin/productos/[id]/page.tsx`, `tests/components/product-form.test.tsx`.
+- [ ] **TASK-04: Panel Staff Mobile-First para Control Total del Menú en Vivo**
+  - **Objetivo:** Permitir al personal/staff y dueños de locales de granizados gestionar todo su menú en tiempo real directamente desde su smartphone o tablet en la barra.
+  - **Mejora en Catálogo & Disponibilidad:**
+    - Switch rápido de "En Stock / Agotado" directamente en la lista de productos (sin tener que entrar al formulario para pausar un producto).
+    - Editor dinámico de presentaciones y tamaños reales con precios individuales en COP (ej. 8 oz $10.000, 16 oz $15.000, 24 oz $25.000).
+    - Gestor de sabores mediante chips interactivos (agregar, remover y apagar un sabor individual en 1 tap cuando se agote una pulpa).
+    - Gestor dinámico de adiciones y toppings con precio individual en COP (ej. Gomitas $2.000, Lecherita $1.500, Chamoy $1.000).
+    - Carga dinámica de categorías desde la persistencia (`/api/admin/categorias`) y corrección de tokens de contraste (`text-slate-900`, `bg-white`, focus visible en `DESIGN.md`).
+  - **Archivos:** `src/components/admin/ProductForm.tsx`, `src/app/admin/productos/page.tsx`, `src/app/admin/productos/nueva/page.tsx`, `src/app/admin/productos/[id]/page.tsx`, `src/app/api/admin/productos/route.ts`, `src/app/api/admin/productos/[id]/route.ts`, `tests/components/product-form.test.tsx`.
 
-- [ ] **TASK-05: Carga Segura y Gestión de Imágenes con Cloudflare R2**
-  - **Objetivo:** Optimizar el flujo de subida de imágenes de productos hacia Cloudflare R2 con previsualización en vivo, validación de tipo MIME por magic bytes y límites de 5 MB.
-  - **Resiliencia:** Si la subida falla, garantizar mensajes claros de error sin dejar estados inconsistentes en el producto. Generar placeholders con marca para productos sin fotografía.
+- [ ] **TASK-05: Carga Móvil Segura de Fotografías a Cloudflare R2**
+  - **Objetivo:** Permitir al staff subir fotos reales de sus cócteles y granizados desde la cámara o galería del teléfono directamente a Cloudflare R2 sin necesidad de ingresar URLs manuales.
+  - **Resiliencia & Validación:** Previsualización instantánea en vivo, validación de tipo MIME por magic bytes (JPEG, PNG, WebP) hasta 5 MB y generación de placeholders honestos con marca para productos sin fotografía.
   - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `tests/lib/catalog-storage.test.ts`.
+
+- [ ] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
+  - **Objetivo:** Convertir la plataforma en un SaaS multi-comercio comercializable para locales de granizados en Medellín (patrón probado de La Parada).
+  - **Aislamiento Multi-Tenant:**
+    - Incorporar `negocioId` inmutable en colecciones de Firestore (`productos`, `categorias`, `configuracion`, `pedidos`) y en claves de R2 (`tenants/{negocioId}/...`).
+    - Roles de staff por negocio (`usuarios_negocio/{uid}`): el staff de un local solo puede ver y editar sus propios productos y pedidos, con aislamiento garantizado en servidor.
+    - Storefront por local: ruta pública dinámica `/m/[slug]` donde el cliente ve la marca, logo, colores, menú personalizado y WhatsApp de pedidos del negocio respectivo.
+    - Superadmin global para dar de alta nuevos locales y configurar su plan.
+  - **Archivos:** `src/types/tenant.ts`, `src/lib/firestore/tenant.ts`, `src/lib/firestore/products.ts`, `src/app/m/[slug]/page.tsx`, `src/lib/auth/permissions.ts`, `firestore.rules`, `tests/security/tenant-isolation.test.ts`.
 
 ---
 
 ### Fase 3: Asistente Conversacional Opsy Bot e Inteligencia de Menú
 
-- [ ] **TASK-06: Opsy Bot Asistente Inteligente (Integración DeepSeek con Guardrails)**
+- [ ] **TASK-07: Opsy Bot Asistente Inteligente (Integración DeepSeek con Guardrails)**
   - **Objetivo:** Implementar el asistente conversacional con Opsy el panda utilizando el modelo DeepSeek en el servidor.
   - **Seguridad & Rate Limiting:** Servidor como proxy seguro con `DEEPSEEK_API_KEY` en `server-only`. Aplicar límite de 5 solicitudes cada 10 min por usuario/IP, límite de 1.000 caracteres de entrada y 512 tokens de respuesta.
-  - **Experiencia de Usuario:** Chat flotante accesible, reactivo, con tono antioqueño auténtico y sugerencias directas con enlace para agregar al carrito o ver en el menú.
+  - **Experiencia de Usuario:** Chat flotante accesible, reactivo, con tono antioqueño auténtico y sugerencias directas con enlace para agregar al carrito o ver en el menú del negocio activo.
   - **Archivos:** `src/app/api/opsy/chat/route.ts`, `src/components/opsy/OpsyChat.tsx`, `src/lib/ai/opsy-guardrails.ts`, `tests/api/opsy-chat.test.ts`.
 
 ---
 
 ### Fase 4: Pruebas E2E Completas y Despliegue a Producción
 
-- [ ] **TASK-07: Batería E2E con Playwright (Flujo Completo de Cliente y Pedido)**
-  - **Objetivo:** Automatizar las pruebas de extremo a extremo cubriendo la navegación del catálogo, personalización de bebida, adición al carrito, checkout con verificación de email y visualización de la confirmación del pedido.
+- [ ] **TASK-08: Batería E2E con Playwright (Flujo Completo de Cliente, Staff y Pedido)**
+  - **Objetivo:** Automatizar las pruebas de extremo a extremo cubriendo la navegación del catálogo, personalización de bebida, adición al carrito, checkout con verificación de email, gestión de staff y visualización de la confirmación del pedido.
   - **Verificación:** Ejecución local reproducible con emuladores (`corepack pnpm test:e2e:local`) y reporte detallado de estabilidad.
-  - **Archivos:** `tests/e2e/order-flow.spec.ts`, `tests/e2e/cart.spec.ts`.
+  - **Archivos:** `tests/e2e/order-flow.spec.ts`, `tests/e2e/cart.spec.ts`, `tests/e2e/staff-menu.spec.ts`.
 
-- [ ] **TASK-08: Validación Final de Producción, Auditoría de Dependencias y Commit de Despliegue**
+- [ ] **TASK-09: Validación Final de Producción, Auditoría de Dependencias y Lanzamiento Comercial**
   - **Objetivo:** Ejecutar la suite completa de gates de calidad (`test`, `typecheck`, `lint`, `build`, `audit`), generar el changelog de la versión y preparar el despliegue final a producción con confirmación del operador.
   - **Archivos:** `README.md`, `package.json`.
-
