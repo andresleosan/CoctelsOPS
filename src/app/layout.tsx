@@ -11,6 +11,13 @@ import { AuthProvider } from '@/components/auth/AuthProvider';
 export const metadata: Metadata = {
   title: 'Coctels OPS | ¡¡ QUE CHIMBA UN OPS !!',
   description: 'Los mejores granizados y cocteles neón en Medellín. Domicilios en Villa Hermosa.',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.png', type: 'image/png' },
+    ],
+    apple: '/apple-icon.png',
+  }, 
 };
 
 export default function RootLayout({
