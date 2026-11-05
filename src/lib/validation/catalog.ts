@@ -37,6 +37,7 @@ export const productInputSchema = z.object({
   stock: z.number().int().nonnegative("El stock no puede ser negativo"),
   active: z.boolean(),
   featured: z.boolean(),
+  negocioId: z.string().trim().min(1).optional(),
 });
 
 export const productPatchSchema = z.object({
@@ -51,6 +52,7 @@ export const productPatchSchema = z.object({
   stock: z.number().int().nonnegative().optional(),
   active: z.boolean().optional(),
   featured: z.boolean().optional(),
+  negocioId: z.string().trim().min(1).optional(),
 });
 
 export const categoryInputSchema = z.object({

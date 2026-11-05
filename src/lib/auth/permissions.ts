@@ -54,3 +54,18 @@ export function requireUserOwnership(user: VerifiedUser, uid: string): void {
     throw new AuthorizationError(403, "No tienes permiso para acceder a este usuario");
   }
 }
+
+export function isGlobalAdmin(user: VerifiedUser): boolean {
+  return Boolean(user.token.admin === true && user.profile.accountType === "admin");
+}
+
+export function hasNegocioAccess(user: VerifiedUser, negocioId: string): boolean {
+  if (isGlobalAdmin(user)) return true;
+  return Boolean(user.profile.active && user.profile.negocioId === negocioId);
+}
+
+export function requireNegocioAccess(user: VerifiedUser, negocioId: string): void {
+  if (!hasNegocioAccess(user, negocioId)) {
+    throw new AuthorizationError(403, "No tienes permiso para acceder a este negocio");
+  }
+}

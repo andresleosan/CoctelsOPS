@@ -27,6 +27,7 @@ export type Product = {
   stock: number;
   active: boolean;
   featured: boolean;
+  negocioId?: string;
 };
 
 export type ProductInput = Omit<Product, "id">;

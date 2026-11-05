@@ -57,7 +57,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 ### Fase 2: Plataforma SaaS Multi-Tenant y Panel Staff del Menú
 
 - [x] **TASK-04: Panel Staff Mobile-First para Control Total del Menú en Vivo**
-  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Permitir al personal/staff y dueños de locales de granizados gestionar todo su menú en tiempo real directamente desde su smartphone o tablet en la barra.
   - **Mejora en Catálogo & Disponibilidad:**
     - Switch rápido de "En Stock / Agotado" directamente en la lista de productos (sin tener que entrar al formulario para pausar un producto).
@@ -73,8 +73,8 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Resiliencia & Validación:** Previsualización instantánea en vivo, validación de tipo MIME por magic bytes (JPEG, PNG, WebP) hasta 5 MB, endpoint DELETE para restablecer a placeholder honesto de marca y captura táctil móvil con `capture="environment"`.
   - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `src/components/admin/ProductForm.tsx`, `tests/lib/catalog-storage.test.ts`, `tests/api/admin-product-image.test.ts`, `tests/components/product-form.test.tsx`.
 
-- [ ] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
-  - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon High)*
+- [x] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
+  - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Convertir la plataforma en un SaaS multi-comercio comercializable para locales de granizados en Medellín (patrón probado de La Parada).
   - **Aislamiento Multi-Tenant:**
     - Incorporar `negocioId` inmutable en colecciones de Firestore (`productos`, `categorias`, `configuracion`, `pedidos`) y en claves de R2 (`tenants/{negocioId}/...`).
@@ -88,7 +88,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 ### Fase 3: Asistente Conversacional Opsy Bot e Inteligencia de Menú
 
 - [ ] **TASK-07: Opsy Bot Asistente Inteligente (Integración DeepSeek con Guardrails)**
-  - **Nivel Recomendado:** `3.8 Flash (High)` / `DeepSeek`
+  - **Nivel Recomendado:** `Argon (High)` *(UI interactiva: `3.8 Flash (High)`)*
   - **Objetivo:** Implementar el asistente conversacional con Opsy el panda utilizando el modelo DeepSeek en el servidor.
   - **Seguridad & Rate Limiting:** Servidor como proxy seguro con `DEEPSEEK_API_KEY` en `server-only`. Aplicar límite de 5 solicitudes cada 10 min por usuario/IP, límite de 1.000 caracteres de entrada y 512 tokens de respuesta.
   - **Experiencia de Usuario:** Chat flotante accesible, reactivo, con tono antioqueño auténtico y sugerencias directas con enlace para agregar al carrito o ver en el menú del negocio activo.
@@ -100,11 +100,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 
 - [ ] **TASK-08: Batería E2E con Playwright (Flujo Completo de Cliente, Staff y Pedido)**
   - **Nivel Recomendado:** `3.8 Flash (High)`
-  - **Objetivo:** Automatizar las pruebas de extremo a extremo cubriendo la navegación del catálogo, personalización de bebida, adición al carrito, checkout con verificación de email, gestión de staff y visualización de la confirmación del pedido.
-  - **Verificación:** Ejecución local reproducible con emuladores (`corepack pnpm test:e2e:local`) y reporte detallado de estabilidad.
+  - **Objetivo:** Automatización de flujos completos extremo a extremo con Playwright y emuladores locales.
   - **Archivos:** `tests/e2e/order-flow.spec.ts`, `tests/e2e/cart.spec.ts`, `tests/e2e/staff-menu.spec.ts`.
 
 - [ ] **TASK-09: Validación Final de Producción, Auditoría de Dependencias y Lanzamiento Comercial**
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
-  - **Objetivo:** Ejecutar la suite completa de gates de calidad (`test`, `typecheck`, `lint`, `build`, `audit`), generar el changelog de la versión y preparar el despliegue final a producción con confirmación del operador.
+  - **Objetivo:** Ejecución de la suite completa de gates, changelog y despliegue final a producción.
   - **Archivos:** `README.md`, `package.json`.

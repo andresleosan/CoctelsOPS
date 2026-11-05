@@ -57,8 +57,8 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Carga directa desde la cámara del teléfono o galería a Cloudflare R2 con validación por magic bytes, preview instantáneo en vivo y soporte de placeholder honesto de marca.
   - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `src/components/admin/ProductForm.tsx`, `tests/lib/catalog-storage.test.ts`, `tests/api/admin-product-image.test.ts`, `tests/components/product-form.test.tsx`.
 
-- [ ] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
-  - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon High)*
+- [x] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
+  - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** SaaS multi-comercio para locales de granizados con aislamiento en Firestore/R2, roles de staff por comercio y storefront público por local.
   - **Archivos:** `src/types/tenant.ts`, `src/lib/firestore/tenant.ts`, `src/lib/firestore/products.ts`, `src/app/m/[slug]/page.tsx`, `src/lib/auth/permissions.ts`, `firestore.rules`, `tests/security/tenant-isolation.test.ts`.
 
@@ -67,7 +67,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 ### Fase 3: Asistente Conversacional Opsy Bot e Inteligencia de Menú
 
 - [ ] **TASK-07: Opsy Bot Asistente Inteligente (Integración DeepSeek con Guardrails)**
-  - **Nivel Recomendado:** `3.8 Flash (High)` / `DeepSeek`
+  - **Nivel Recomendado:** `Argon (High)` *(UI interactiva: `3.8 Flash (High)`)*
   - **Objetivo:** Chatbot con Opsy el panda en servidor con guardrails de seguridad, rate limiting y sugerencias para agregar al carrito.
   - **Archivos:** `src/app/api/opsy/chat/route.ts`, `src/components/opsy/OpsyChat.tsx`, `src/lib/ai/opsy-guardrails.ts`, `tests/api/opsy-chat.test.ts`.
 
@@ -84,4 +84,3 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
   - **Objetivo:** Ejecución de la suite completa de gates, changelog y despliegue final a producción.
   - **Archivos:** `README.md`, `package.json`.
-

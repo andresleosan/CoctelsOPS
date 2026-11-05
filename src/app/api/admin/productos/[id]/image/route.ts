@@ -40,11 +40,15 @@ export async function POST(request: Request, context: Context): Promise<Response
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     validateProductImageContent(bytes, file.type);
-    const image = await uploadProductImageBytes({
+    const uploadInput = {
       bytes,
       filename: file.name,
       contentType: file.type,
-    }, id);
+    };
+    const image = currentProduct.negocioId
+      ? await uploadProductImageBytes(uploadInput, id, { negocioId: currentProduct.negocioId })
+      : await uploadProductImageBytes(uploadInput, id);
+
     try {
       await updateProductImage(id, image.url, caller.uid);
     } catch (error) {

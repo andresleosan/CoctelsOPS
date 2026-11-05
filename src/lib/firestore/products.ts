@@ -4,10 +4,11 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
 import { productInputSchema } from "@/lib/validation/catalog";
+import { DEFAULT_TENANT_ID } from "@/types/tenant";
 import type { CatalogCaller, CatalogPermission, Product, ProductInput } from "@/types/catalog";
 
 type ProductReadOptions = { includeInactive?: false } | { includeInactive: true; caller: CatalogCaller };
-type InternalProductReadOptions = { includeInactive?: boolean; caller?: CatalogCaller };
+type InternalProductReadOptions = { includeInactive?: boolean; caller?: CatalogCaller; negocioId?: string };
 
 function productCollection() {
   return getAdminDb().collection("productos");
@@ -20,6 +21,17 @@ function requireCatalogPermission(caller: CatalogCaller | undefined, permission:
 
   if (!isAllowed) {
     throw new AuthorizationError(403, "No tienes permiso para acceder al catálogo");
+  }
+}
+
+export function assertProductTenantAccess(caller: CatalogCaller | undefined, productNegocioId: string | undefined): void {
+  if (!caller) return;
+  const isAdmin = caller.token.admin === true && caller.profile.accountType === "admin";
+  if (isAdmin) return;
+  const userNegocio = caller.profile.negocioId;
+  const effectiveProductNegocio = productNegocioId || DEFAULT_TENANT_ID;
+  if (userNegocio && userNegocio !== effectiveProductNegocio) {
+    throw new AuthorizationError(403, "No tienes permiso para acceder a productos de otro negocio");
   }
 }
 
@@ -36,6 +48,7 @@ export function productFromData(id: string, data: Record<string, unknown>): Prod
     stock: data.stock,
     active: data.active,
     featured: data.featured,
+    negocioId: data.negocioId,
   });
 
   return { id, ...input };
@@ -48,12 +61,22 @@ function toProduct(id: string, data: Record<string, unknown>): Product {
 async function listProducts(options: InternalProductReadOptions = {}): Promise<Product[]> {
   if (options.includeInactive) requireCatalogPermission(options.caller, "productos.read");
 
-  const query = options.includeInactive
+  let query = options.includeInactive
     ? productCollection()
     : productCollection().where("active", "==", true);
-  const snapshot = await query.get();
 
-  return snapshot.docs.map((document) => toProduct(document.id, document.data() as Record<string, unknown>));
+  if (options.negocioId) {
+    query = query.where("negocioId", "==", options.negocioId);
+  }
+
+  const snapshot = await query.get();
+  const products = snapshot.docs.map((document) => toProduct(document.id, document.data() as Record<string, unknown>));
+
+  if (options.caller?.profile.negocioId) {
+    return products.filter((p) => (p.negocioId || DEFAULT_TENANT_ID) === options.caller?.profile.negocioId);
+  }
+
+  return products;
 }
 
 export function listActiveProducts(): Promise<Product[]> {
@@ -62,6 +85,27 @@ export function listActiveProducts(): Promise<Product[]> {
 
 export function listAllProducts(caller: CatalogCaller): Promise<Product[]> {
   return listProducts({ includeInactive: true, caller });
+}
+
+export async function listActiveProductsByNegocio(negocioId: string): Promise<Product[]> {
+  if (!negocioId?.trim()) return [];
+  const snapshot = await productCollection()
+    .where("active", "==", true)
+    .where("negocioId", "==", negocioId)
+    .get();
+
+  return snapshot.docs.map((document) => toProduct(document.id, document.data() as Record<string, unknown>));
+}
+
+export async function listAllProductsByNegocio(negocioId: string, caller: CatalogCaller): Promise<Product[]> {
+  requireCatalogPermission(caller, "productos.read");
+  assertProductTenantAccess(caller, negocioId);
+
+  const snapshot = await productCollection()
+    .where("negocioId", "==", negocioId)
+    .get();
+
+  return snapshot.docs.map((document) => toProduct(document.id, document.data() as Record<string, unknown>));
 }
 
 export function getProductById(id: string): Promise<Product | null>;
@@ -74,12 +118,23 @@ export async function getProductById(id: string, options: ProductReadOptions = {
   if (!snapshot.exists) return null;
 
   const product = toProduct(id, snapshot.data() as Record<string, unknown>);
+  if (options.includeInactive) {
+    assertProductTenantAccess(options.caller, product.negocioId);
+  }
+
   return options.includeInactive || product.active ? product : null;
 }
 
 export async function createProduct(input: ProductInput, caller: CatalogCaller, id?: string): Promise<string> {
   requireCatalogPermission(caller, "productos.write");
-  const validated = productInputSchema.parse(input);
+  const effectiveNegocioId = caller.profile.negocioId || input.negocioId || DEFAULT_TENANT_ID;
+  assertProductTenantAccess(caller, effectiveNegocioId);
+
+  const validated = productInputSchema.parse({
+    ...input,
+    negocioId: effectiveNegocioId,
+  });
+
   const reference = id ? productCollection().doc(id) : productCollection().doc();
   const now = new Date().toISOString();
 
@@ -93,7 +148,14 @@ export async function createProduct(input: ProductInput, caller: CatalogCaller, 
 
 export async function updateProduct(id: string, input: ProductInput, caller: CatalogCaller): Promise<void> {
   requireCatalogPermission(caller, "productos.write");
-  const validated = productInputSchema.parse(input);
+  const effectiveNegocioId = caller.profile.negocioId || input.negocioId;
+  assertProductTenantAccess(caller, effectiveNegocioId);
+
+  const validated = productInputSchema.parse({
+    ...input,
+    ...(effectiveNegocioId ? { negocioId: effectiveNegocioId } : {}),
+  });
+
   const reference = productCollection().doc(id);
   const data = { ...validated, updatedAt: new Date().toISOString() };
   await getAdminDb().runTransaction(async (transaction) => {
@@ -113,6 +175,8 @@ export async function patchProduct(id: string, patch: Partial<ProductInput>, cal
     }
 
     const current = snapshot.data() as Record<string, unknown>;
+    assertProductTenantAccess(caller, current.negocioId as string | undefined);
+
     const merged = {
       name: patch.name ?? current.name,
       description: patch.description ?? current.description,
@@ -125,6 +189,7 @@ export async function patchProduct(id: string, patch: Partial<ProductInput>, cal
       stock: patch.stock !== undefined ? patch.stock : current.stock,
       active: patch.active !== undefined ? patch.active : current.active,
       featured: patch.featured !== undefined ? patch.featured : current.featured,
+      negocioId: patch.negocioId ?? current.negocioId,
     };
 
     const validated = productInputSchema.parse(merged);
@@ -177,6 +242,11 @@ export async function deleteProduct(id: string, caller: CatalogCaller): Promise<
   requireCatalogPermission(caller, "productos.write");
   const reference = productCollection().doc(id);
   await getAdminDb().runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (snapshot.exists) {
+      const data = snapshot.data() as Record<string, unknown>;
+      assertProductTenantAccess(caller, data.negocioId as string | undefined);
+    }
     transaction.delete(reference);
     writeAuditInTransaction(transaction, { actorUid: caller.uid, action: "delete", module: "productos", entityId: id });
   });

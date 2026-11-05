@@ -13,6 +13,8 @@ export {
   validateProductImageContent,
 } from "@/lib/catalog/image-validation";
 
+export { catalogImageKey } from "@/lib/catalog/storage-core";
+
 export async function validateLocalProductImage(imageFile: string): Promise<void> {
   await readValidatedLocalProductImage(imageFile);
 }
@@ -20,15 +22,20 @@ export async function validateLocalProductImage(imageFile: string): Promise<void
 export async function uploadProductImageBytes(
   input: { bytes: Uint8Array; filename: string; contentType: string },
   productId: string,
+  options?: { negocioId?: string },
 ): Promise<{ key: string; url: string }> {
-  return uploadCatalogImageBytes(input, productId, getR2CatalogImageStore());
+  return uploadCatalogImageBytes(input, productId, getR2CatalogImageStore(), options);
 }
 
 export async function deleteProductImage(key: string): Promise<void> {
   return deleteCatalogImage(key, getR2CatalogImageStore());
 }
 
-export async function uploadLocalProductImage(imageFile: string, productId: string): Promise<{ key: string; url: string }> {
+export async function uploadLocalProductImage(
+  imageFile: string,
+  productId: string,
+  options?: { negocioId?: string },
+): Promise<{ key: string; url: string }> {
   const image = await readValidatedLocalProductImage(imageFile);
-  return uploadProductImageBytes(image, productId);
+  return uploadProductImageBytes(image, productId, options);
 }

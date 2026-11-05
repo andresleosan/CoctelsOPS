@@ -26,6 +26,8 @@ export type UserProfile = {
   accountType: AccountType;
   roleIds: string[];
   permissions?: Permission[];
+  negocioId?: string;
+  negocioRole?: "owner" | "staff" | "admin";
   createdAt: DateValue;
   lastLoginAt: DateValue;
 };
