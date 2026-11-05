@@ -52,10 +52,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Gestión del menú en tiempo real desde smartphones/tablets en la barra (switch rápido de stock, editor dinámico de presentaciones en COP, chips dinámicos de sabores y adiciones).
   - **Archivos:** `src/components/admin/ProductForm.tsx`, `src/app/admin/productos/page.tsx`, `src/app/admin/productos/nueva/page.tsx`, `src/app/admin/productos/[id]/page.tsx`, `src/app/api/admin/productos/route.ts`, `src/app/api/admin/productos/[id]/route.ts`, `tests/components/product-form.test.tsx`, `tests/components/product-admin-list.test.tsx`.
 
-- [ ] **TASK-05: Carga Móvil Segura de Fotografías a Cloudflare R2**
-  - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon Medium)*
-  - **Objetivo:** Carga directa desde la cámara del teléfono a Cloudflare R2 con validación por magic bytes y preview instantáneo.
-  - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `tests/lib/catalog-storage.test.ts`.
+- [x] **TASK-05: Carga Móvil Segura de Fotografías a Cloudflare R2**
+  - **Nivel Asignado:** `3.8 Flash (High)`
+  - **Objetivo:** Carga directa desde la cámara del teléfono o galería a Cloudflare R2 con validación por magic bytes, preview instantáneo en vivo y soporte de placeholder honesto de marca.
+  - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `src/components/admin/ProductForm.tsx`, `tests/lib/catalog-storage.test.ts`, `tests/api/admin-product-image.test.ts`, `tests/components/product-form.test.tsx`.
 
 - [ ] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
   - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon High)*

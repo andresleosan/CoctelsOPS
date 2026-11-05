@@ -45,6 +45,50 @@ describe("ProductForm gestión móvil de catálogo", () => {
     expect(screen.getByRole("img", { name: "Vista previa de Fresa Salvaje" })).toHaveAttribute("src", "blob:preview");
   });
 
+  it("muestra el placeholder oficial por defecto al crear un nuevo producto", () => {
+    render(<ProductForm />);
+
+    const preview = screen.getByRole("img", { name: "Vista previa de producto" });
+    expect(preview).toHaveAttribute("src", "/catalog-placeholder.svg");
+    expect(screen.getByText("Placeholder oficial")).toBeInTheDocument();
+  });
+
+  it("muestra un error en cliente si el archivo supera los 5 MB", () => {
+    render(<ProductForm product={product} />);
+
+    const largeFile = new File([new Uint8Array(5 * 1024 * 1024 + 10)], "pesada.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByLabelText("Reemplazar imagen"), { target: { files: [largeFile] } });
+
+    expect(screen.getByText(/La imagen supera el límite de 5 MB/i)).toBeInTheDocument();
+  });
+
+  it("muestra un error en cliente si el formato no es JPEG, PNG o WebP", () => {
+    render(<ProductForm product={product} />);
+
+    const gifFile = new File([new Uint8Array([1, 2, 3])], "animacion.gif", { type: "image/gif" });
+    fireEvent.change(screen.getByLabelText("Reemplazar imagen"), { target: { files: [gifFile] } });
+
+    expect(screen.getByText(/Solo se aceptan imágenes en formato JPEG, PNG o WebP/i)).toBeInTheDocument();
+  });
+
+  it("permite restablecer la imagen al placeholder de marca", () => {
+    render(<ProductForm product={product} />);
+
+    const resetBtn = screen.getByRole("button", { name: /Usar placeholder/i });
+    fireEvent.click(resetBtn);
+
+    const preview = screen.getByRole("img", { name: "Vista previa de Fresa Salvaje" });
+    expect(preview).toHaveAttribute("src", "/catalog-placeholder.svg");
+    expect(screen.getByText("Placeholder oficial")).toBeInTheDocument();
+  });
+
+  it("dispone de botón accesible para captura directa con cámara", () => {
+    render(<ProductForm product={product} />);
+
+    expect(screen.getByRole("button", { name: /Tomar foto con cámara/i })).toBeInTheDocument();
+    expect(screen.getByLabelText("Tomar foto con cámara")).toHaveAttribute("capture", "environment");
+  });
+
   it("permite agregar y remover chips de sabores", () => {
     render(<ProductForm product={product} />);
 

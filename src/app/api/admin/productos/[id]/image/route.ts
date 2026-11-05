@@ -1,11 +1,17 @@
 import { requirePermission } from "@/lib/auth/permissions";
 import { toAuthorizationResponse } from "@/lib/auth/verify-request";
-import { CatalogImageError, deleteProductImage, uploadProductImageBytes, validateProductImageContent } from "@/lib/catalog/storage";
+import {
+  CatalogImageError,
+  DEFAULT_CATALOG_PLACEHOLDER,
+  MAX_IMAGE_BYTES,
+  deleteProductImage,
+  uploadProductImageBytes,
+  validateProductImageContent,
+} from "@/lib/catalog/storage";
 import { getProductById, updateProductImage } from "@/lib/firestore/products";
 import path from "node:path";
 
 type Context = { params: Promise<{ id: string }> };
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 function imageErrorResponse(error: unknown): Response {
   if (error instanceof CatalogImageError) return Response.json({ error: error.message }, { status: error.status });
@@ -50,6 +56,20 @@ export async function POST(request: Request, context: Context): Promise<Response
       throw error;
     }
     return Response.json({ product: { ...currentProduct, image: image.url } });
+  } catch (error) {
+    return imageErrorResponse(error);
+  }
+}
+
+export async function DELETE(request: Request, context: Context): Promise<Response> {
+  try {
+    const caller = await requirePermission(request as never, "productos.write");
+    const { id } = await context.params;
+    const currentProduct = await getProductById(id, { includeInactive: true, caller });
+    if (!currentProduct) return Response.json({ error: "Producto no encontrado" }, { status: 404 });
+
+    await updateProductImage(id, DEFAULT_CATALOG_PLACEHOLDER, caller.uid);
+    return Response.json({ product: { ...currentProduct, image: DEFAULT_CATALOG_PLACEHOLDER } });
   } catch (error) {
     return imageErrorResponse(error);
   }

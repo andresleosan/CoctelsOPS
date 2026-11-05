@@ -21,7 +21,15 @@ vi.mock("@/lib/catalog/r2-client", () => ({ getR2CatalogImageStore: () => store 
 vi.mock("../../src/lib/catalog/r2-store-core", () => ({ createR2CatalogImageStore }));
 vi.mock("node:fs/promises", () => ({ default: { readFile, stat, realpath }, readFile, stat, realpath }));
 
-import { deleteProductImage, uploadProductImageBytes, validateLocalProductImage } from "@/lib/catalog/storage";
+import {
+  DEFAULT_CATALOG_PLACEHOLDER,
+  MAX_IMAGE_BYTES,
+  deleteProductImage,
+  detectImageContentType,
+  isImageWithinLimit,
+  uploadProductImageBytes,
+  validateLocalProductImage,
+} from "@/lib/catalog/storage";
 import { deleteProductImage as deleteCliProductImage, uploadProductImageBytes as uploadCliProductImageBytes } from "../../scripts/catalog/import-adapter";
 
 describe("Storage de imágenes de catálogo", () => {
@@ -145,5 +153,18 @@ describe("Storage de imágenes de catálogo", () => {
 
     await expect(validateLocalProductImage("fresa.jpg")).rejects.toMatchObject({ status: 422 });
     expect(stat).not.toHaveBeenCalled();
+  });
+
+  it("detecta el tipo MIME correcto a partir de magic bytes", () => {
+    expect(detectImageContentType(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))).toBe("image/jpeg");
+    expect(detectImageContentType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe("image/png");
+    expect(detectImageContentType(new Uint8Array([0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50]))).toBe("image/webp");
+    expect(detectImageContentType(new Uint8Array([0x00, 0x00, 0x00, 0x00]))).toBeNull();
+  });
+
+  it("verifica límites de tamaño y placeholder por defecto", () => {
+    expect(DEFAULT_CATALOG_PLACEHOLDER).toBe("/catalog-placeholder.svg");
+    expect(isImageWithinLimit(new Uint8Array(MAX_IMAGE_BYTES))).toBe(true);
+    expect(isImageWithinLimit(new Uint8Array(MAX_IMAGE_BYTES + 1))).toBe(false);
   });
 });

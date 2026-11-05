@@ -67,11 +67,11 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
     - Carga dinámica de categorías desde la persistencia (`/api/admin/categorias`) y corrección de tokens de contraste (`text-slate-900`, `bg-white`, focus visible en `DESIGN.md`).
   - **Archivos:** `src/components/admin/ProductForm.tsx`, `src/app/admin/productos/page.tsx`, `src/app/admin/productos/nueva/page.tsx`, `src/app/admin/productos/[id]/page.tsx`, `src/app/api/admin/productos/route.ts`, `src/app/api/admin/productos/[id]/route.ts`, `tests/components/product-form.test.tsx`.
 
-- [ ] **TASK-05: Carga Móvil Segura de Fotografías a Cloudflare R2**
-  - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon Medium)*
+- [x] **TASK-05: Carga Móvil Segura de Fotografías a Cloudflare R2**
+  - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Permitir al staff subir fotos reales de sus cócteles y granizados desde la cámara o galería del teléfono directamente a Cloudflare R2 sin necesidad de ingresar URLs manuales.
-  - **Resiliencia & Validación:** Previsualización instantánea en vivo, validación de tipo MIME por magic bytes (JPEG, PNG, WebP) hasta 5 MB y generación de placeholders honestos con marca para productos sin fotografía.
-  - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `tests/lib/catalog-storage.test.ts`.
+  - **Resiliencia & Validación:** Previsualización instantánea en vivo, validación de tipo MIME por magic bytes (JPEG, PNG, WebP) hasta 5 MB, endpoint DELETE para restablecer a placeholder honesto de marca y captura táctil móvil con `capture="environment"`.
+  - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `src/components/admin/ProductForm.tsx`, `tests/lib/catalog-storage.test.ts`, `tests/api/admin-product-image.test.ts`, `tests/components/product-form.test.tsx`.
 
 - [ ] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
   - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon High)*

@@ -4,7 +4,14 @@ import { getR2CatalogImageStore } from "@/lib/catalog/r2-client";
 import { readValidatedLocalProductImage } from "@/lib/catalog/local-images";
 import { deleteCatalogImage, uploadCatalogImageBytes } from "@/lib/catalog/storage-core";
 
-export { CatalogImageError, validateProductImageContent } from "@/lib/catalog/image-validation";
+export {
+  CatalogImageError,
+  DEFAULT_CATALOG_PLACEHOLDER,
+  MAX_IMAGE_BYTES,
+  detectImageContentType,
+  isImageWithinLimit,
+  validateProductImageContent,
+} from "@/lib/catalog/image-validation";
 
 export async function validateLocalProductImage(imageFile: string): Promise<void> {
   await readValidatedLocalProductImage(imageFile);
