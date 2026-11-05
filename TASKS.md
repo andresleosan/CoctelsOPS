@@ -47,10 +47,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 
 ### Fase 2: Plataforma SaaS Multi-Tenant y Panel Staff del Menú
 
-- [ ] **TASK-04: Panel Staff Mobile-First para Control Total del Menú en Vivo**
-  - **Nivel Recomendado:** `3.8 Flash (High)`
+- [x] **TASK-04: Panel Staff Mobile-First para Control Total del Menú en Vivo**
+  - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Gestión del menú en tiempo real desde smartphones/tablets en la barra (switch rápido de stock, editor dinámico de presentaciones en COP, chips dinámicos de sabores y adiciones).
-  - **Archivos:** `src/components/admin/ProductForm.tsx`, `src/app/admin/productos/page.tsx`, `src/app/admin/productos/nueva/page.tsx`, `src/app/admin/productos/[id]/page.tsx`, `src/app/api/admin/productos/route.ts`, `src/app/api/admin/productos/[id]/route.ts`, `tests/components/product-form.test.tsx`.
+  - **Archivos:** `src/components/admin/ProductForm.tsx`, `src/app/admin/productos/page.tsx`, `src/app/admin/productos/nueva/page.tsx`, `src/app/admin/productos/[id]/page.tsx`, `src/app/api/admin/productos/route.ts`, `src/app/api/admin/productos/[id]/route.ts`, `tests/components/product-form.test.tsx`, `tests/components/product-admin-list.test.tsx`.
 
 - [ ] **TASK-05: Carga Móvil Segura de Fotografías a Cloudflare R2**
   - **Nivel Recomendado:** `Argon (Medium)`
@@ -84,3 +84,4 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
   - **Objetivo:** Ejecución de la suite completa de gates, changelog y despliegue final a producción.
   - **Archivos:** `README.md`, `package.json`.
+

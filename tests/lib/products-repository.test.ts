@@ -28,6 +28,7 @@ import {
   getProductById,
   listActiveProducts,
   listAllProducts,
+  patchProduct,
   updateProduct,
 } from "@/lib/firestore/products";
 import type { CatalogCaller } from "@/types/catalog";
@@ -148,6 +149,21 @@ describe("products repository", () => {
 
     await updateProduct("1", { ...productInput, price: 9000 }, caller);
     expect(transactionUpdate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ price: 9000 }));
+  });
+
+  it("permite actualizar parcialmente un producto con patchProduct y registra auditoría", async () => {
+    transactionGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({ ...productInput, stock: 10, active: true }),
+    });
+
+    const result = await patchProduct("1", { stock: 0, active: false }, caller);
+
+    expect(result).toMatchObject({ id: "1", stock: 0, active: false });
+    expect(transactionUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ stock: 0, active: false, updatedAt: expect.any(String) })
+    );
   });
 
   it("rechaza escrituras sin permiso de catálogo", async () => {

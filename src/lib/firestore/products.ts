@@ -102,6 +102,47 @@ export async function updateProduct(id: string, input: ProductInput, caller: Cat
   });
 }
 
+export async function patchProduct(id: string, patch: Partial<ProductInput>, caller: CatalogCaller): Promise<Product> {
+  requireCatalogPermission(caller, "productos.write");
+  const reference = productCollection().doc(id);
+
+  const updatedProduct = await getAdminDb().runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) {
+      throw new Error("Producto no encontrado");
+    }
+
+    const current = snapshot.data() as Record<string, unknown>;
+    const merged = {
+      name: patch.name ?? current.name,
+      description: patch.description ?? current.description,
+      price: patch.price ?? current.price,
+      image: patch.image ?? current.image,
+      category: patch.category ?? current.category,
+      availableSizes: patch.availableSizes !== undefined ? patch.availableSizes : current.availableSizes,
+      availableFlavors: patch.availableFlavors !== undefined ? patch.availableFlavors : current.availableFlavors,
+      availableAddOns: patch.availableAddOns !== undefined ? patch.availableAddOns : current.availableAddOns,
+      stock: patch.stock !== undefined ? patch.stock : current.stock,
+      active: patch.active !== undefined ? patch.active : current.active,
+      featured: patch.featured !== undefined ? patch.featured : current.featured,
+    };
+
+    const validated = productInputSchema.parse(merged);
+    const data = { ...validated, updatedAt: new Date().toISOString() };
+    transaction.update(reference, data);
+    writeAuditInTransaction(transaction, {
+      actorUid: caller.uid,
+      action: "update",
+      module: "productos",
+      entityId: id,
+      changes: patch,
+    });
+    return { id, ...validated };
+  });
+
+  return updatedProduct;
+}
+
 export async function updateProductImage(id: string, image: string, actorUid: string): Promise<void> {
   if (!id.trim() || !image.trim()) throw new Error("El producto y la imagen son obligatorios");
   const reference = productCollection().doc(id);

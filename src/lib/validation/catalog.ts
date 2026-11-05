@@ -39,6 +39,20 @@ export const productInputSchema = z.object({
   featured: z.boolean(),
 });
 
+export const productPatchSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  description: z.string().trim().min(1).optional(),
+  price: z.number().positive().optional(),
+  image: imageSchema.optional(),
+  category: z.enum(PRODUCT_CATEGORIES).optional(),
+  availableSizes: z.array(sizeSchema).max(10).optional(),
+  availableFlavors: z.array(z.string().trim().min(1)).max(20).optional(),
+  availableAddOns: z.array(addOnSchema).max(20).optional(),
+  stock: z.number().int().nonnegative().optional(),
+  active: z.boolean().optional(),
+  featured: z.boolean().optional(),
+});
+
 export const categoryInputSchema = z.object({
   name: z.string().trim().min(1, "El nombre es obligatorio"),
   active: z.boolean(),
@@ -46,3 +60,4 @@ export const categoryInputSchema = z.object({
 });
 
 export type ValidatedProductInput = z.infer<typeof productInputSchema>;
+export type ValidatedProductPatch = z.infer<typeof productPatchSchema>;

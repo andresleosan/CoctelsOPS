@@ -2,7 +2,7 @@ import type { VerifiedUser } from "@/types/auth";
 
 export const PRODUCT_CATEGORIES = ["granizado", "cocktail", "special"] as const;
 
-export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
+export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number] | (string & {});
 
 export type ProductAddOn = {
   name: string;
