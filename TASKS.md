@@ -66,10 +66,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 
 ### Fase 3: Asistente Conversacional Opsy Bot e Inteligencia de Menú
 
-- [ ] **TASK-07: Opsy Bot Asistente Inteligente (Integración DeepSeek con Guardrails)**
-  - **Nivel Recomendado:** `Argon (High)` *(UI interactiva: `3.8 Flash (High)`)*
+- [x] **TASK-07: Opsy Bot Asistente Inteligente (Integración DeepSeek con Guardrails)**
+  - **Nivel Asignado:** `Argon (High)` / `3.8 Flash (High)`
   - **Objetivo:** Chatbot con Opsy el panda en servidor con guardrails de seguridad, rate limiting y sugerencias para agregar al carrito.
-  - **Archivos:** `src/app/api/opsy/chat/route.ts`, `src/components/opsy/OpsyChat.tsx`, `src/lib/ai/opsy-guardrails.ts`, `tests/api/opsy-chat.test.ts`.
+  - **Archivos:** `src/app/api/opsy/chat/route.ts`, `src/components/opsy/OpsyChat.tsx`, `src/lib/ai/opsy-guardrails.ts`, `tests/lib/opsy-guardrails.test.ts`, `tests/api/opsy-chat.test.ts`, `tests/components/opsy-chat.test.tsx`.
 
 ---
 

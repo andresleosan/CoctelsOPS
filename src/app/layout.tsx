@@ -1,10 +1,10 @@
-
 import type {Metadata} from 'next';
 import './globals.css';
 import { CartProvider } from '@/context/cart-context';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import { Toaster } from '@/components/ui/toaster';
+import OpsyChat from '@/components/opsy/OpsyChat';
 import { FirebaseProvider } from '@/firebase';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 
@@ -41,6 +41,7 @@ export default function RootLayout({
                 {children}
               </main>
               <Footer />
+              <OpsyChat />
               <Toaster />
             </CartProvider>
           </AuthProvider>
