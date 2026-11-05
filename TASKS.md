@@ -53,12 +53,12 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Archivos:** `src/components/admin/ProductForm.tsx`, `src/app/admin/productos/page.tsx`, `src/app/admin/productos/nueva/page.tsx`, `src/app/admin/productos/[id]/page.tsx`, `src/app/api/admin/productos/route.ts`, `src/app/api/admin/productos/[id]/route.ts`, `tests/components/product-form.test.tsx`, `tests/components/product-admin-list.test.tsx`.
 
 - [ ] **TASK-05: Carga Móvil Segura de Fotografías a Cloudflare R2**
-  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon Medium)*
   - **Objetivo:** Carga directa desde la cámara del teléfono a Cloudflare R2 con validación por magic bytes y preview instantáneo.
   - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `tests/lib/catalog-storage.test.ts`.
 
 - [ ] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
-  - **Nivel Recomendado:** `Argon (High)`
+  - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon High)*
   - **Objetivo:** SaaS multi-comercio para locales de granizados con aislamiento en Firestore/R2, roles de staff por comercio y storefront público por local.
   - **Archivos:** `src/types/tenant.ts`, `src/lib/firestore/tenant.ts`, `src/lib/firestore/products.ts`, `src/app/m/[slug]/page.tsx`, `src/lib/auth/permissions.ts`, `firestore.rules`, `tests/security/tenant-isolation.test.ts`.
 
@@ -67,7 +67,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 ### Fase 3: Asistente Conversacional Opsy Bot e Inteligencia de Menú
 
 - [ ] **TASK-07: Opsy Bot Asistente Inteligente (Integración DeepSeek con Guardrails)**
-  - **Nivel Recomendado:** `Argon (High)`
+  - **Nivel Recomendado:** `3.8 Flash (High)` / `DeepSeek`
   - **Objetivo:** Chatbot con Opsy el panda en servidor con guardrails de seguridad, rate limiting y sugerencias para agregar al carrito.
   - **Archivos:** `src/app/api/opsy/chat/route.ts`, `src/components/opsy/OpsyChat.tsx`, `src/lib/ai/opsy-guardrails.ts`, `tests/api/opsy-chat.test.ts`.
 

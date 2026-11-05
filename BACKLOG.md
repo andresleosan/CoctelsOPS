@@ -68,13 +68,13 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Archivos:** `src/components/admin/ProductForm.tsx`, `src/app/admin/productos/page.tsx`, `src/app/admin/productos/nueva/page.tsx`, `src/app/admin/productos/[id]/page.tsx`, `src/app/api/admin/productos/route.ts`, `src/app/api/admin/productos/[id]/route.ts`, `tests/components/product-form.test.tsx`.
 
 - [ ] **TASK-05: Carga Móvil Segura de Fotografías a Cloudflare R2**
-  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon Medium)*
   - **Objetivo:** Permitir al staff subir fotos reales de sus cócteles y granizados desde la cámara o galería del teléfono directamente a Cloudflare R2 sin necesidad de ingresar URLs manuales.
   - **Resiliencia & Validación:** Previsualización instantánea en vivo, validación de tipo MIME por magic bytes (JPEG, PNG, WebP) hasta 5 MB y generación de placeholders honestos con marca para productos sin fotografía.
   - **Archivos:** `src/lib/catalog/storage.ts`, `src/lib/catalog/image-validation.ts`, `src/app/api/admin/productos/[id]/image/route.ts`, `tests/lib/catalog-storage.test.ts`.
 
 - [ ] **TASK-06: Arquitectura Multi-Tenant (`negocioId`), Aislamiento y Tienda Pública por Local (`/m/[slug]`)**
-  - **Nivel Recomendado:** `Argon (High)`
+  - **Nivel Recomendado:** `3.8 Flash (High)` *(Alternativa: Argon High)*
   - **Objetivo:** Convertir la plataforma en un SaaS multi-comercio comercializable para locales de granizados en Medellín (patrón probado de La Parada).
   - **Aislamiento Multi-Tenant:**
     - Incorporar `negocioId` inmutable en colecciones de Firestore (`productos`, `categorias`, `configuracion`, `pedidos`) y en claves de R2 (`tenants/{negocioId}/...`).
@@ -88,7 +88,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 ### Fase 3: Asistente Conversacional Opsy Bot e Inteligencia de Menú
 
 - [ ] **TASK-07: Opsy Bot Asistente Inteligente (Integración DeepSeek con Guardrails)**
-  - **Nivel Recomendado:** `Argon (High)`
+  - **Nivel Recomendado:** `3.8 Flash (High)` / `DeepSeek`
   - **Objetivo:** Implementar el asistente conversacional con Opsy el panda utilizando el modelo DeepSeek en el servidor.
   - **Seguridad & Rate Limiting:** Servidor como proxy seguro con `DEEPSEEK_API_KEY` en `server-only`. Aplicar límite de 5 solicitudes cada 10 min por usuario/IP, límite de 1.000 caracteres de entrada y 512 tokens de respuesta.
   - **Experiencia de Usuario:** Chat flotante accesible, reactivo, con tono antioqueño auténtico y sugerencias directas con enlace para agregar al carrito o ver en el menú del negocio activo.
