@@ -203,3 +203,4 @@ test.describe("experiencia del carrito de compras y personalización", () => {
     expect(storedCart).toContain("Mango Biche Special");
   });
 });
+

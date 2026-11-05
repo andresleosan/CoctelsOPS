@@ -80,7 +80,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Automatización de flujos completos extremo a extremo con Playwright y emuladores locales.
   - **Archivos:** `tests/e2e/order-flow.spec.ts`, `tests/e2e/cart.spec.ts`, `tests/e2e/staff-menu.spec.ts`, `tests/e2e/e2e-helpers.ts`.
 
-- [ ] **TASK-09: Validación Final de Producción, Auditoría de Dependencias y Lanzamiento Comercial**
+- [x] **TASK-09: Validación Final de Producción, Auditoría de Dependencias y Lanzamiento Comercial**
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
   - **Objetivo:** Ejecución de la suite completa de gates, changelog y despliegue final a producción.
   - **Archivos:** `README.md`, `package.json`.

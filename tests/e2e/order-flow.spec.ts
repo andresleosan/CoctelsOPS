@@ -122,3 +122,4 @@ test.describe("flujo integral de pedido de cliente (order flow)", () => {
     await expect(page).toHaveURL(/\/login\?redirect=%2Fcheckout/, { timeout: localNavigationTimeout });
   });
 });
+
