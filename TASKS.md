@@ -75,10 +75,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 
 ### Fase 4: Pruebas E2E Completas y Despliegue a Producción
 
-- [ ] **TASK-08: Batería E2E con Playwright (Flujo Completo de Cliente, Staff y Pedido)**
+- [x] **TASK-08: Batería E2E con Playwright (Flujo Completo de Cliente, Staff y Pedido)**
   - **Nivel Recomendado:** `3.8 Flash (High)`
   - **Objetivo:** Automatización de flujos completos extremo a extremo con Playwright y emuladores locales.
-  - **Archivos:** `tests/e2e/order-flow.spec.ts`, `tests/e2e/cart.spec.ts`, `tests/e2e/staff-menu.spec.ts`.
+  - **Archivos:** `tests/e2e/order-flow.spec.ts`, `tests/e2e/cart.spec.ts`, `tests/e2e/staff-menu.spec.ts`, `tests/e2e/e2e-helpers.ts`.
 
 - [ ] **TASK-09: Validación Final de Producción, Auditoría de Dependencias y Lanzamiento Comercial**
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
