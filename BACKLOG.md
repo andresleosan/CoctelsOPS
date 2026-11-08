@@ -107,3 +107,38 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
   - **Objetivo:** Ejecución de la suite completa de gates, changelog y despliegue final a producción.
   - **Archivos:** `README.md`, `package.json`.
+
+---
+
+### Fase 5: Operación en Barra (KDS), QR en Mesa, Conversión y Cierre de Caja (v1.1)
+
+- [x] **TASK-10: Tablero KDS (Kitchen/Bar Display System) en Tiempo Real con Semáforo SLA, Receta Completa y Alerta Sonora**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Transformar `/admin/pedidos` y `/admin/pedidos/[id]` en una estación operativa de barra en tiempo real para bartenders y staff.
+  - **Mejoras Operativas:**
+    - Selector de vista en `/admin/pedidos`: **Tablero KDS (Barra en Vivo)** con columnas Kanban (`Por Confirmar`, `En Preparación`, `En Camino / Listo`, `Finalizados`) y **Vista Lista Clásica**.
+    - Receta completa visible en cada tarjeta KDS y en el detalle del pedido (`/admin/pedidos/[id]`): presentación (`size`), sabores (`flavors`), adiciones/toppings (`addOns`) y notas de entrega (`notes`).
+    - Semáforo SLA en vivo calculado desde `createdAt`: `< 10 min` (`A tiempo` esmeralda), `10-20 min` (`Atención` ámbar), `> 20 min` (`Demorado` rojo con alerta visual).
+    - Auto-actualización configurable (cada 15s) y alerta sonora sintetizada con Web Audio API (sin dependencias pesadas) cuando ingresa un nuevo pedido `pendiente`.
+    - Avance rápido en 1 tap desde el tablero KDS (manteniendo confirmación de seguridad en la vista clásica y en el detalle individual).
+  - **Archivos:** `src/components/admin/OrderKdsBoard.tsx`, `src/lib/orders/kds-sla.ts`, `src/app/admin/pedidos/page.tsx`, `src/app/admin/pedidos/[id]/page.tsx`, `tests/components/order-kds-board.test.tsx`.
+
+- [ ] **TASK-11: Pedido en Mesa / Recoger en Barra con Generador de Códigos QR por Local (`/m/[slug]?mesa=X`)**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Soportar pedidos presenciales desde código QR en mesa o en barra además de domicilio, y proveer al comercio un generador de QR listo para imprimir desde `/admin/configuracion`.
+  - **Archivos:** `src/components/admin/QrGeneratorCard.tsx`, `src/app/admin/configuracion/page.tsx`, `src/app/checkout/page.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `tests/components/qr-generator-card.test.tsx`.
+
+- [ ] **TASK-12: Redención Interactiva de Cupones y Descuentos en Checkout Validada en Servidor**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Permitir al cliente aplicar códigos promocionales en `/checkout` con validación en vivo contra `/api/promotions/validate`, desglose de descuento en COP y aplicación atómica en `/api/pedidos`.
+  - **Archivos:** `src/app/api/promotions/validate/route.ts`, `src/app/checkout/page.tsx`, `tests/api/promotions-validate.test.ts`, `tests/components/checkout.test.tsx`.
+
+- [ ] **TASK-13: Cierre de Caja por Turno, Ticket Promedio y Exportación CSV / Resumen WhatsApp en Reportes**
+  - **Nivel Recomendado:** `Argon (Low)`
+  - **Objetivo:** Dotar a `/admin/reportes` de atajos de turno (`Hoy`, `Últimos 7 días`, `Este Mes`), KPI de Ticket Promedio, exportación directa a CSV (UTF-8 BOM) y copiado de reporte ejecutivo para WhatsApp.
+  - **Archivos:** `src/app/admin/reportes/page.tsx`, `src/lib/reports/export-report.ts`, `tests/lib/export-report.test.ts`.
+
+- [ ] **TASK-14: Re-Pedido en 1 Tap ("Repetir Pedido") en Historial de Cliente y Seguimiento de Orden**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Permitir a los clientes repetir cualquier pedido previo con sus presentaciones, sabores y toppings exactos hacia `CartContext` desde `/cuenta/pedidos` y `/order-status/[id]`.
+  - **Archivos:** `src/components/account/OrderHistory.tsx`, `src/app/order-status/[id]/page.tsx`, `tests/components/order-repeat.test.tsx`.
