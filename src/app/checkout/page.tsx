@@ -9,12 +9,29 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, CreditCard, Wallet, Truck, ArrowLeft, UtensilsCrossed, GlassWater } from 'lucide-react';
+import {
+  CheckCircle2,
+  CreditCard,
+  Wallet,
+  Truck,
+  ArrowLeft,
+  UtensilsCrossed,
+  GlassWater,
+  TicketPercent,
+  X,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { getCheckoutErrorMessage } from '@/lib/checkout/messages';
 import type { StoreConfiguration } from '@/types/operations';
 import type { ServiceType } from '@/types/orders';
+
+type AppliedPromotion = {
+  code: string;
+  discount: number;
+  subtotal: number;
+  total: number;
+};
 
 export default function CheckoutPage() {
   const { totalPrice, items, clearCart, getCheckoutItems } = useCart();
@@ -33,6 +50,11 @@ export default function CheckoutPage() {
     address: '',
     notes: '',
   });
+
+  const [promotionInput, setPromotionInput] = useState('');
+  const [isValidatingPromo, setIsValidatingPromo] = useState(false);
+  const [promoError, setPromoError] = useState('');
+  const [appliedPromotion, setAppliedPromotion] = useState<AppliedPromotion | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -103,6 +125,77 @@ export default function CheckoutPage() {
     return formData.address.trim();
   };
 
+  const handleApplyPromotion = async () => {
+    const cleanCode = promotionInput.trim().toUpperCase();
+    if (!cleanCode) {
+      setPromoError('Ingresa un código promocional.');
+      return;
+    }
+
+    const checkoutItems = getCheckoutItems();
+    if (checkoutItems.length === 0) {
+      setPromoError('Agrega productos al carrito antes de validar un cupón.');
+      return;
+    }
+
+    setIsValidatingPromo(true);
+    setPromoError('');
+
+    try {
+      const token = typeof user.getIdToken === 'function' ? await user.getIdToken() : '';
+      const response = await fetch('/api/promotions/validate', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          code: cleanCode,
+          items: checkoutItems,
+        }),
+      });
+
+      const data = (await response.json().catch(() => ({}))) as {
+        applied?: boolean;
+        code?: string;
+        discount?: number;
+        subtotal?: number;
+        total?: number;
+        error?: string;
+      };
+
+      if (response.ok && data.applied && data.code && typeof data.discount === 'number') {
+        setAppliedPromotion({
+          code: data.code,
+          discount: data.discount,
+          subtotal: typeof data.subtotal === 'number' ? data.subtotal : totalPrice,
+          total: typeof data.total === 'number' ? data.total : Math.max(0, totalPrice - data.discount),
+        });
+        setPromotionInput(data.code);
+        idempotencyKey.current = null;
+        return;
+      }
+
+      setAppliedPromotion(null);
+      setPromoError(data.error ?? 'No fue posible aplicar este código promocional.');
+    } catch {
+      setAppliedPromotion(null);
+      setPromoError('Error de conexión al validar el cupón. Intenta nuevamente.');
+    } finally {
+      setIsValidatingPromo(false);
+    }
+  };
+
+  const handleRemovePromotion = () => {
+    setAppliedPromotion(null);
+    setPromotionInput('');
+    setPromoError('');
+    idempotencyKey.current = null;
+  };
+
+  const effectiveDiscount = appliedPromotion ? Math.min(appliedPromotion.discount, totalPrice) : 0;
+  const finalTotal = Math.max(0, totalPrice - effectiveDiscount);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -111,7 +204,7 @@ export default function CheckoutPage() {
     setSubmitError('');
 
     try {
-      const token = await user.getIdToken();
+      const token = typeof user.getIdToken === 'function' ? await user.getIdToken() : '';
       idempotencyKey.current ??= crypto.randomUUID();
       const effectiveAddress = getEffectiveAddress();
 
@@ -130,6 +223,7 @@ export default function CheckoutPage() {
           tableNumber: serviceType === 'mesa' ? tableNumber.trim() : undefined,
           notes: formData.notes,
           items: getCheckoutItems(),
+          ...(appliedPromotion ? { promotionCode: appliedPromotion.code } : {}),
         }),
       });
 
@@ -357,6 +451,72 @@ export default function CheckoutPage() {
               </CardContent>
             </Card>
 
+            {/* Cupón o Código Promocional */}
+            <Card className="border-none shadow-md bg-card/60 border border-primary/10">
+              <CardHeader className="p-5 md:p-6 pb-3">
+                <CardTitle className="flex items-center gap-2 text-primary font-bold text-base md:text-lg uppercase">
+                  <TicketPercent className="w-5 h-5" /> Código Promocional
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-5 md:p-6 pt-0 space-y-3">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Label htmlFor="promotionCode" className="sr-only">
+                      Código Promocional
+                    </Label>
+                    <Input
+                      id="promotionCode"
+                      placeholder="Ej: FIESTA20"
+                      className="bg-background/50 h-12 rounded-xl uppercase font-mono tracking-wider"
+                      value={promotionInput}
+                      disabled={Boolean(appliedPromotion) || isValidatingPromo}
+                      onChange={(e) => {
+                        setPromotionInput(e.target.value.toUpperCase());
+                        if (promoError) setPromoError('');
+                      }}
+                    />
+                  </div>
+                  {appliedPromotion ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleRemovePromotion}
+                      aria-label="Quitar cupón"
+                      className="h-12 px-4 rounded-xl border-rose-500/40 text-rose-400 hover:bg-rose-500/10 font-bold"
+                    >
+                      <X className="w-4 h-4 mr-1" /> Quitar
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={() => void handleApplyPromotion()}
+                      disabled={isValidatingPromo || !promotionInput.trim()}
+                      className="h-12 px-5 rounded-xl bg-primary text-white hover:bg-primary/90 font-bold"
+                    >
+                      {isValidatingPromo ? 'Validando...' : 'Aplicar'}
+                    </Button>
+                  )}
+                </div>
+
+                {promoError && (
+                  <p role="alert" className="text-xs font-bold text-rose-400">
+                    {promoError}
+                  </p>
+                )}
+
+                {appliedPromotion && (
+                  <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3.5 py-2.5 text-xs text-emerald-300">
+                    <span className="font-bold">
+                      Cupón {appliedPromotion.code} activo
+                    </span>
+                    <span className="font-black">
+                      -${effectiveDiscount.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="border-none shadow-md bg-card/60 border border-primary/10">
               <CardHeader className="p-5 md:p-6">
                 <CardTitle className="flex items-center gap-2 text-primary font-bold text-base md:text-lg uppercase">
@@ -396,9 +556,23 @@ export default function CheckoutPage() {
                   ))}
                 </div>
 
-                <div className="flex justify-between items-end pt-4">
-                  <span className="text-base md:text-lg opacity-80">Total a Pagar</span>
-                  <span className="font-black text-3xl md:text-5xl">${totalPrice.toLocaleString()}</span>
+                <div className="space-y-2 border-t border-white/15 pt-4">
+                  {appliedPromotion && (
+                    <>
+                      <div className="flex justify-between items-center text-sm opacity-90">
+                        <span>Subtotal</span>
+                        <span className="font-semibold">${totalPrice.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-sm text-cyan-200 font-bold">
+                        <span>Descuento ({appliedPromotion.code})</span>
+                        <span>-${effectiveDiscount.toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex justify-between items-end pt-2">
+                    <span className="text-base md:text-lg opacity-80">Total a Pagar</span>
+                    <span className="font-black text-3xl md:text-5xl">${finalTotal.toLocaleString()}</span>
+                  </div>
                 </div>
 
                 {serviceType === 'mesa' && (

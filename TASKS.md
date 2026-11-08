@@ -99,7 +99,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Permitir pedidos por código QR en mesa o para recoger en barra además de domicilio, detectando `?mesa=X` en la carta pública y agregando un generador de códigos QR SVG descargables e imprimibles en `/admin/configuracion`.
   - **Archivos:** `src/components/admin/QrGeneratorCard.tsx`, `src/app/admin/configuracion/page.tsx`, `src/app/checkout/page.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `tests/components/qr-generator-card.test.tsx`.
 
-- [ ] **TASK-12: Redención Interactiva de Cupones y Descuentos en Checkout Validada en Servidor**
+- [x] **TASK-12: Redención Interactiva de Cupones y Descuentos en Checkout Validada en Servidor**
   - **Nivel Recomendado:** `Argon (Medium)`
   - **Objetivo:** Habilitar campo de código promocional en `/checkout` con validación previa contra el servidor (`/api/promotions/validate`), desglose transparente de subtotal/descuento/total y verificación atómica en `/api/pedidos`.
   - **Archivos:** `src/app/api/promotions/validate/route.ts`, `src/app/checkout/page.tsx`, `tests/api/promotions-validate.test.ts`, `tests/components/checkout.test.tsx`.
