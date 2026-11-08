@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle2, Package, MapPin, Clock, Home, MessageSquare } from 'lucide-react';
 import { RepeatOrderButton } from '@/components/account/RepeatOrderButton';
 import { OrderRatingCard } from '@/components/orders/OrderRatingCard';
+import { PushSubscriptionBanner } from '@/components/notifications/PushSubscriptionBanner';
+import { playOrderNotificationSound, triggerLocalNotification } from '@/lib/notifications/web-push';
 import { useAuth } from '@/hooks/use-auth';
 import { buildWhatsAppMessage } from '@/lib/orders/whatsapp-message';
 import type { Order, OrderStatus } from '@/types/orders';
@@ -33,6 +35,7 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [configuration, setConfiguration] = useState<StoreConfiguration | null>(null);
+  const previousStatusRef = useRef<OrderStatus | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -56,6 +59,7 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
       if (response.ok) {
         const data = await response.json() as { order: Order };
         setOrder(data.order);
+        previousStatusRef.current = data.order.status;
       } else if (response.status === 401) {
         setError('Tu sesion expiro. Inicia sesion nuevamente.');
       } else if (response.status === 403) {
@@ -75,6 +79,43 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
 
     return () => { active = false; };
   }, [authLoading, id, router, user]);
+
+  // Polling reactivo en tiempo real para estados en progreso
+  useEffect(() => {
+    if (!user || !order) return;
+    const isTerminal = order.status === 'entregado' || order.status === 'cancelado';
+    if (isTerminal) return;
+
+    let active = true;
+    const interval = setInterval(() => {
+      void user.getIdToken().then(async (token) => {
+        const response = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!active || !response.ok) return;
+        const data = (await response.json()) as { order: Order };
+        if (active && data.order) {
+          if (previousStatusRef.current && previousStatusRef.current !== data.order.status) {
+            playOrderNotificationSound();
+            void triggerLocalNotification(
+              `¡Tu pedido #${data.order.id.slice(0, 8)} ahora está ${statusLabel(data.order.status)}!`,
+              {
+                body: configuration?.messages.orderStatus.replace('{status}', statusLabel(data.order.status)) || `Tu orden cambió a estado ${statusLabel(data.order.status)}.`,
+                tag: `order-${data.order.id}`,
+              }
+            );
+          }
+          previousStatusRef.current = data.order.status;
+          setOrder(data.order);
+        }
+      }).catch(() => undefined);
+    }, 10000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [configuration, id, order, user]);
 
   if (authLoading || !user || loading) {
     return <div className="container mx-auto flex min-h-[50vh] items-center justify-center px-4 text-muted-foreground">Consultando tu pedido...</div>;
@@ -104,6 +145,8 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
            <h1 className="font-headline text-4xl font-bold text-primary">{configuration?.messages.orderReceived || 'Pedido recibido'}</h1>
            <p className="text-xl text-muted-foreground">{statusMessage || <>Tu orden <span className="font-bold text-foreground">#{order.id}</span> esta <span className="font-bold text-primary">{statusLabel(order.status)}</span>.</>}</p>
         </div>
+
+        <PushSubscriptionBanner orderId={id} className="text-left" />
 
         <Card className="overflow-hidden border-none bg-white text-left shadow-xl">
           <CardContent className="p-8">

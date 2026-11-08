@@ -157,7 +157,12 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Acumulación automática de puntos o sellos digitales por compras entregadas en el comercio (`1 punto por cada $1.000 COP`), visualización de tarjeta de fidelización interactiva en `/cuenta` y canje de recompensas o cóctel de cortesía en `/checkout`.
   - **Archivos:** `src/types/loyalty.ts`, `src/lib/firestore/loyalty.ts`, `src/components/account/LoyaltyCard.tsx`, `src/app/cuenta/page.tsx`, `src/app/checkout/page.tsx`, `src/app/api/loyalty/route.ts`, `tests/components/loyalty.test.tsx`.
 
-- [ ] **TASK-17: Notificaciones Web Push y Alertas en Tiempo Real de Pedidos para Clientes**
+- [x] **TASK-17: Notificaciones Web Push y Alertas en Tiempo Real de Pedidos para Clientes**
   - **Nivel Recomendado:** `3.8 Flash (High)`
   - **Objetivo:** Implementar suscripción opcional a notificaciones Web Push / Service Worker y actualización reactiva sin refresco para avisar al cliente cuando su pedido cambie a "preparando", "en camino" y "entregado".
   - **Archivos:** `src/components/notifications/PushSubscriptionBanner.tsx`, `src/lib/notifications/web-push.ts`, `src/app/api/notifications/subscribe/route.ts`, `public/sw.js`, `tests/components/push-notifications.test.tsx`.
+
+- [ ] **TASK-18: Impresión Térmica de Comandas y Etiquetas de Barra en 1 Tap (Tickets 58mm/80mm)**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Permitir la impresión directa y formateada de comandas para la barra y etiquetas adhesivas para vasos/domicilios en impresoras térmicas (58mm y 80mm vía Web Print / Bluetooth ESC-POS) desde el Tablero KDS (`/admin/pedidos`) y el detalle del pedido (`/admin/pedidos/[id]`).
+  - **Archivos:** `src/components/admin/OrderReceiptPrint.tsx`, `src/lib/orders/receipt-formatter.ts`, `src/app/admin/pedidos/[id]/page.tsx`, `src/components/admin/OrderKdsBoard.tsx`, `tests/components/order-receipt-print.test.tsx`.

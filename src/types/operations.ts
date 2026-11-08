@@ -112,6 +112,27 @@ export type Notification = {
 
 export type NotificationInput = Omit<Notification, "id" | "createdAt" | "read"> & { read?: boolean };
 
+export type PushSubscriptionKeys = {
+  p256dh: string;
+  auth: string;
+};
+
+export type PushSubscriptionData = {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: PushSubscriptionKeys;
+};
+
+export type PushSubscriptionRecord = {
+  id: string;
+  uid: string;
+  subscription: PushSubscriptionData;
+  orderId?: string;
+  userAgent?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ReportOrderItem = { name: string; quantity: number; subtotal: number };
 
 export type ReportOrder = {

@@ -1,16 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, CalendarDays, MapPin, MessageSquare, Phone, ReceiptText } from 'lucide-react';
 
 import { OrderStatusTimeline } from '@/components/account/OrderStatusTimeline';
 import { RepeatOrderButton } from '@/components/account/RepeatOrderButton';
 import { OrderRatingCard } from '@/components/orders/OrderRatingCard';
+import { PushSubscriptionBanner } from '@/components/notifications/PushSubscriptionBanner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
+import { playOrderNotificationSound, triggerLocalNotification } from '@/lib/notifications/web-push';
 import { buildWhatsAppMessage } from '@/lib/orders/whatsapp-message';
 import type { CustomerOrder, OrderStatus } from '@/types/orders';
 import type { StoreConfiguration } from '@/types/operations';
@@ -43,6 +45,7 @@ export default function AccountOrderDetailPage({ params }: { params: Promise<{ i
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [configuration, setConfiguration] = useState<StoreConfiguration | null>(null);
+  const previousStatusRef = useRef<OrderStatus | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -55,8 +58,13 @@ export default function AccountOrderDetailPage({ params }: { params: Promise<{ i
     void user.getIdToken().then(async (token) => {
       const response = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!active) return;
-      if (!response.ok) setError(await responseError(response));
-      else setOrder(((await response.json()) as { order: CustomerOrder }).order);
+      if (!response.ok) {
+        setError(await responseError(response));
+      } else {
+        const data = (await response.json()) as { order: CustomerOrder };
+        setOrder(data.order);
+        previousStatusRef.current = data.order.status;
+      }
       setLoading(false);
     }).catch(() => {
       if (active) {
@@ -68,6 +76,43 @@ export default function AccountOrderDetailPage({ params }: { params: Promise<{ i
       active = false;
     };
   }, [id, user]);
+
+  // Polling reactivo en tiempo real para estados en progreso
+  useEffect(() => {
+    if (!user || !order) return;
+    const isTerminal = order.status === 'entregado' || order.status === 'cancelado';
+    if (isTerminal) return;
+
+    let active = true;
+    const interval = setInterval(() => {
+      void user.getIdToken().then(async (token) => {
+        const response = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!active || !response.ok) return;
+        const data = (await response.json()) as { order: CustomerOrder };
+        if (active && data.order) {
+          if (previousStatusRef.current && previousStatusRef.current !== data.order.status) {
+            playOrderNotificationSound();
+            void triggerLocalNotification(
+              `¡Tu pedido #${data.order.id.slice(0, 8)} ahora está ${statusLabels[data.order.status]}!`,
+              {
+                body: configuration?.messages.orderStatus.replace('{status}', statusLabels[data.order.status]) || `Tu orden cambió a estado ${statusLabels[data.order.status]}.`,
+                tag: `order-${data.order.id}`,
+              }
+            );
+          }
+          previousStatusRef.current = data.order.status;
+          setOrder(data.order);
+        }
+      }).catch(() => undefined);
+    }, 10000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [configuration, id, order, user]);
 
   if (loading) return <div className="rounded-2xl border border-border bg-card/60 p-6 text-sm text-muted-foreground">Cargando el detalle...</div>;
   if (error || !order) {
@@ -111,6 +156,8 @@ export default function AccountOrderDetailPage({ params }: { params: Promise<{ i
         </p>
       </div>
       {statusMessage && <p className="rounded-lg bg-accent/10 px-4 py-3 text-sm font-medium text-accent">{statusMessage}</p>}
+
+      <PushSubscriptionBanner orderId={id} />
 
       <Card className="border-primary/20 bg-card/80">
         <CardHeader className="border-b border-border/70 p-5 md:p-6">
