@@ -34,6 +34,18 @@ Para maximizar la eficiencia de tokens y la precisión técnica, **cada tarea en
 
 Cada vez que el usuario llame a `/avanzar`, ejecuta estrictamente los siguientes pasos:
 
+### 0. Verificación Automática de Sincronía con GitHub (`origin/main`)
+Antes de leer o modificar cualquier archivo, verifica automáticamente que el espacio de trabajo local esté en el mismo commit que el repositorio remoto (`https://github.com/andresleosan/CoctelsOPS.git`):
+```bash
+git fetch origin main
+git status -sb
+git rev-parse --short HEAD
+git rev-parse --short origin/main
+```
+- **Si `HEAD` y `origin/main` coinciden:** Continúa de inmediato e informa el hash sincronizado (`✅ Sincronizado con GitHub: <hash>`).
+- **Si `origin/main` tiene commits nuevos y el árbol local está limpio:** Ejecuta `git pull --ff-only origin main` automáticamente para actualizar antes de empezar.
+- **Si existen cambios locales sin confirmar o ramas divergentes:** Detente e informa al operador antes de sobrescribir.
+
 ### 1. Detección y Clasificación de la Próxima Tarea
 1. Abre y lee el archivo `TASKS.md` (o `BACKLOG.md` en su defecto) en la raíz del proyecto.
 2. Identifica el primer ítem no completado (`- [ ]`).
@@ -94,11 +106,14 @@ node node_modules/next/dist/bin/next build --webpack
 Si la tarea involucra flujos de usuario visuales o interactivos, ejecuta las pruebas E2E correspondientes con Playwright (`corepack pnpm test:e2e:local` o MCP Playwright).
 Cero errores o warnings son tolerados. Si una prueba falla, corrígela de inmediato antes de continuar.
 
-### 6. Cierre, Commit, Push y Clasificación de la Siguiente Tarea
+### 6. Cierre, Commit, Push, Verificación Remota y Clasificación de la Siguiente Tarea
 1. Actualiza `TASKS.md` y `BACKLOG.md` marcando la tarea realizada con `[x]`.
 2. Realiza el commit descriptivo usando conventional commits (ej. `feat(catalogo): implementar presentaciones reales de carta Canva`).
-3. Realiza el push a la rama del repositorio para que la integración continua proceda con el despliegue a producción.
-4. **Clasificación Obligatoria de la Próxima Tarea:**
+3. Realiza el push a la rama del repositorio (`git push origin main`) para que la integración continua proceda con el despliegue a producción.
+4. **Verificación Automática Post-Push contra GitHub:**
+   - Ejecuta `git rev-parse HEAD` y `git ls-remote origin refs/heads/main` para comprobar que el SHA local y el SHA en `https://github.com/andresleosan/CoctelsOPS` son exactamente el mismo commit.
+   - Reporta en el resumen final: `🔗 Paridad GitHub verificada: HEAD (<short-sha>) === origin/main (<short-sha>)`.
+5. **Clasificación Obligatoria de la Próxima Tarea:**
    - Identifica la siguiente tarea pendiente (`- [ ]`).
    - Elige exactamente **uno de los 6 niveles de la Matriz** (`3.8 Flash (Low)`, `3.8 Flash (Medium)`, `3.8 Flash (High)`, `Argon (Low)`, `Argon (Medium)`, `Argon (High)`).
    - Incluye en la respuesta final de cierre la recomendación explícita para que el usuario configure el modelo y esfuerzo óptimo en la próxima invocación de `/avanzar`.
