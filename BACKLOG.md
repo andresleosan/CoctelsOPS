@@ -171,7 +171,12 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 
 ### Fase 7: Crecimiento Comercial, Promociones Programadas y CRM (v1.3)
 
-- [ ] **TASK-19: Promociones Automáticas "Happy Hour" por Franja Horaria y Combos en Menú / Checkout**
-  - **Nivel Recomendado:** `Argon (Medium)`
+- [x] **TASK-19: Promociones Automáticas "Happy Hour" por Franja Horaria y Combos en Menú / Checkout**
+  - **Nivel Asignado:** `Argon (Medium)`
   - **Objetivo:** Permitir la configuración en `/admin/promociones` de franjas horarias automáticas de Happy Hour (ej. 2x1 o precio especial en granizados seleccionados de 5pm a 8pm los viernes/sábados) y combos especiales de carta, con validación estricta y recálculo en servidor (`/api/pedidos`), badge con cuenta regresiva interactiva en `/menu` y desglose automático en `/checkout`.
   - **Archivos:** `src/types/promotions.ts`, `src/lib/firestore/promotions.ts`, `src/components/products/HappyHourBanner.tsx`, `src/app/menu/page.tsx`, `src/app/checkout/page.tsx`, `src/lib/validation/orders.ts`, `tests/components/happy-hour.test.tsx`.
+
+- [ ] **TASK-20: Módulo CRM de Clientes VIP y Campañas de Re-activación por WhatsApp con 1 Tap (`/admin/clientes`)**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Enriquecer `/admin/clientes` con segmentación automática de clientes (Nuevos, Frecuentes, VIP, Inactivos > 15 días con saldo de puntos), historial consolidado de compras con ticket promedio individual y generador de mensajes personalizados de WhatsApp con 1 tap ("¡Hola [Nombre]! Hace días no te vemos en Coctels OPS, tienes [X] puntos listos para canjear y Happy Hour activo hoy") para maximizar la recompra.
+  - **Archivos:** `src/app/admin/clientes/page.tsx`, `src/lib/customers/crm.ts`, `src/components/admin/CustomerSegmentBadge.tsx`, `tests/components/admin-customers.test.tsx`.

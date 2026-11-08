@@ -17,42 +17,17 @@ export type InventoryMovement = InventoryMovementInput & {
   createdAt: string;
 };
 
-export type PromotionDiscountType = "percent" | "fixed";
-
-export type Promotion = {
-  id: string;
-  code: string;
-  active: boolean;
-  startsAt: string;
-  endsAt: string;
-  discountType: PromotionDiscountType;
-  discountValue: number;
-  minimumSubtotal: number;
-  productIds?: string[];
-  categoryIds?: string[];
-  usageLimit?: number;
-  usageCount: number;
-  maxDiscount?: number;
-};
-
-export type PromotionInput = Omit<Promotion, "id" | "usageCount">;
-
-export type PromotionContextItem = { productId: string; category: string; subtotal: number };
-
-export type PromotionContext = {
-  promotion: Promotion;
-  subtotal: number;
-  items: PromotionContextItem[];
-  now?: string;
-};
-
-export type PromotionResult = {
-  applied: boolean;
-  discount: number;
-  total: number;
-  code?: string;
-  reason?: "inactiva" | "vencida" | "mínimo" | "alcance" | "límite" | "inválida";
-};
+export type {
+  ActivePromotionsResponse,
+  HappyHourSchedule,
+  Promotion,
+  PromotionContext,
+  PromotionContextItem,
+  PromotionDiscountType,
+  PromotionInput,
+  PromotionResult,
+  PromotionType,
+} from "./promotions";
 
 export type BusinessHour = { day: string; open: string; close: string; closed?: boolean };
 

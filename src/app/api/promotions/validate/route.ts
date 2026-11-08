@@ -44,6 +44,10 @@ function formatPromotionRejectionReason(reason: string | undefined, promotion: P
       return "Este cupón no aplica para los productos seleccionados en tu carrito.";
     case "límite":
       return "Este cupón ya alcanzó su límite máximo de redenciones.";
+    case "horario":
+      return promotion.schedule
+        ? `Esta promoción de Happy Hour solo aplica en su franja horaria (${promotion.schedule.startTime} a ${promotion.schedule.endTime}).`
+        : "Esta promoción no se encuentra disponible en este horario.";
     default:
       return "No fue posible aplicar este código promocional.";
   }
@@ -108,6 +112,8 @@ export async function POST(request: Request): Promise<Response> {
         productId: item.productId,
         category: availableProducts.find((product) => product.id === item.productId)?.category ?? "",
         subtotal: item.subtotal,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
       })),
     });
 
@@ -126,6 +132,8 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({
       applied: true,
       code: promotion.code,
+      title: promotion.title,
+      description: promotion.description,
       discountType: promotion.discountType,
       discountValue: promotion.discountValue,
       subtotal: calculated.subtotal,

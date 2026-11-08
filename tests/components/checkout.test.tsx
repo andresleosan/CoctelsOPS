@@ -217,4 +217,47 @@ describe("Checkout delivery estimate and coupon redemption", () => {
       expect(screen.getByText(/Este código promocional ha expirado/i)).toBeInTheDocument();
     });
   });
+
+  it("detecta y aplica automáticamente Happy Hour activo sin requerir ingreso manual de código", async () => {
+    vi.spyOn(global, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/configuration")) {
+        return { ok: true, status: 200, json: async () => ({ configuration }) } as Response;
+      }
+      if (url.includes("/api/promotions/active")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            activeHappyHours: [
+              { code: "HAPPY2X1", title: "Happy Hour 2x1", discountType: "2x1" },
+            ],
+          }),
+        } as Response;
+      }
+      if (url.includes("/api/promotions/validate")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            applied: true,
+            code: "HAPPY2X1",
+            title: "Happy Hour 2x1",
+            discountType: "2x1",
+            discount: 15000,
+            subtotal: 30000,
+            total: 15000,
+          }),
+        } as Response;
+      }
+      return { ok: false, status: 404 } as Response;
+    });
+
+    render(<CheckoutPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Happy Hour Happy Hour 2x1/i)).toBeInTheDocument();
+      expect(screen.getAllByText(`-$${(15000).toLocaleString()}`)).toHaveLength(2);
+    });
+  });
 });

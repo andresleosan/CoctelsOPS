@@ -21,6 +21,7 @@ import {
   Sparkles,
   TicketPercent,
   X,
+  Flame,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
@@ -34,6 +35,8 @@ type AppliedPromotion = {
   discount: number;
   subtotal: number;
   total: number;
+  title?: string;
+  isHappyHour?: boolean;
 };
 
 export default function CheckoutPage() {
@@ -60,6 +63,8 @@ export default function CheckoutPage() {
   const [appliedPromotion, setAppliedPromotion] = useState<AppliedPromotion | null>(null);
   const [loyaltySummary, setLoyaltySummary] = useState<LoyaltySummary | null>(null);
   const [selectedRewardId, setSelectedRewardId] = useState<LoyaltyRewardId | null>(null);
+  const userDismissedPromo = useRef<boolean>(false);
+  const hasAutoCheckedPromo = useRef<boolean>(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -144,6 +149,67 @@ export default function CheckoutPage() {
     }
   }, []);
 
+  // Auto-detección y aplicación de Happy Hour activo sin forzar a tipear código manual
+  useEffect(() => {
+    if (!user || !isVerified || appliedPromotion || userDismissedPromo.current || hasAutoCheckedPromo.current) return;
+    const checkoutItems = getCheckoutItems();
+    if (checkoutItems.length === 0) return;
+
+    hasAutoCheckedPromo.current = true;
+    let isMounted = true;
+    const checkActiveHappyHour = async () => {
+      try {
+        const res = await fetch('/api/promotions/active');
+        if (!res.ok) return;
+        const data = (await res.json()) as { activeHappyHours?: Array<{ code: string; title?: string }> };
+        const activePromo = data.activeHappyHours?.[0];
+        if (!activePromo || !isMounted || userDismissedPromo.current) return;
+
+        const token = typeof user.getIdToken === 'function' ? await user.getIdToken() : '';
+        const validateRes = await fetch('/api/promotions/validate', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            code: activePromo.code,
+            items: checkoutItems,
+          }),
+        });
+
+        if (!validateRes.ok || !isMounted) return;
+        const valData = (await validateRes.json().catch(() => ({}))) as {
+          applied?: boolean;
+          code?: string;
+          discount?: number;
+          subtotal?: number;
+          total?: number;
+          title?: string;
+        };
+
+        if (valData.applied && valData.code && typeof valData.discount === 'number' && isMounted && !userDismissedPromo.current) {
+          setAppliedPromotion({
+            code: valData.code,
+            discount: valData.discount,
+            subtotal: typeof valData.subtotal === 'number' ? valData.subtotal : totalPrice,
+            total: typeof valData.total === 'number' ? valData.total : Math.max(0, totalPrice - valData.discount),
+            title: valData.title || activePromo.title,
+            isHappyHour: true,
+          });
+          setPromotionInput(valData.code);
+        }
+      } catch {
+        // Silencioso en caso de error de red
+      }
+    };
+
+    void checkActiveHappyHour();
+    return () => {
+      isMounted = false;
+    };
+  }, [user, isVerified, appliedPromotion, getCheckoutItems, totalPrice]);
+
   if (authLoading || !user || !isVerified) {
     return (
       <div className="container mx-auto flex min-h-[50vh] items-center justify-center px-4 text-muted-foreground">
@@ -181,6 +247,7 @@ export default function CheckoutPage() {
 
     setIsValidatingPromo(true);
     setPromoError('');
+    userDismissedPromo.current = false;
 
     try {
       const token = typeof user.getIdToken === 'function' ? await user.getIdToken() : '';
@@ -228,6 +295,7 @@ export default function CheckoutPage() {
   };
 
   const handleRemovePromotion = () => {
+    userDismissedPromo.current = true;
     setAppliedPromotion(null);
     setPromotionInput('');
     setPromoError('');
@@ -561,9 +629,22 @@ export default function CheckoutPage() {
                 )}
 
                 {appliedPromotion && (
-                  <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-3.5 py-2.5 text-xs text-emerald-300">
-                    <span className="font-bold">
-                      Cupón {appliedPromotion.code} activo
+                  <div
+                    className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-xs ${
+                      appliedPromotion.isHappyHour
+                        ? 'border-pink-500/40 bg-pink-950/40 text-pink-300 shadow-[0_0_15px_rgba(229,25,110,0.2)]'
+                        : 'border-emerald-500/30 bg-emerald-950/30 text-emerald-300'
+                    }`}
+                  >
+                    <span className="font-bold flex items-center gap-1.5">
+                      {appliedPromotion.isHappyHour ? (
+                        <>
+                          <Flame className="w-3.5 h-3.5 text-pink-400 fill-pink-400" />
+                          <span>Happy Hour {appliedPromotion.title ? `${appliedPromotion.title} (${appliedPromotion.code})` : appliedPromotion.code}</span>
+                        </>
+                      ) : (
+                        `Cupón ${appliedPromotion.code} activo`
+                      )}
                     </span>
                     <span className="font-black">
                       -${effectiveDiscount.toLocaleString()}
@@ -695,7 +776,10 @@ export default function CheckoutPage() {
                   )}
                   {appliedPromotion && (
                     <div className="flex justify-between items-center text-sm text-cyan-200 font-bold">
-                      <span>Descuento ({appliedPromotion.code})</span>
+                      <span className="flex items-center gap-1">
+                        {appliedPromotion.isHappyHour && <Flame className="w-3.5 h-3.5 text-pink-300 fill-pink-300" />}
+                        {appliedPromotion.isHappyHour ? 'Happy Hour' : 'Descuento'} ({appliedPromotion.code})
+                      </span>
                       <span>-${effectiveDiscount.toLocaleString()}</span>
                     </div>
                   )}

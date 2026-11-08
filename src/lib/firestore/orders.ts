@@ -137,7 +137,18 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
   if (validated.promotionCode) {
     const promotion = await getPromotionByCode(validated.promotionCode);
     if (!promotion) throw new OrderValidationError("La promoción no es válida");
-    const promotionResult = calculatePromotion({ promotion, subtotal: calculated.subtotal, now: new Date().toISOString(), items: calculated.items.map((item) => ({ productId: item.productId, category: availableProducts.find((product) => product.id === item.productId)?.category ?? "", subtotal: item.subtotal })) });
+    const promotionResult = calculatePromotion({
+      promotion,
+      subtotal: calculated.subtotal,
+      now: new Date().toISOString(),
+      items: calculated.items.map((item) => ({
+        productId: item.productId,
+        category: availableProducts.find((product) => product.id === item.productId)?.category ?? "",
+        subtotal: item.subtotal,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+    });
     if (!promotionResult.applied) throw new OrderValidationError(`La promoción no es válida: ${promotionResult.reason}`);
     calculated.total = promotionResult.total;
     promotionCode = promotion.code;
@@ -223,7 +234,13 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
       if (!promotionSnapshot.exists) throw new OrderValidationError("La promoción ya no está disponible");
       const currentPromotion = toPromotion(promotionId, promotionSnapshot.data() as Record<string, unknown>);
       if (currentPromotion.code !== validated.promotionCode?.toUpperCase()) throw new OrderValidationError("La promoción ya no está disponible");
-      const promotionItems = transactionCalculated.items.map((item) => ({ productId: item.productId, category: transactionProducts.find((product) => product.id === item.productId)?.category ?? "", subtotal: item.subtotal }));
+      const promotionItems = transactionCalculated.items.map((item) => ({
+        productId: item.productId,
+        category: transactionProducts.find((product) => product.id === item.productId)?.category ?? "",
+        subtotal: item.subtotal,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      }));
       const currentResult = calculatePromotion({ promotion: currentPromotion, subtotal: transactionCalculated.subtotal, now: new Date().toISOString(), items: promotionItems });
       if (!currentResult.applied) throw new OrderValidationError(`La promoción ya no es válida: ${currentResult.reason}`);
       transactionTotal = currentResult.total;

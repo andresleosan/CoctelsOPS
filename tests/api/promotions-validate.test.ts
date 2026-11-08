@@ -193,4 +193,47 @@ describe("POST /api/promotions/validate", () => {
       error: expect.stringMatching(/límite máximo/i),
     });
   });
+
+  it("validates 2x1 promotion and calculates discount correctly on server", async () => {
+    getPromotionByCode.mockResolvedValueOnce({
+      id: "promo-2x1",
+      code: "HAPPY2X1",
+      title: "Happy Hour 2x1",
+      active: true,
+      type: "happy_hour",
+      startsAt: "2020-01-01T00:00:00.000Z",
+      endsAt: "2099-12-31T23:59:59.999Z",
+      discountType: "2x1",
+      discountValue: 0,
+      minimumSubtotal: 0,
+      usageCount: 0,
+    });
+
+    const response = await POST(
+      new Request("http://localhost/api/promotions/validate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          code: "happy2x1",
+          items: [
+            {
+              productId: "fresa",
+              quantity: 2,
+              customization: { size: "16 oz", flavors: ["Fresa"], addOns: [] },
+            },
+          ],
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      applied: true,
+      code: "HAPPY2X1",
+      discountType: "2x1",
+      subtotal: 30000,
+      discount: 15000,
+      total: 15000,
+    });
+  });
 });

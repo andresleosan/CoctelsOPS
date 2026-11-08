@@ -2,6 +2,7 @@ import { listActiveProducts } from "@/lib/firestore/products";
 import { listCategories } from "@/lib/firestore/categories";
 import ProductCatalogBrowser from "@/components/products/ProductCatalogBrowser";
 import TableServiceBanner from "@/components/products/TableServiceBanner";
+import { HappyHourBanner } from "@/components/products/HappyHourBanner";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Sparkles } from "lucide-react";
 
@@ -20,6 +21,11 @@ export default async function MenuPage({ searchParams }: MenuPageProps) {
     <div className="container mx-auto px-4 py-8 md:py-12 space-y-8 md:space-y-12">
       {/* Banner de Servicio en Mesa / Barra si fue escaneado por QR */}
       <TableServiceBanner initialMesa={mesa} />
+
+      {/* Banner Interactivo de Happy Hour / Promociones Activas */}
+      <div className="max-w-2xl mx-auto w-full">
+        <HappyHourBanner />
+      </div>
 
       {/* Header del Menú Mobile-First */}
       <div className="text-center space-y-3 max-w-2xl mx-auto">
