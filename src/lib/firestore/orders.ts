@@ -7,6 +7,11 @@ import { AuthorizationError } from "@/lib/auth/verify-request";
 import { getProductById, productFromData } from "@/lib/firestore/products";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
+import {
+  calculateEarnedPoints,
+  calculateLoyaltyRedemption,
+  getUserLoyaltySummary,
+} from "@/lib/firestore/loyalty";
 import { calculatePromotion, getPromotionByCode, toPromotion } from "@/lib/firestore/promotions";
 import { toCustomerOrder } from "@/lib/orders/customer-order";
 import {
@@ -83,6 +88,18 @@ function toOrder(id: string, data: Record<string, unknown>): Order {
     audit: (data.audit ?? {}) as Order["audit"],
     ...(statusHistory?.length ? { statusHistory } : {}),
     promotionCode: typeof data.promotionCode === "string" ? data.promotionCode : undefined,
+    ...(typeof data.loyaltyRewardId === "string"
+      ? { loyaltyRewardId: data.loyaltyRewardId as Order["loyaltyRewardId"] }
+      : {}),
+    ...(typeof data.loyaltyPointsEarned === "number"
+      ? { loyaltyPointsEarned: data.loyaltyPointsEarned }
+      : {}),
+    ...(typeof data.loyaltyPointsRedeemed === "number"
+      ? { loyaltyPointsRedeemed: data.loyaltyPointsRedeemed }
+      : {}),
+    ...(typeof data.loyaltyDiscount === "number"
+      ? { loyaltyDiscount: data.loyaltyDiscount }
+      : {}),
     ...(data.rating && typeof data.rating === "object" && typeof (data.rating as Record<string, unknown>).stars === "number"
       ? {
           rating: {
@@ -126,6 +143,24 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     promotionCode = promotion.code;
     promotionId = promotion.id;
   }
+  let loyaltyPointsRedeemed: number | undefined;
+  let loyaltyDiscount: number | undefined;
+  if (validated.loyaltyRewardId) {
+    const loyaltySummary = await getUserLoyaltySummary(user.uid);
+    const redemption = calculateLoyaltyRedemption({
+      rewardId: validated.loyaltyRewardId,
+      availablePoints: loyaltySummary.availablePoints,
+      subtotalAfterPromo: calculated.total,
+    });
+    if (!redemption.applied) {
+      throw new OrderValidationError(
+        `No fue posible canjear la recompensa: ${redemption.reason ?? "condiciones no cumplidas"}`
+      );
+    }
+    calculated.total = redemption.total;
+    loyaltyPointsRedeemed = redemption.pointsCost;
+    loyaltyDiscount = redemption.discount;
+  }
   const now = new Date().toISOString();
   const data = {
     clienteUid: user.uid,
@@ -144,6 +179,13 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     statusHistory: [{ status: "pendiente" as const, actorUid: user.uid, at: now }],
     audit: { createdByUid: user.uid, createdAt: now },
     ...(promotionCode ? { promotionCode } : {}),
+    ...(validated.loyaltyRewardId
+      ? {
+          loyaltyRewardId: validated.loyaltyRewardId,
+          loyaltyPointsRedeemed,
+          loyaltyDiscount,
+        }
+      : {}),
     ...(idempotencyKey ? { idempotencyKey, requestFingerprint: orderFingerprint(validated) } : {}),
   };
   const db = getAdminDb();
@@ -186,6 +228,9 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
       if (!currentResult.applied) throw new OrderValidationError(`La promoción ya no es válida: ${currentResult.reason}`);
       transactionTotal = currentResult.total;
       transaction.update(promotionReference, { usageCount: currentPromotion.usageCount + 1, updatedAt: new Date().toISOString() });
+    }
+    if (validated.loyaltyRewardId && typeof loyaltyDiscount === "number") {
+      transactionTotal = Math.max(0, transactionTotal - Math.min(loyaltyDiscount, transactionTotal));
     }
 
     const transactionNow = new Date().toISOString();
@@ -265,11 +310,16 @@ export async function updateOrderStatus(user: VerifiedUser, id: string, input: S
     const now = new Date().toISOString();
     const statusEvent = { status: validated.status, actorUid: user.uid, at: now, ...(validated.reason ? { reason: validated.reason } : {}) };
     const statusHistory: OrderStatusHistoryEntry[] = [...(current.statusHistory ?? []), statusEvent];
+    const loyaltyPointsEarned =
+      validated.status === "entregado"
+        ? calculateEarnedPoints(current.total)
+        : current.loyaltyPointsEarned;
     const update = {
       status: validated.status,
       updatedAt: now,
       statusHistory,
       audit: { ...current.audit, updatedByUid: user.uid, updatedAt: now },
+      ...(typeof loyaltyPointsEarned === "number" ? { loyaltyPointsEarned } : {}),
     };
     transaction.update(reference, update);
     transaction.create(notification, {

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowRight, ClipboardList, MailCheck, MailWarning, UserRound } from 'lucide-react';
 
+import { LoyaltyCard } from '@/components/account/LoyaltyCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
@@ -33,6 +34,7 @@ export default function AccountPage() {
           </div>
         </CardContent>
       </Card>
+      <LoyaltyCard />
       <div className="grid gap-4 sm:grid-cols-2">
         <Link href="/cuenta/perfil" className="group rounded-2xl border border-accent/20 bg-card/60 p-5 transition-colors hover:border-accent/60 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Perfil</p>

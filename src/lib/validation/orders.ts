@@ -32,6 +32,7 @@ export const createOrderInputSchema = z.object({
     customization: customizationSchema,
   })).min(1, "El carrito no puede estar vacio").max(50),
   promotionCode: z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9-]+$/, "El código de promoción no es válido").optional(),
+  loyaltyRewardId: z.enum(["TOP_GRATIS", "DESC_5000", "COCTEL_CORTESIA"]).optional(),
 });
 
 export const statusUpdateSchema = z.object({

@@ -152,7 +152,12 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Permitir a los clientes calificar su pedido entregado con 1 toque (1 a 5 estrellas neón con microinteracciones táctiles, chips rápidos de atributos como "Sabor perfecto", "Bien frío", "Entrega rápida" y comentario opcional) desde `/order-status/[id]` y `/cuenta/pedidos/[id]`, registrando la calificación atómica en Firestore y reflejando el índice de satisfacción CSAT en `/admin/dashboard` y `/admin/reportes`.
   - **Archivos:** `src/components/orders/OrderRatingCard.tsx`, `src/app/api/pedidos/[id]/rating/route.ts`, `src/app/order-status/[id]/page.tsx`, `src/app/cuenta/pedidos/[id]/page.tsx`, `tests/components/order-rating.test.tsx`.
 
-- [ ] **TASK-16: Programa de Fidelización "Puntos Coctels" / Sellos Digitales en Pedidos Entregados**
+- [x] **TASK-16: Programa de Fidelización "Puntos Coctels" / Sellos Digitales en Pedidos Entregados**
   - **Nivel Recomendado:** `Argon (Medium)`
   - **Objetivo:** Acumulación automática de puntos o sellos digitales por compras entregadas en el comercio (`1 punto por cada $1.000 COP`), visualización de tarjeta de fidelización interactiva en `/cuenta` y canje de recompensas o cóctel de cortesía en `/checkout`.
-  - **Archivos:** `src/types/loyalty.ts`, `src/lib/firestore/loyalty.ts`, `src/components/account/LoyaltyCard.tsx`, `src/app/cuenta/page.tsx`, `src/app/checkout/page.tsx`, `tests/lib/loyalty.test.ts`.
+  - **Archivos:** `src/types/loyalty.ts`, `src/lib/firestore/loyalty.ts`, `src/components/account/LoyaltyCard.tsx`, `src/app/cuenta/page.tsx`, `src/app/checkout/page.tsx`, `src/app/api/loyalty/route.ts`, `tests/components/loyalty.test.tsx`.
+
+- [ ] **TASK-17: Notificaciones Web Push y Alertas en Tiempo Real de Pedidos para Clientes**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Implementar suscripción opcional a notificaciones Web Push / Service Worker y actualización reactiva sin refresco para avisar al cliente cuando su pedido cambie a "preparando", "en camino" y "entregado".
+  - **Archivos:** `src/components/notifications/PushSubscriptionBanner.tsx`, `src/lib/notifications/web-push.ts`, `src/app/api/notifications/subscribe/route.ts`, `public/sw.js`, `tests/components/push-notifications.test.tsx`.

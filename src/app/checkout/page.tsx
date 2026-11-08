@@ -17,12 +17,15 @@ import {
   ArrowLeft,
   UtensilsCrossed,
   GlassWater,
+  Gift,
+  Sparkles,
   TicketPercent,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { getCheckoutErrorMessage } from '@/lib/checkout/messages';
+import { LOYALTY_REWARDS, type LoyaltyRewardId, type LoyaltySummary } from '@/types/loyalty';
 import type { StoreConfiguration } from '@/types/operations';
 import type { ServiceType } from '@/types/orders';
 
@@ -55,6 +58,8 @@ export default function CheckoutPage() {
   const [isValidatingPromo, setIsValidatingPromo] = useState(false);
   const [promoError, setPromoError] = useState('');
   const [appliedPromotion, setAppliedPromotion] = useState<AppliedPromotion | null>(null);
+  const [loyaltySummary, setLoyaltySummary] = useState<LoyaltySummary | null>(null);
+  const [selectedRewardId, setSelectedRewardId] = useState<LoyaltyRewardId | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -75,6 +80,42 @@ export default function CheckoutPage() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!user || !isVerified) return;
+    let active = true;
+
+    const loadLoyalty = async () => {
+      try {
+        const token = typeof user.getIdToken === 'function' ? await user.getIdToken() : '';
+        const response = await fetch('/api/loyalty', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) return;
+        const data = (await response.json()) as { loyalty?: LoyaltySummary };
+        if (active && data.loyalty) {
+          setLoyaltySummary(data.loyalty);
+          try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const rewardParam = urlParams.get('reward')?.trim().toUpperCase() as LoyaltyRewardId | undefined;
+            const match = LOYALTY_REWARDS.find((r) => r.id === rewardParam);
+            if (match && data.loyalty.availablePoints >= match.pointsCost) {
+              setSelectedRewardId(match.id);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    void loadLoyalty();
+    return () => {
+      active = false;
+    };
+  }, [isVerified, user]);
 
   // Detectar ?mesa=X en URL o en sessionStorage
   useEffect(() => {
@@ -194,7 +235,21 @@ export default function CheckoutPage() {
   };
 
   const effectiveDiscount = appliedPromotion ? Math.min(appliedPromotion.discount, totalPrice) : 0;
-  const finalTotal = Math.max(0, totalPrice - effectiveDiscount);
+  const subtotalAfterPromo = Math.max(0, totalPrice - effectiveDiscount);
+  const availableLoyaltyPoints = loyaltySummary?.availablePoints ?? 0;
+  const selectedReward = selectedRewardId
+    ? LOYALTY_REWARDS.find(
+        (reward) =>
+          reward.id === selectedRewardId &&
+          availableLoyaltyPoints >= reward.pointsCost &&
+          subtotalAfterPromo >= reward.minSubtotalCop
+      ) ?? null
+    : null;
+  const loyaltyDiscount = selectedReward
+    ? Math.min(selectedReward.maxDiscountCop, subtotalAfterPromo)
+    : 0;
+  const finalTotal = Math.max(0, subtotalAfterPromo - loyaltyDiscount);
+  const estimatedPointsEarned = Math.max(0, Math.floor(finalTotal / 1000));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,6 +279,7 @@ export default function CheckoutPage() {
           notes: formData.notes,
           items: getCheckoutItems(),
           ...(appliedPromotion ? { promotionCode: appliedPromotion.code } : {}),
+          ...(selectedReward ? { loyaltyRewardId: selectedReward.id } : {}),
         }),
       });
 
@@ -517,6 +573,80 @@ export default function CheckoutPage() {
               </CardContent>
             </Card>
 
+            {/* Fidelización: Puntos Coctels y Canje de Recompensas */}
+            <Card className="border-none shadow-md bg-card/60 border border-primary/15">
+              <CardHeader className="p-5 md:p-6 pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="flex items-center gap-2 text-primary font-bold text-base md:text-lg uppercase">
+                    <Gift className="w-5 h-5" /> Puntos Coctels
+                  </CardTitle>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-300">
+                    <Sparkles className="w-3.5 h-3.5" /> Disponible: {availableLoyaltyPoints} pts
+                  </span>
+                </div>
+              </CardHeader>
+              <CardContent className="p-5 md:p-6 pt-0 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Canjea tus puntos acumulados por descuentos directos o un cóctel de cortesía. Con este pedido sumarás{' '}
+                  <strong className="text-cyan-300">+{estimatedPointsEarned} pts</strong> al entregarse.
+                </p>
+
+                <div className="space-y-2" role="group" aria-label="Recompensas de fidelización">
+                  {LOYALTY_REWARDS.map((reward) => {
+                    const hasEnoughPoints = availableLoyaltyPoints >= reward.pointsCost;
+                    const meetsMinimum = subtotalAfterPromo >= reward.minSubtotalCop;
+                    const canRedeem = hasEnoughPoints && meetsMinimum;
+                    const isSelected = selectedReward?.id === reward.id;
+
+                    return (
+                      <div
+                        key={reward.id}
+                        className={`flex items-center justify-between gap-3 rounded-xl border p-3.5 transition-all ${
+                          isSelected
+                            ? 'border-primary bg-primary/15 text-white'
+                            : canRedeem
+                            ? 'border-white/15 bg-background/40 hover:border-primary/40'
+                            : 'border-white/5 bg-background/20 opacity-60'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black uppercase text-primary">
+                              {reward.pointsCost} pts
+                            </span>
+                            <span className="text-xs font-bold text-white truncate">
+                              {reward.title}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            {reward.description}
+                          </p>
+                        </div>
+
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={isSelected ? 'outline' : 'default'}
+                          disabled={!canRedeem && !isSelected}
+                          onClick={() => {
+                            setSelectedRewardId(isSelected ? null : reward.id);
+                            idempotencyKey.current = null;
+                          }}
+                          className={
+                            isSelected
+                              ? 'h-9 px-3 rounded-lg border-rose-500/40 text-rose-300 hover:bg-rose-500/10 text-xs font-bold'
+                              : 'h-9 px-3 rounded-lg bg-primary text-white hover:bg-primary/90 text-xs font-bold'
+                          }
+                        >
+                          {isSelected ? 'Quitar' : canRedeem ? 'Canjear' : `Faltan ${Math.max(0, reward.pointsCost - availableLoyaltyPoints)} pts`}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
             <Card className="border-none shadow-md bg-card/60 border border-primary/10">
               <CardHeader className="p-5 md:p-6">
                 <CardTitle className="flex items-center gap-2 text-primary font-bold text-base md:text-lg uppercase">
@@ -557,17 +687,23 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="space-y-2 border-t border-white/15 pt-4">
+                  {(appliedPromotion || selectedReward) && (
+                    <div className="flex justify-between items-center text-sm opacity-90">
+                      <span>Subtotal</span>
+                      <span className="font-semibold">${totalPrice.toLocaleString()}</span>
+                    </div>
+                  )}
                   {appliedPromotion && (
-                    <>
-                      <div className="flex justify-between items-center text-sm opacity-90">
-                        <span>Subtotal</span>
-                        <span className="font-semibold">${totalPrice.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-sm text-cyan-200 font-bold">
-                        <span>Descuento ({appliedPromotion.code})</span>
-                        <span>-${effectiveDiscount.toLocaleString()}</span>
-                      </div>
-                    </>
+                    <div className="flex justify-between items-center text-sm text-cyan-200 font-bold">
+                      <span>Descuento ({appliedPromotion.code})</span>
+                      <span>-${effectiveDiscount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {selectedReward && (
+                    <div className="flex justify-between items-center text-sm text-emerald-200 font-bold">
+                      <span>Recompensa ({selectedReward.title})</span>
+                      <span>-${loyaltyDiscount.toLocaleString()}</span>
+                    </div>
                   )}
                   <div className="flex justify-between items-end pt-2">
                     <span className="text-base md:text-lg opacity-80">Total a Pagar</span>

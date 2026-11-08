@@ -1,3 +1,5 @@
+import type { LoyaltyRewardId } from "@/types/loyalty";
+
 export const ORDER_STATUSES = [
   "pendiente",
   "confirmado",
@@ -33,6 +35,7 @@ export type CreateOrderInput = {
   tableNumber?: string;
   items: CheckoutItemInput[];
   promotionCode?: string;
+  loyaltyRewardId?: LoyaltyRewardId;
 };
 
 export type OrderItem = {
@@ -94,6 +97,10 @@ export type Order = {
   audit: OrderAudit;
   statusHistory?: OrderStatusHistoryEntry[];
   promotionCode?: string;
+  loyaltyRewardId?: LoyaltyRewardId;
+  loyaltyPointsEarned?: number;
+  loyaltyPointsRedeemed?: number;
+  loyaltyDiscount?: number;
   rating?: OrderRating;
   legacy?: boolean;
   historical?: boolean;
