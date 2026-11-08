@@ -427,5 +427,52 @@ describe('CartContext & CartProvider', () => {
     expect(localStorage.getItem(CART_STORAGE_KEY)).not.toBeNull();
     expect(localStorage.getItem(LEGACY_CART_STORAGE_KEY)).toBeNull();
   });
+
+  it('addItems: agrega múltiples ítems en una sola operación atómica acumulando correctamente', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+
+    act(() => {
+      result.current.addItems([
+        {
+          productId: 'prod-1',
+          name: 'Granizado Mora',
+          price: 15000,
+          quantity: 2,
+          image: '',
+          customization: { size: 'Medium', flavors: ['Mora'], addOns: [] },
+        },
+        {
+          productId: 'prod-2',
+          name: 'Soda Frutos Rojos',
+          price: 12000,
+          quantity: 1,
+          image: '',
+          customization: { size: '16 oz', flavors: [], addOns: [] },
+        },
+      ]);
+    });
+
+    expect(result.current.items).toHaveLength(2);
+    expect(result.current.totalItems).toBe(3);
+    expect(result.current.totalPrice).toBe(42000);
+
+    // Agregar de nuevo acumulando sobre prod-1
+    act(() => {
+      result.current.addItems([
+        {
+          productId: 'prod-1',
+          name: 'Granizado Mora',
+          price: 15000,
+          quantity: 3,
+          image: '',
+          customization: { size: 'Medium', flavors: ['Mora'], addOns: [] },
+        },
+      ]);
+    });
+
+    expect(result.current.items).toHaveLength(2);
+    expect(result.current.items.find((i) => i.productId === 'prod-1')?.quantity).toBe(5);
+    expect(result.current.totalItems).toBe(6);
+  });
 });
 

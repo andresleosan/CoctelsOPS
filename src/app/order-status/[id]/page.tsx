@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle2, Package, MapPin, Clock, Home, MessageSquare } from 'lucide-react';
+import { RepeatOrderButton } from '@/components/account/RepeatOrderButton';
 import { useAuth } from '@/hooks/use-auth';
 import { buildWhatsAppMessage } from '@/lib/orders/whatsapp-message';
 import type { Order, OrderStatus } from '@/types/orders';
@@ -45,6 +46,7 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
       const data = await response.json() as { configuration?: StoreConfiguration };
       if (active && data.configuration) setConfiguration(data.configuration);
     }).catch(() => undefined);
+
     void user.getIdToken().then(async (token) => {
       const response = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -127,9 +129,26 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
         </Card>
 
         <div className="flex flex-col justify-center gap-4 pt-4 sm:flex-row">
-          {businessPhone && <Button className="rounded-full" asChild><a href={buildWhatsAppMessage(order, businessPhone)} target="_blank" rel="noreferrer"><MessageSquare className="mr-2 h-4 w-4" /> Confirmar por WhatsApp</a></Button>}
-          <Button variant="outline" className="rounded-full" asChild><Link href="/"><Home className="mr-2 h-4 w-4" /> Volver al inicio</Link></Button>
-          <Button variant="outline" className="rounded-full" asChild><Link href="/menu">Seguir comprando</Link></Button>
+          <RepeatOrderButton
+            items={order.items}
+            orderId={order.id}
+            className="rounded-full bg-primary text-primary-foreground font-semibold shadow-md hover:opacity-90"
+          />
+          {businessPhone && (
+            <Button className="rounded-full" asChild>
+              <a href={buildWhatsAppMessage(order, businessPhone)} target="_blank" rel="noreferrer">
+                <MessageSquare className="mr-2 h-4 w-4" /> Confirmar por WhatsApp
+              </a>
+            </Button>
+          )}
+          <Button variant="outline" className="rounded-full" asChild>
+            <Link href="/">
+              <Home className="mr-2 h-4 w-4" /> Volver al inicio
+            </Link>
+          </Button>
+          <Button variant="outline" className="rounded-full" asChild>
+            <Link href="/menu">Seguir comprando</Link>
+          </Button>
         </div>
       </div>
     </div>

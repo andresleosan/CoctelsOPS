@@ -19,6 +19,7 @@ export type CartItem = {
 export type CartContextType = {
   items: CartItem[];
   addItem: (item: Omit<CartItem, 'id'> & { id?: string }) => void;
+  addItems: (items: Array<Omit<CartItem, 'id'> & { id?: string }>) => void;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   clearCart: () => void;
@@ -200,6 +201,32 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const addItems = useCallback((newItems: Array<Omit<CartItem, 'id'> & { id?: string }>) => {
+    if (!Array.isArray(newItems) || newItems.length === 0) return;
+
+    setItems((prev) => {
+      const next = [...prev];
+      for (const raw of newItems) {
+        const normalized = normalizeCartItem(raw);
+        if (!normalized) continue;
+
+        const existingIndex = next.findIndex((item) => item.id === normalized.id);
+        if (existingIndex > -1) {
+          const existing = next[existingIndex];
+          next[existingIndex] = {
+            ...existing,
+            quantity: existing.quantity + normalized.quantity,
+            price: normalized.price,
+            image: normalized.image || existing.image,
+          };
+        } else {
+          next.push(normalized);
+        }
+      }
+      return next;
+    });
+  }, []);
+
   const removeItem = useCallback((id: string) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
   }, []);
@@ -239,6 +266,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const contextValue = useMemo<CartContextType>(() => ({
     items,
     addItem,
+    addItems,
     removeItem,
     updateQuantity,
     clearCart,
@@ -246,7 +274,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     totalItems,
     totalPrice,
     isHydrated,
-  }), [items, addItem, removeItem, updateQuantity, clearCart, getCheckoutItems, totalItems, totalPrice, isHydrated]);
+  }), [items, addItem, addItems, removeItem, updateQuantity, clearCart, getCheckoutItems, totalItems, totalPrice, isHydrated]);
 
   return (
     <CartContext.Provider value={contextValue}>

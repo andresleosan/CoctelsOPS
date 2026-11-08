@@ -138,7 +138,16 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Dotar a `/admin/reportes` de atajos de turno (`Hoy`, `Últimos 7 días`, `Este Mes`), KPI de Ticket Promedio, exportación directa a CSV (UTF-8 BOM) y copiado de reporte ejecutivo para WhatsApp.
   - **Archivos:** `src/app/admin/reportes/page.tsx`, `src/lib/reports/export-report.ts`, `tests/lib/export-report.test.ts`, `tests/components/admin-reports.test.tsx`.
 
-- [ ] **TASK-14: Re-Pedido en 1 Tap ("Repetir Pedido") en Historial de Cliente y Seguimiento de Orden**
+- [x] **TASK-14: Re-Pedido en 1 Tap ("Repetir Pedido") en Historial de Cliente y Seguimiento de Orden**
   - **Nivel Recomendado:** `3.8 Flash (High)`
   - **Objetivo:** Permitir a los clientes repetir cualquier pedido previo con sus presentaciones, sabores y toppings exactos hacia `CartContext` desde `/cuenta/pedidos` y `/order-status/[id]`.
-  - **Archivos:** `src/components/account/OrderHistory.tsx`, `src/app/order-status/[id]/page.tsx`, `tests/components/order-repeat.test.tsx`.
+  - **Archivos:** `src/components/account/OrderHistory.tsx`, `src/app/order-status/[id]/page.tsx`, `src/components/account/RepeatOrderButton.tsx`, `src/lib/orders/repeat-order.ts`, `tests/components/order-repeat.test.tsx`.
+
+---
+
+### Fase 6: Retención, Fidelización y Calidad Operativa (v1.2)
+
+- [ ] **TASK-15: Valoración de Pedido en 1 Tap (Rating 5 Estrellas y Reseñas de Cliente en Pedidos Entregados)**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Permitir a los clientes calificar su pedido entregado con 1 toque (1 a 5 estrellas neón con microinteracciones táctiles, chips rápidos de atributos como "Sabor perfecto", "Bien frío", "Entrega rápida" y comentario opcional) desde `/order-status/[id]` y `/cuenta/pedidos/[id]`, registrando la calificación atómica en Firestore y reflejando el índice de satisfacción CSAT en `/admin/dashboard` y `/admin/reportes`.
+  - **Archivos:** `src/components/orders/OrderRatingCard.tsx`, `src/app/api/pedidos/[id]/rating/route.ts`, `src/app/order-status/[id]/page.tsx`, `src/app/cuenta/pedidos/[id]/page.tsx`, `tests/components/order-rating.test.tsx`.
