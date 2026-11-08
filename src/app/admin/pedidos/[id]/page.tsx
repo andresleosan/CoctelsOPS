@@ -2,11 +2,12 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Clock, MessageCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock, MessageCircle, Printer } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
+import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
 import { PermissionGate } from "@/components/admin/PermissionGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ export default function AdminOrderDetailPage() {
   const [businessPhone, setBusinessPhone] = useState("");
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [error, setError] = useState("");
 
   async function loadOrder() {
@@ -140,7 +142,15 @@ export default function AdminOrderDetailPage() {
                     Creado {new Date(order.createdAt).toLocaleString("es-CO")}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    data-testid="btn-open-print-modal"
+                    onClick={() => setIsPrintOpen(true)}
+                    className="inline-flex items-center gap-1.5"
+                  >
+                    <Printer className="h-4 w-4" /> Imprimir Comanda
+                  </Button>
                   <PermissionGate permission="pedidos.update">
                     {getOrderAction(order.status) && (
                       <Button onClick={() => void advanceOrder()} disabled={updating}>
@@ -230,6 +240,11 @@ export default function AdminOrderDetailPage() {
                   </CardContent>
                 </Card>
               </div>
+              <OrderReceiptPrint
+                order={order}
+                isOpen={isPrintOpen}
+                onClose={() => setIsPrintOpen(false)}
+              />
             </>
           )
         )}

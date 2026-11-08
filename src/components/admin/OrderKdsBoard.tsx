@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Clock, Flame, MapPin, MessageSquareWarning, Phone, Sparkles } from "lucide-react";
+import { ArrowRight, Clock, Flame, MapPin, MessageSquareWarning, Phone, Printer, Sparkles } from "lucide-react";
 
+import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
 import { PermissionGate } from "@/components/admin/PermissionGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,7 @@ export type OrderKdsBoardProps = {
   nowMs?: number;
   updatingOrderId?: string | null;
   onAdvanceOrder: (order: Order, skipConfirm?: boolean) => void | Promise<void>;
+  onPrintOrder?: (order: Order) => void;
 };
 
 const SLA_STYLES: Record<SlaLevel, string> = {
@@ -42,7 +45,9 @@ export function OrderKdsBoard({
   nowMs = Date.now(),
   updatingOrderId = null,
   onAdvanceOrder,
+  onPrintOrder,
 }: OrderKdsBoardProps) {
+  const [activePrintOrder, setActivePrintOrder] = useState<Order | null>(null);
   const columns = groupOrdersIntoKdsColumns(orders);
 
   return (
@@ -188,6 +193,24 @@ export function OrderKdsBoard({
                           ${order.total.toLocaleString("es-CO")}
                         </span>
                         <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            data-testid={`btn-kds-print-${order.id}`}
+                            className="min-h-11 px-2.5 text-slate-700 hover:text-slate-950"
+                            title="Imprimir comanda o etiquetas de vaso"
+                            aria-label={`Imprimir comanda pedido ${order.id}`}
+                            onClick={() => {
+                              if (onPrintOrder) {
+                                onPrintOrder(order);
+                              } else {
+                                setActivePrintOrder(order);
+                              }
+                            }}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
                           <Button variant="outline" size="sm" asChild className="min-h-11 px-3">
                             <Link href={`/admin/pedidos/${order.id}`} aria-label={`Detalle del pedido ${order.id}`}>
                               Detalle <ArrowRight className="h-3.5 w-3.5" />
@@ -215,6 +238,11 @@ export function OrderKdsBoard({
           )}
         </section>
       ))}
+      <OrderReceiptPrint
+        order={activePrintOrder}
+        isOpen={activePrintOrder !== null}
+        onClose={() => setActivePrintOrder(null)}
+      />
     </div>
   );
 }

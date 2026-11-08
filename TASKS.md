@@ -133,7 +133,16 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Implementar suscripción opcional a notificaciones Web Push / Service Worker y actualización reactiva sin refresco para avisar al cliente cuando su pedido cambie a "preparando", "en camino" y "entregado".
   - **Archivos:** `src/components/notifications/PushSubscriptionBanner.tsx`, `src/lib/notifications/web-push.ts`, `src/app/api/notifications/subscribe/route.ts`, `public/sw.js`, `tests/components/push-notifications.test.tsx`.
 
-- [ ] **TASK-18: Impresión Térmica de Comandas y Etiquetas de Barra en 1 Tap (Tickets 58mm/80mm)**
-  - **Nivel Recomendado:** `3.8 Flash (High)`
+- [x] **TASK-18: Impresión Térmica de Comandas y Etiquetas de Barra en 1 Tap (Tickets 58mm/80mm)**
+  - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Permitir la impresión directa y formateada de comandas para la barra y etiquetas adhesivas para vasos/domicilios en impresoras térmicas (58mm y 80mm vía Web Print / Bluetooth ESC-POS) desde el Tablero KDS (`/admin/pedidos`) y el detalle del pedido (`/admin/pedidos/[id]`).
   - **Archivos:** `src/components/admin/OrderReceiptPrint.tsx`, `src/lib/orders/receipt-formatter.ts`, `src/app/admin/pedidos/[id]/page.tsx`, `src/components/admin/OrderKdsBoard.tsx`, `tests/components/order-receipt-print.test.tsx`.
+
+---
+
+### Fase 7: Crecimiento Comercial, Promociones Programadas y CRM (v1.3)
+
+- [ ] **TASK-19: Promociones Automáticas "Happy Hour" por Franja Horaria y Combos en Menú / Checkout**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Permitir la configuración en `/admin/promociones` de franjas horarias automáticas de Happy Hour (ej. 2x1 o precio especial en granizados seleccionados de 5pm a 8pm los viernes/sábados) y combos especiales de carta, con validación estricta y recálculo en servidor (`/api/pedidos`), badge con cuenta regresiva interactiva en `/menu` y desglose automático en `/checkout`.
+  - **Archivos:** `src/types/promotions.ts`, `src/lib/firestore/promotions.ts`, `src/components/products/HappyHourBanner.tsx`, `src/app/menu/page.tsx`, `src/app/checkout/page.tsx`, `src/lib/validation/orders.ts`, `tests/components/happy-hour.test.tsx`.
