@@ -133,10 +133,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Permitir al cliente aplicar códigos promocionales en `/checkout` con validación en vivo contra `/api/promotions/validate`, desglose de descuento en COP y aplicación atómica en `/api/pedidos`.
   - **Archivos:** `src/app/api/promotions/validate/route.ts`, `src/app/checkout/page.tsx`, `tests/api/promotions-validate.test.ts`, `tests/components/checkout.test.tsx`.
 
-- [ ] **TASK-13: Cierre de Caja por Turno, Ticket Promedio y Exportación CSV / Resumen WhatsApp en Reportes**
+- [x] **TASK-13: Cierre de Caja por Turno, Ticket Promedio y Exportación CSV / Resumen WhatsApp en Reportes**
   - **Nivel Recomendado:** `Argon (Low)`
   - **Objetivo:** Dotar a `/admin/reportes` de atajos de turno (`Hoy`, `Últimos 7 días`, `Este Mes`), KPI de Ticket Promedio, exportación directa a CSV (UTF-8 BOM) y copiado de reporte ejecutivo para WhatsApp.
-  - **Archivos:** `src/app/admin/reportes/page.tsx`, `src/lib/reports/export-report.ts`, `tests/lib/export-report.test.ts`.
+  - **Archivos:** `src/app/admin/reportes/page.tsx`, `src/lib/reports/export-report.ts`, `tests/lib/export-report.test.ts`, `tests/components/admin-reports.test.tsx`.
 
 - [ ] **TASK-14: Re-Pedido en 1 Tap ("Repetir Pedido") en Historial de Cliente y Seguimiento de Orden**
   - **Nivel Recomendado:** `3.8 Flash (High)`
