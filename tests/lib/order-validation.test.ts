@@ -5,6 +5,7 @@ import {
   createOrderInputSchema,
   assertOrderOwnership,
   assertValidTransition,
+  orderRatingSchema,
   resolvePresentationPrice,
 } from "@/lib/validation/orders";
 import { getOrderAction } from "@/lib/orders/status-actions";
@@ -189,5 +190,36 @@ describe("order validation", () => {
   it("labels dashboard actions with their actual next state", () => {
     expect(getOrderAction("preparando")).toEqual({ nextStatus: "en_camino", label: "ENVIAR" });
     expect(getOrderAction("en_camino")).toEqual({ nextStatus: "entregado", label: "ENTREGADO" });
+  });
+
+  describe("orderRatingSchema", () => {
+    it("valida una calificación correcta con estrellas, tags y comentario", () => {
+      const parsed = orderRatingSchema.parse({
+        stars: 5,
+        tags: ["🍓 Sabor increíble", "❄️ Bien frío"],
+        comment: "Excelente servicio",
+      });
+      expect(parsed.stars).toBe(5);
+      expect(parsed.tags).toHaveLength(2);
+      expect(parsed.comment).toBe("Excelente servicio");
+    });
+
+    it("asigna arreglo vacío por defecto a tags si no se envían", () => {
+      const parsed = orderRatingSchema.parse({ stars: 4 });
+      expect(parsed.stars).toBe(4);
+      expect(parsed.tags).toEqual([]);
+      expect(parsed.comment).toBeUndefined();
+    });
+
+    it("rechaza calificaciones fuera del rango 1 a 5", () => {
+      expect(() => orderRatingSchema.parse({ stars: 0 })).toThrow(/al menos 1/i);
+      expect(() => orderRatingSchema.parse({ stars: 6 })).toThrow(/no puede exceder 5/i);
+      expect(() => orderRatingSchema.parse({ stars: 3.5 })).toThrow();
+    });
+
+    it("rechaza comentarios que superen 500 caracteres", () => {
+      const longComment = "a".repeat(501);
+      expect(() => orderRatingSchema.parse({ stars: 5, comment: longComment })).toThrow(/500 caracteres/i);
+    });
   });
 });

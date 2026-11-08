@@ -19,7 +19,7 @@ type OrdersResponse = { orders: Order[] };
 type SessionResponse = { user?: Pick<UserProfile, "permissions"> };
 
 const scopeStatKeys: Record<AdminDataScope, AdminStatKey[]> = {
-  orders: ["orders", "pending"],
+  orders: ["orders", "pending", "csat"],
   products: ["activeProducts"],
   customers: ["customers"],
 };

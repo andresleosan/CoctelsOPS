@@ -16,9 +16,10 @@ import {
   createOrderInputSchema,
   OrderValidationError,
   statusUpdateSchema,
+  orderRatingSchema,
 } from "@/lib/validation/orders";
 import type { VerifiedUser } from "@/types/auth";
-import type { CreateOrderInput, Order, OrderStatus, OrderStatusHistoryEntry, StatusUpdate, CustomerOrder } from "@/types/orders";
+import type { CreateOrderInput, Order, OrderRating, OrderRatingInput, OrderStatus, OrderStatusHistoryEntry, StatusUpdate, CustomerOrder } from "@/types/orders";
 
 export class OrderNotFoundError extends Error {
   readonly status = 404;
@@ -82,6 +83,20 @@ function toOrder(id: string, data: Record<string, unknown>): Order {
     audit: (data.audit ?? {}) as Order["audit"],
     ...(statusHistory?.length ? { statusHistory } : {}),
     promotionCode: typeof data.promotionCode === "string" ? data.promotionCode : undefined,
+    ...(data.rating && typeof data.rating === "object" && typeof (data.rating as Record<string, unknown>).stars === "number"
+      ? {
+          rating: {
+            stars: (data.rating as Record<string, unknown>).stars as number,
+            tags: Array.isArray((data.rating as Record<string, unknown>).tags)
+              ? ((data.rating as Record<string, unknown>).tags as unknown[]).filter((t): t is string => typeof t === "string")
+              : [],
+            comment: typeof (data.rating as Record<string, unknown>).comment === "string"
+              ? ((data.rating as Record<string, unknown>).comment as string)
+              : undefined,
+            createdAt: String((data.rating as Record<string, unknown>).createdAt ?? ""),
+          },
+        }
+      : {}),
   };
 }
 
@@ -282,4 +297,58 @@ export async function updateOrderStatus(user: VerifiedUser, id: string, input: S
 
   if (!updated) throw new Error("No fue posible actualizar el pedido");
   return updated;
+}
+
+export async function rateCustomerOrder(
+  user: VerifiedUser,
+  id: string,
+  input: OrderRatingInput
+): Promise<OrderRating> {
+  if (!id?.trim()) throw new OrderNotFoundError();
+  const validated = orderRatingSchema.parse(input);
+  const db = getAdminDb();
+  const reference = db.collection("pedidos").doc(id.trim());
+  let savedRating: OrderRating | undefined;
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new OrderNotFoundError();
+    const current = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+
+    assertOrderOwnership(user, current.clienteUid);
+
+    if (current.status !== "entregado") {
+      throw new OrderValidationError("Solo los pedidos entregados pueden ser calificados");
+    }
+
+    const now = new Date().toISOString();
+    const ratingRecord: OrderRating = {
+      stars: validated.stars,
+      tags: validated.tags ?? [],
+      ...(validated.comment ? { comment: validated.comment } : {}),
+      createdAt: now,
+    };
+
+    transaction.update(reference, {
+      rating: ratingRecord,
+      updatedAt: now,
+    });
+
+    writeAuditInTransaction(transaction, {
+      actorUid: user.uid,
+      action: "rate",
+      module: "pedidos",
+      entityId: id.trim(),
+      changes: {
+        stars: validated.stars,
+        tagsCount: validated.tags?.length ?? 0,
+        hasComment: Boolean(validated.comment),
+      },
+    });
+
+    savedRating = ratingRecord;
+  });
+
+  if (!savedRating) throw new Error("No fue posible guardar la calificación");
+  return savedRating;
 }

@@ -19,8 +19,14 @@ export function aggregateOrders(orders: ReportOrder[]): OrderReport {
   const customerMap = new Map<string, { orders: number; revenue: number }>();
   let cancellationCount = 0;
   let totalRevenue = 0;
+  let ratingSum = 0;
+  let ratingCount = 0;
   for (const order of orders) {
     totalRevenue += order.total;
+    if (order.rating && order.rating >= 1 && order.rating <= 5) {
+      ratingSum += order.rating;
+      ratingCount += 1;
+    }
     revenueByStatus[order.status] = (revenueByStatus[order.status] ?? 0) + order.total;
     if (order.status === "cancelado") cancellationCount += 1;
     const customer = customerMap.get(order.customerId) ?? { orders: 0, revenue: 0 };
@@ -36,7 +42,16 @@ export function aggregateOrders(orders: ReportOrder[]): OrderReport {
   }
   const topProducts = [...productMap.entries()].map(([name, value]) => ({ name, ...value })).sort((a, b) => b.revenue - a.revenue || a.name.localeCompare(b.name));
   const topCustomers = [...customerMap.entries()].sort(([, left], [, right]) => right.revenue - left.revenue).map(([, value], index) => ({ customerBucket: `Cliente ${index + 1}`, ...value }));
-  return { orderCount: orders.length, totalRevenue, revenueByStatus, topProducts, topCustomers, cancellationCount };
+  const csat = ratingCount > 0 ? Number((ratingSum / ratingCount).toFixed(1)) : undefined;
+  return {
+    orderCount: orders.length,
+    totalRevenue,
+    revenueByStatus,
+    topProducts,
+    topCustomers,
+    cancellationCount,
+    ...(csat !== undefined ? { csat, ratingCount } : {}),
+  };
 }
 
 function toReportOrder(id: string, data: Record<string, unknown>): ReportOrder {
@@ -47,6 +62,9 @@ function toReportOrder(id: string, data: Record<string, unknown>): ReportOrder {
     total: typeof data.total === "number" ? data.total : 0,
     customerId: typeof data.clienteUid === "string" ? data.clienteUid : "historico",
     createdAt: typeof data.createdAt === "string" ? data.createdAt : "",
+    rating: data.rating && typeof (data.rating as Record<string, unknown>).stars === "number"
+      ? ((data.rating as Record<string, unknown>).stars as number)
+      : undefined,
     items: rawItems.flatMap((raw) => {
       if (!raw || typeof raw !== "object") return [];
       const item = raw as Record<string, unknown>;

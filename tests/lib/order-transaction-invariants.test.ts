@@ -22,7 +22,7 @@ const references = {
 vi.mock("@/lib/firebase-admin", () => ({ getAdminDb: () => ({ collection, runTransaction }) }));
 vi.mock("@/lib/firestore/products", () => ({ getProductById, productFromData }));
 
-import { createOrder } from "@/lib/firestore/orders";
+import { createOrder, rateCustomerOrder } from "@/lib/firestore/orders";
 
 const input = {
   customerName: "Ana Perez",
@@ -88,5 +88,117 @@ describe("creación transaccional de pedidos", () => {
 
     expect(retry.id).toBe("pedido-stable");
     expect(transactionCreate).toHaveBeenCalledTimes(firstCreateCount);
+  });
+});
+
+
+describe("calificación atómica de pedidos (rateCustomerOrder)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    collection.mockImplementation((name: keyof typeof references) => ({ doc: () => references[name] ?? { id: "doc-id" } }));
+    runTransaction.mockImplementation(async (callback: (transaction: unknown) => Promise<unknown>) => callback({
+      create: transactionCreate,
+      update: transactionUpdate,
+      get: transactionGet,
+    }));
+  });
+
+  it("permite calificar un pedido entregado y guarda la auditoría y actualización transaccional", async () => {
+    const deliveredOrder = {
+      clienteUid: "customer-1",
+      customerName: "Ana Perez",
+      phone: "324 555 0000",
+      address: "Carrera 37 # 66-36",
+      items: [],
+      subtotal: 20000,
+      total: 20000,
+      status: "entregado",
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+      audit: { createdByUid: "customer-1", createdAt: "2026-08-04T00:00:00.000Z" },
+    };
+
+    transactionGet.mockResolvedValueOnce({
+      exists: true,
+      id: "pedido-123",
+      data: () => deliveredOrder,
+    });
+
+    const rating = await rateCustomerOrder({ uid: "customer-1" } as never, "pedido-123", {
+      stars: 5,
+      tags: ["🍓 Sabor increíble"],
+      comment: "Super rico!",
+    });
+
+    expect(rating.stars).toBe(5);
+    expect(rating.tags).toEqual(["🍓 Sabor increíble"]);
+    expect(rating.comment).toBe("Super rico!");
+    expect(transactionUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        rating: expect.objectContaining({ stars: 5 }),
+      })
+    );
+    expect(transactionCreate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "rate",
+        module: "pedidos",
+        entityId: "pedido-123",
+      })
+    );
+  });
+
+  it("rechaza calificar un pedido que no está en estado entregado", async () => {
+    const preparingOrder = {
+      clienteUid: "customer-1",
+      customerName: "Ana Perez",
+      phone: "324 555 0000",
+      address: "Carrera 37 # 66-36",
+      items: [],
+      subtotal: 20000,
+      total: 20000,
+      status: "preparando",
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+      audit: { createdByUid: "customer-1", createdAt: "2026-08-04T00:00:00.000Z" },
+    };
+
+    transactionGet.mockResolvedValueOnce({
+      exists: true,
+      id: "pedido-123",
+      data: () => preparingOrder,
+    });
+
+    await expect(
+      rateCustomerOrder({ uid: "customer-1" } as never, "pedido-123", { stars: 5 })
+    ).rejects.toThrow(/solo los pedidos entregados/i);
+    expect(transactionUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rechaza calificar un pedido que pertenece a otro usuario", async () => {
+    const orderFromOther = {
+      clienteUid: "customer-2",
+      status: "entregado",
+      customerName: "Otro",
+      phone: "3000000000",
+      address: "Calle 1",
+      items: [],
+      subtotal: 10000,
+      total: 10000,
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+      audit: { createdByUid: "customer-2", createdAt: "2026-08-04T00:00:00.000Z" },
+    };
+
+    transactionGet.mockResolvedValueOnce({
+      exists: true,
+      id: "pedido-123",
+      data: () => orderFromOther,
+    });
+
+    await expect(
+      rateCustomerOrder({ uid: "customer-1" } as never, "pedido-123", { stars: 5 })
+    ).rejects.toThrow(/permiso/i);
   });
 });

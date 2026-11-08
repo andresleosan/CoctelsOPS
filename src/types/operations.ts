@@ -121,6 +121,7 @@ export type ReportOrder = {
   customerId: string;
   createdAt: string;
   items: ReportOrderItem[];
+  rating?: number;
 };
 
 export type OrderReportFilter = { from?: string; to?: string; status?: OrderStatus };
@@ -132,4 +133,6 @@ export type OrderReport = {
   topProducts: Array<{ name: string; quantity: number; revenue: number }>;
   topCustomers: Array<{ customerBucket: string; orders: number; revenue: number }>;
   cancellationCount: number;
+  csat?: number;
+  ratingCount?: number;
 };

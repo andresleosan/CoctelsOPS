@@ -23,12 +23,20 @@ export async function GET(request: Request): Promise<Response> {
     const ordersSnapshot = await db.collection("pedidos").orderBy("createdAt", "desc").get();
     const byStatus = Object.fromEntries(ORDER_STATUSES.map((status) => [status, 0])) as Record<OrderStatus, number>;
     let revenue = 0;
+    let ratingSum = 0;
+    let ratingCount = 0;
     for (const document of ordersSnapshot.docs) {
       const data = document.data() as { status?: unknown; total?: unknown };
       if (typeof data.status === "string" && data.status in byStatus) byStatus[data.status as OrderStatus] += 1;
       if (data.status !== "cancelado" && typeof data.total === "number") revenue += data.total;
+      const orderRating = (data as { rating?: { stars?: unknown } }).rating;
+      if (orderRating && typeof orderRating.stars === "number" && orderRating.stars >= 1 && orderRating.stars <= 5) {
+        ratingSum += orderRating.stars;
+        ratingCount += 1;
+      }
     }
-    return Response.json({ stats: { orders: ordersSnapshot.size, pending: byStatus.pendiente, revenue, byStatus } });
+    const csat = ratingCount > 0 ? Number((ratingSum / ratingCount).toFixed(1)) : undefined;
+    return Response.json({ stats: { orders: ordersSnapshot.size, pending: byStatus.pendiente, revenue, byStatus, csat, ratingCount } });
   } catch (error) {
     return toAuthorizationResponse(error);
   }

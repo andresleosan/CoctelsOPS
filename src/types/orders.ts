@@ -63,6 +63,19 @@ export type OrderStatusHistoryEntry = {
   reason?: string;
 };
 
+export type OrderRating = {
+  stars: number;
+  tags?: string[];
+  comment?: string;
+  createdAt: string;
+};
+
+export type OrderRatingInput = {
+  stars: number;
+  tags?: string[];
+  comment?: string;
+};
+
 export type Order = {
   id: string;
   clienteUid: string;
@@ -81,6 +94,7 @@ export type Order = {
   audit: OrderAudit;
   statusHistory?: OrderStatusHistoryEntry[];
   promotionCode?: string;
+  rating?: OrderRating;
   legacy?: boolean;
   historical?: boolean;
 };
@@ -89,4 +103,5 @@ export type CustomerStatusHistoryEntry = Pick<OrderStatusHistoryEntry, "status" 
 
 export type CustomerOrder = Omit<Order, "audit" | "clienteUid" | "statusHistory"> & {
   statusHistory: CustomerStatusHistoryEntry[];
+  rating?: OrderRating;
 };

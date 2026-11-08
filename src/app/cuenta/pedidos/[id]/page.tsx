@@ -6,6 +6,7 @@ import { ArrowLeft, CalendarDays, MapPin, MessageSquare, Phone, ReceiptText } fr
 
 import { OrderStatusTimeline } from '@/components/account/OrderStatusTimeline';
 import { RepeatOrderButton } from '@/components/account/RepeatOrderButton';
+import { OrderRatingCard } from '@/components/orders/OrderRatingCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -175,6 +176,14 @@ export default function AccountOrderDetailPage({ params }: { params: Promise<{ i
           )}
         </CardContent>
       </Card>
+
+      {order.status === 'entregado' && (
+        <OrderRatingCard
+          orderId={order.id}
+          initialRating={order.rating}
+          onRatingSuccess={(newRating) => setOrder((prev) => (prev ? { ...prev, rating: newRating } : prev))}
+        />
+      )}
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <RepeatOrderButton

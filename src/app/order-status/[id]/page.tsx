@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle2, Package, MapPin, Clock, Home, MessageSquare } from 'lucide-react';
 import { RepeatOrderButton } from '@/components/account/RepeatOrderButton';
+import { OrderRatingCard } from '@/components/orders/OrderRatingCard';
 import { useAuth } from '@/hooks/use-auth';
 import { buildWhatsAppMessage } from '@/lib/orders/whatsapp-message';
 import type { Order, OrderStatus } from '@/types/orders';
@@ -127,6 +128,14 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
             </div>
           </CardContent>
         </Card>
+
+        {order.status === 'entregado' && (
+          <OrderRatingCard
+            orderId={order.id}
+            initialRating={order.rating}
+            onRatingSuccess={(newRating) => setOrder((prev) => (prev ? { ...prev, rating: newRating } : prev))}
+          />
+        )}
 
         <div className="flex flex-col justify-center gap-4 pt-4 sm:flex-row">
           <RepeatOrderButton

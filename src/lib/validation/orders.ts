@@ -39,6 +39,12 @@ export const statusUpdateSchema = z.object({
   reason: z.string().trim().max(240).optional(),
 });
 
+export const orderRatingSchema = z.object({
+  stars: z.number().int().min(1, "La calificación debe ser de al menos 1 estrella").max(5, "La calificación no puede exceder 5 estrellas"),
+  tags: z.array(z.string().trim().min(1).max(50)).max(10).optional().default([]),
+  comment: z.string().trim().max(500, "El comentario no puede superar los 500 caracteres").optional(),
+});
+
 export const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {
   pendiente: ["confirmado", "cancelado"],
   confirmado: ["preparando", "cancelado"],

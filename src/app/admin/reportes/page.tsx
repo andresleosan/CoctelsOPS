@@ -9,6 +9,7 @@ import {
   MessageCircle,
   Receipt,
   RefreshCw,
+  Star,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -316,8 +317,8 @@ export default function ReportsPage() {
           </Card>
         ) : (
           <>
-            {/* 5 Main KPIs Cards */}
-            <section aria-label="Métricas Principales" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {/* Main KPIs Cards */}
+            <section aria-label="Métricas Principales" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {/* Total Revenue */}
               <Card className="relative overflow-hidden border-slate-200 shadow-sm transition-all hover:border-cyan-300">
                 <CardContent className="p-4 sm:p-5">
@@ -395,6 +396,24 @@ export default function ReportsPage() {
                     {report.topCustomers.length}
                   </p>
                   <p className="mt-1 text-[11px] text-slate-500">Registrados en turno</p>
+                </CardContent>
+              </Card>
+
+              {/* CSAT Rating */}
+              <Card className="col-span-2 border-amber-200 bg-gradient-to-br from-amber-50/40 to-white shadow-sm transition-all hover:border-amber-300 sm:col-span-1">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">Satisfacción CSAT</p>
+                    <span className="rounded-md bg-amber-100 p-1.5 text-amber-600">
+                      <Star className="h-4 w-4 fill-amber-500" />
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xl font-extrabold tracking-tight text-slate-950 sm:text-2xl">
+                    {report.csat !== undefined ? `★ ${report.csat.toFixed(1)}` : "—"}
+                  </p>
+                  <p className="mt-1 text-[11px] text-amber-700 font-medium">
+                    {report.ratingCount ? `${report.ratingCount} valoraciones` : "Sin valoraciones"}
+                  </p>
                 </CardContent>
               </Card>
             </section>
