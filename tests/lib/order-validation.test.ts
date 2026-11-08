@@ -65,6 +65,31 @@ describe("order validation", () => {
     expect(() => createOrderInputSchema.parse({ ...validInput, promotionCode: "NO_EXISTE" })).toThrow();
   });
 
+  it("accepts valid serviceType and tableNumber for on-premise table or pickup orders", () => {
+    const tableOrder = createOrderInputSchema.parse({
+      ...validInput,
+      serviceType: "mesa",
+      tableNumber: "Mesa 4",
+      address: "Mesa 4 - Consumo en local",
+    });
+    expect(tableOrder.serviceType).toBe("mesa");
+    expect(tableOrder.tableNumber).toBe("Mesa 4");
+
+    const pickupOrder = createOrderInputSchema.parse({
+      ...validInput,
+      serviceType: "pickup",
+      address: "Recoger en Barra - Consumo en local",
+    });
+    expect(pickupOrder.serviceType).toBe("pickup");
+
+    expect(() =>
+      createOrderInputSchema.parse({
+        ...validInput,
+        serviceType: "invalid-service",
+      })
+    ).toThrow();
+  });
+
   it("uses the active product catalog instead of client prices or names", () => {
     const order = calculateOrder(createOrderInputSchema.parse(validInput), [product]);
 

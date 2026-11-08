@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -66,5 +66,35 @@ describe("Checkout delivery estimate", () => {
     render(<CheckoutPage />);
 
     await waitFor(() => expect(screen.getByText("Entrega estimada: 60 min")).toBeInTheDocument());
+  });
+
+  it("permite seleccionar modo En Mesa y solicita el identificador de mesa", () => {
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ configuration }),
+    } as Response);
+
+    render(<CheckoutPage />);
+
+    const mesaBtn = screen.getByRole("button", { name: /En Mesa/i });
+    fireEvent.click(mesaBtn);
+
+    expect(screen.getByLabelText(/Número o Identificador de Mesa/i)).toBeInTheDocument();
+  });
+
+  it("permite seleccionar modo En Barra y muestra indicación de barra", () => {
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ configuration }),
+    } as Response);
+
+    render(<CheckoutPage />);
+
+    const barraBtn = screen.getByRole("button", { name: /En Barra/i });
+    fireEvent.click(barraBtn);
+
+    expect(screen.getByText(/Retiro en Barra Principal/i)).toBeInTheDocument();
   });
 });

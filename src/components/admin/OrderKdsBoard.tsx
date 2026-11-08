@@ -120,6 +120,15 @@ export function OrderKdsBoard({
                         <Badge variant="secondary" className="bg-slate-100 text-slate-800 capitalize">
                           {order.status.replace("_", " ")}
                         </Badge>
+                        {order.serviceType === "mesa" || order.tableNumber || order.address.toLowerCase().includes("mesa") ? (
+                          <Badge variant="outline" className="border-pink-300 bg-pink-50 text-pink-900 font-bold text-[11px]">
+                            🍽️ {order.tableNumber ? (order.tableNumber.toLowerCase().startsWith("mesa") ? order.tableNumber : `Mesa ${order.tableNumber}`) : "Mesa"}
+                          </Badge>
+                        ) : order.serviceType === "pickup" || order.address.toLowerCase().includes("barra") ? (
+                          <Badge variant="outline" className="border-cyan-300 bg-cyan-50 text-cyan-950 font-bold text-[11px]">
+                            🍸 En Barra
+                          </Badge>
+                        ) : null}
                       </div>
                     </CardHeader>
 

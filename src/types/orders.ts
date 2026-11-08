@@ -9,6 +9,9 @@ export const ORDER_STATUSES = [
 
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
+export const SERVICE_TYPES = ["delivery", "mesa", "pickup"] as const;
+export type ServiceType = (typeof SERVICE_TYPES)[number];
+
 export type OrderCustomization = {
   size: string;
   flavors: string[];
@@ -26,6 +29,8 @@ export type CreateOrderInput = {
   phone: string;
   address: string;
   notes?: string;
+  serviceType?: ServiceType;
+  tableNumber?: string;
   items: CheckoutItemInput[];
   promotionCode?: string;
 };
@@ -65,6 +70,8 @@ export type Order = {
   phone: string;
   address: string;
   notes?: string;
+  serviceType?: ServiceType;
+  tableNumber?: string;
   items: OrderItem[];
   subtotal: number;
   total: number;

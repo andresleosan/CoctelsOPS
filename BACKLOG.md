@@ -123,7 +123,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
     - Avance rápido en 1 tap desde el tablero KDS (manteniendo confirmación de seguridad en la vista clásica y en el detalle individual).
   - **Archivos:** `src/components/admin/OrderKdsBoard.tsx`, `src/lib/orders/kds-sla.ts`, `src/app/admin/pedidos/page.tsx`, `src/app/admin/pedidos/[id]/page.tsx`, `tests/components/order-kds-board.test.tsx`.
 
-- [ ] **TASK-11: Pedido en Mesa / Recoger en Barra con Generador de Códigos QR por Local (`/m/[slug]?mesa=X`)**
+- [x] **TASK-11: Pedido en Mesa / Recoger en Barra con Generador de Códigos QR por Local (`/m/[slug]?mesa=X`)**
   - **Nivel Recomendado:** `3.8 Flash (High)`
   - **Objetivo:** Soportar pedidos presenciales desde código QR en mesa o en barra además de domicilio, y proveer al comercio un generador de QR listo para imprimir desde `/admin/configuracion`.
   - **Archivos:** `src/components/admin/QrGeneratorCard.tsx`, `src/app/admin/configuracion/page.tsx`, `src/app/checkout/page.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `tests/components/qr-generator-card.test.tsx`.

@@ -94,7 +94,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Incorporar modo Tablero KDS en `/admin/pedidos` y enriquecer `/admin/pedidos/[id]` con desglose completo de receta (`size`, `flavors`, `addOns`, `notes`), temporizador SLA con semáforo (`<10m` verde, `10-20m` ámbar, `>20m` rojo), alerta sonora Web Audio API ante nuevos pedidos y avance en 1 tap para bartenders.
   - **Archivos:** `src/components/admin/OrderKdsBoard.tsx`, `src/lib/orders/kds-sla.ts`, `src/app/admin/pedidos/page.tsx`, `src/app/admin/pedidos/[id]/page.tsx`, `tests/components/order-kds-board.test.tsx`.
 
-- [ ] **TASK-11: Pedido en Mesa / Recoger en Barra con Generador de Códigos QR por Local (`/m/[slug]?mesa=X`)**
+- [x] **TASK-11: Pedido en Mesa / Recoger en Barra con Generador de Códigos QR por Local (`/m/[slug]?mesa=X`)**
   - **Nivel Recomendado:** `3.8 Flash (High)`
   - **Objetivo:** Permitir pedidos por código QR en mesa o para recoger en barra además de domicilio, detectando `?mesa=X` en la carta pública y agregando un generador de códigos QR SVG descargables e imprimibles en `/admin/configuracion`.
   - **Archivos:** `src/components/admin/QrGeneratorCard.tsx`, `src/app/admin/configuracion/page.tsx`, `src/app/checkout/page.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `tests/components/qr-generator-card.test.tsx`.

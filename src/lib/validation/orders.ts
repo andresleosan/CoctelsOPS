@@ -24,6 +24,8 @@ export const createOrderInputSchema = z.object({
   phone: z.string().trim().min(7, "El telefono es obligatorio").max(30).regex(/^[+\d()\s-]+$/, "El telefono no es valido"),
   address: z.string().trim().min(5, "La direccion es obligatoria").max(240),
   notes: z.string().trim().max(500).optional(),
+  serviceType: z.enum(["delivery", "mesa", "pickup"]).optional(),
+  tableNumber: z.string().trim().max(50).optional(),
   items: z.array(z.object({
     productId: z.string().trim().min(1),
     quantity: z.number().int().min(1).max(50),

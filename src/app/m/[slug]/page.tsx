@@ -7,12 +7,14 @@ import { getNegocioBySlug } from "@/lib/firestore/tenant";
 import { listActiveProductsByNegocio, listActiveProducts } from "@/lib/firestore/products";
 import { listCategories } from "@/lib/firestore/categories";
 import ProductCatalogBrowser from "@/components/products/ProductCatalogBrowser";
+import TableServiceBanner from "@/components/products/TableServiceBanner";
 import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
 type Props = {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ mesa?: string }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -26,8 +28,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function TenantStorefrontPage({ params }: Props) {
-  const { slug } = await params;
+export default async function TenantStorefrontPage({ params, searchParams }: Props) {
+  const [{ slug }, resolvedSearchParams] = await Promise.all([
+    params,
+    searchParams ? searchParams : Promise.resolve(undefined),
+  ]);
+  const mesa = typeof resolvedSearchParams?.mesa === "string" ? resolvedSearchParams.mesa : undefined;
   const negocio = await getNegocioBySlug(slug);
 
   if (!negocio) {
@@ -47,6 +53,9 @@ export default async function TenantStorefrontPage({ params }: Props) {
 
   return (
     <div className="container mx-auto px-4 py-6 md:py-10 space-y-8">
+      {/* Banner de Servicio en Mesa / Barra si fue escaneado por QR */}
+      <TableServiceBanner initialMesa={mesa} />
+
       {/* Header Local Mobile-First con Branding */}
       <div className="relative overflow-hidden rounded-3xl border border-primary/20 bg-gradient-to-b from-card/60 to-black/80 p-6 md:p-8 backdrop-blur-xl shadow-[0_0_40px_rgba(229,25,110,0.12)] max-w-4xl mx-auto">
         <div className="flex flex-col sm:flex-row items-center gap-6 text-center sm:text-left">
