@@ -180,3 +180,22 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Enriquecer `/admin/clientes` con segmentación automática de clientes (Nuevos, Frecuentes, VIP, Inactivos > 15 días con saldo de puntos), historial consolidado de compras con ticket promedio individual y generador de mensajes personalizados de WhatsApp con 1 tap ("¡Hola [Nombre]! Hace días no te vemos en Coctels OPS, tienes [X] puntos listos para canjear y Happy Hour activo hoy") para maximizar la recompra.
   - **Archivos:** `src/app/admin/clientes/page.tsx`, `src/lib/customers/crm.ts`, `src/components/admin/CustomerSegmentBadge.tsx`, `src/lib/loyalty/calculator.ts`, `tests/lib/crm.test.ts`, `tests/components/admin-customers.test.tsx`, `tests/api/admin-customers.test.ts`.
+
+---
+
+### Fase 8: Logística de Barra, Insumos Críticos y Reparto (v1.4)
+
+- [x] **TASK-21: Control de Insumos, Materia Prima y Stock Crítico de Barra (`/admin/inventario`)**
+  - **Nivel Asignado:** `Argon (Medium)`
+  - **Objetivo:** Controlar el stock de insumos críticos de coctelería y granizados (botellas de licor como Ron/Vodka/Tequila, pulpas de fruta, jarabes, vasos de 8/16/24 oz y pitillos) en Firestore (`insumos`), registrar movimientos de entrada/merma/ajuste con auditoría, definir umbrales de stock mínimo con alertas visuales de semáforo ("OK", "Bajo", "Crítico/Agotado") y permitir al staff de barra consultar y ajustar existencias en 1 tap desde smartphones.
+  - **Archivos:** `src/types/supplies.ts`, `src/lib/firestore/supplies.ts`, `src/app/api/admin/insumos/route.ts`, `src/app/api/admin/insumos/[id]/route.ts`, `src/components/admin/SuppliesManager.tsx`, `src/app/admin/inventario/page.tsx`, `tests/lib/supplies.test.ts`, `tests/api/admin-supplies.test.ts`, `tests/components/supplies-manager.test.tsx`.
+
+- [ ] **TASK-22: Panel Móvil del Repartidor / Domiciliario en Moto (`/repartidor/[pedidoId]`)**
+  - **Nivel Asignado:** `3.8 Flash (High)`
+  - **Objetivo:** Vista mobile-first ultra-rápida para el mensajero con 1 tap para llamar por teléfono o escribir por WhatsApp al cliente, botón de navegación GPS (Waze/Google Maps) y confirmación de cobro marcando el pedido como entregado.
+  - **Archivos:** `src/app/repartidor/[pedidoId]/page.tsx`, `src/components/delivery/DriverOrderView.tsx`, `tests/components/driver-order-view.test.tsx`.
+
+- [ ] **TASK-23: Modo Resiliencia Offline PWA para Barra y Caja en Horas Pico**
+  - **Nivel Asignado:** `3.8 Flash (High)`
+  - **Objetivo:** Soporte PWA con IndexedDB y Background Sync para registrar comandas y ventas en barra aunque falle la conectividad WiFi del local durante la rumba de viernes o sábado.
+  - **Archivos:** `src/lib/offline/db.ts`, `src/lib/offline/sync.ts`, `tests/lib/offline-sync.test.ts`.
