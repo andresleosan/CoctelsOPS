@@ -196,4 +196,40 @@ describe("ProductCatalogBrowser", () => {
     expect(getCategoryIcon("malteada", "Malteadas")).toBe("🍦");
     expect(getCategoryIcon("special", "Especiales")).toBe("✨");
   });
+
+  it("permite alternar entre vista de cuadrícula y lista compacta", () => {
+    render(<ProductCatalogBrowser products={sampleProducts} categories={sampleCategories} />);
+
+    const gridBtn = screen.getByRole("button", { name: "Vista de cuadrícula" });
+    const listBtn = screen.getByRole("button", { name: "Vista de lista compacta" });
+
+    expect(gridBtn).toBeInTheDocument();
+    expect(listBtn).toBeInTheDocument();
+    expect(gridBtn).toHaveAttribute("aria-pressed", "true");
+    expect(listBtn).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(listBtn);
+    expect(listBtn).toHaveAttribute("aria-pressed", "true");
+    expect(gridBtn).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("filtra productos usando los chips de filtro rápido (Populares, Con Licor)", () => {
+    render(<ProductCatalogBrowser products={sampleProducts} categories={sampleCategories} />);
+
+    // Filtro populares (fresa-1 y coco-3 son featured)
+    const popularesChip = screen.getByRole("button", { name: "Populares" });
+    fireEvent.click(popularesChip);
+
+    expect(screen.getByText("Fresa Salvaje")).toBeInTheDocument();
+    expect(screen.getByText("Coco Loco Tropical")).toBeInTheDocument();
+    expect(screen.queryByText("Mango Biche Special")).not.toBeInTheDocument();
+
+    // Filtro con licor (coco-3 con ron)
+    const licorChip = screen.getByRole("button", { name: "Con Licor" });
+    fireEvent.click(licorChip);
+
+    expect(screen.getByText("Coco Loco Tropical")).toBeInTheDocument();
+    expect(screen.queryByText("Mango Biche Special")).not.toBeInTheDocument();
+    expect(screen.queryByText("Fresa Salvaje")).not.toBeInTheDocument();
+  });
 });

@@ -76,5 +76,15 @@ describe("ProductCard", () => {
     expect(screen.getByText("Fresa")).toBeInTheDocument();
     expect(screen.getByText("Limón")).toBeInTheDocument();
   });
+
+  it("soporta modo lista compacta optimizado para catálogo extenso (Mobbin pattern)", () => {
+    render(<ProductCard product={sampleProduct} layout="list" />);
+
+    expect(screen.getByText("Fresa Salvaje")).toBeInTheDocument();
+    expect(screen.getByText("Popular")).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: `Personalizar ${sampleProduct.name}` });
+    expect(button).toBeInTheDocument();
+    expect(button.className).toContain("min-h-[44px]");
+  });
 });
 

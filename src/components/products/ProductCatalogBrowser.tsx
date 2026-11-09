@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Filter, Search, X } from "lucide-react";
+import { Filter, LayoutGrid, List, Search, Sparkles, X } from "lucide-react";
 
 import type { Category, Product } from "@/types/catalog";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,32 @@ export const CATEGORY_ICON_MAP: Record<string, string> = {
   special: "✨",
 };
 
+export type QuickFilter = "all" | "featured" | "alcohol" | "sin-alcohol";
+
+export function matchesQuickFilter(product: Product, filter: QuickFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "featured") return Boolean(product.featured);
+
+  const text = `${product.name} ${product.description} ${product.category}`.toLowerCase();
+  const alcoholKeywords = [
+    "ron", "vodka", "tequila", "aguardiente", "whisky", "whiskey",
+    "baileys", "cerveza", "michelada", "cocktail", "coctel", "con licor",
+    "águila", "aguila", "pilsen", "andina"
+  ];
+  const containsAlcohol =
+    alcoholKeywords.some((kw) => text.includes(kw)) &&
+    !text.includes("sin licor") &&
+    !text.includes("sin alcohol");
+
+  if (filter === "alcohol") {
+    return containsAlcohol;
+  }
+  if (filter === "sin-alcohol") {
+    return !containsAlcohol || text.includes("sin licor") || text.includes("sin alcohol");
+  }
+  return true;
+}
+
 export function getCategoryIcon(id: string, name: string): string {
   const lower = `${id} ${name}`.toLowerCase();
   if (lower.includes("granizado")) return CATEGORY_ICON_MAP.granizado;
@@ -37,6 +63,8 @@ export function getCategoryIcon(id: string, name: string): string {
 export default function ProductCatalogBrowser({ products, categories }: ProductCatalogBrowserProps) {
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [, startTransition] = useTransition();
 
   const isProgrammaticScroll = useRef(false);
@@ -64,9 +92,13 @@ export default function ProductCatalogBrowser({ products, categories }: ProductC
     return [...sorted, ...extra];
   }, [categories, products]);
 
-  // Filtrar productos reactivamente por término de búsqueda (nombre, descripción o sabores)
+  // Filtrar productos reactivamente por término de búsqueda y filtro rápido (Mobbin / Uber Eats pattern)
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredProducts = products.filter((product) => {
+    // Filtro rápido por tipo (alcohol / sin alcohol / destacados)
+    if (!matchesQuickFilter(product, quickFilter)) return false;
+
+    // Filtro por término de búsqueda
     if (!normalizedQuery) return true;
     const matchesName = product.name.toLowerCase().includes(normalizedQuery);
     const matchesDesc = product.description.toLowerCase().includes(normalizedQuery);
@@ -157,6 +189,13 @@ export default function ProductCatalogBrowser({ products, categories }: ProductC
     setSearchQuery("");
   };
 
+  const handleResetAllFilters = () => {
+    setSearchQuery("");
+    setQuickFilter("all");
+  };
+
+  const isFiltered = searchQuery.trim().length > 0 || quickFilter !== "all";
+
   return (
     <div className="w-full space-y-6">
       {/* Buscador Reactivo Mobile-First con 1-tap clear */}
@@ -182,15 +221,125 @@ export default function ProductCatalogBrowser({ products, categories }: ProductC
         )}
       </div>
 
-      {/* Indicador de resultados activos cuando se busca */}
-      {searchQuery.trim().length > 0 && (
+      {/* Quick Filters y Density Switcher (Mobbin / Uber Eats / Starbucks pattern) */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
+        {/* Chips de filtro rápido */}
+        <div
+          role="group"
+          aria-label="Filtros rápidos de bebidas"
+          className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={quickFilter === "all" ? "default" : "outline"}
+            onClick={() => setQuickFilter("all")}
+            className={`min-h-[44px] h-10 px-3.5 rounded-full text-xs font-bold transition-all shrink-0 ${
+              quickFilter === "all"
+                ? "bg-primary text-white neon-shadow-magenta border-primary"
+                : "bg-card/70 border-white/10 text-white/80 hover:text-white"
+            }`}
+          >
+            Todos
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={quickFilter === "featured" ? "default" : "outline"}
+            onClick={() => setQuickFilter("featured")}
+            className={`min-h-[44px] h-10 px-3.5 rounded-full text-xs font-bold transition-all shrink-0 gap-1.5 ${
+              quickFilter === "featured"
+                ? "bg-primary text-white neon-shadow-magenta border-primary"
+                : "bg-card/70 border-white/10 text-white/80 hover:text-white"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+            Populares
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={quickFilter === "alcohol" ? "default" : "outline"}
+            onClick={() => setQuickFilter("alcohol")}
+            className={`min-h-[44px] h-10 px-3.5 rounded-full text-xs font-bold transition-all shrink-0 gap-1.5 ${
+              quickFilter === "alcohol"
+                ? "bg-primary text-white neon-shadow-magenta border-primary"
+                : "bg-card/70 border-white/10 text-white/80 hover:text-white"
+            }`}
+          >
+            <span role="img" aria-hidden="true">🍸</span>
+            Con Licor
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={quickFilter === "sin-alcohol" ? "default" : "outline"}
+            onClick={() => setQuickFilter("sin-alcohol")}
+            className={`min-h-[44px] h-10 px-3.5 rounded-full text-xs font-bold transition-all shrink-0 gap-1.5 ${
+              quickFilter === "sin-alcohol"
+                ? "bg-primary text-white neon-shadow-magenta border-primary"
+                : "bg-card/70 border-white/10 text-white/80 hover:text-white"
+            }`}
+          >
+            <span role="img" aria-hidden="true">🥤</span>
+            Sin Alcohol
+          </Button>
+        </div>
+
+        {/* Selector de Densidad (Cuadrícula vs Lista Compacta) */}
+        <div
+          role="group"
+          aria-label="Modo de visualización"
+          className="flex items-center gap-1 p-1 rounded-xl bg-card/70 border border-white/10 shrink-0 self-end sm:self-auto"
+        >
+          <button
+            type="button"
+            onClick={() => setViewMode("grid")}
+            aria-label="Vista de cuadrícula"
+            aria-pressed={viewMode === "grid"}
+            className={`min-w-[44px] min-h-[44px] px-3 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold transition-all ${
+              viewMode === "grid"
+                ? "bg-primary text-white shadow-md"
+                : "text-muted-foreground hover:text-white"
+            }`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            <span className="hidden md:inline">Cuadrícula</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("list")}
+            aria-label="Vista de lista compacta"
+            aria-pressed={viewMode === "list"}
+            className={`min-w-[44px] min-h-[44px] px-3 rounded-lg flex items-center justify-center gap-1.5 text-xs font-bold transition-all ${
+              viewMode === "list"
+                ? "bg-primary text-white shadow-md"
+                : "text-muted-foreground hover:text-white"
+            }`}
+          >
+            <List className="w-4 h-4" />
+            <span className="hidden md:inline">Lista</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Indicador de resultados activos cuando se busca o filtra */}
+      {isFiltered && (
         <div className="flex items-center justify-between px-2 text-xs md:text-sm text-muted-foreground">
           <span>
-            Mostrando <strong className="text-white font-bold">{filteredProducts.length}</strong> {filteredProducts.length === 1 ? "resultado" : "resultados"} para &ldquo;<span className="text-primary">{searchQuery}</span>&rdquo;
+            Mostrando <strong className="text-white font-bold">{filteredProducts.length}</strong> {filteredProducts.length === 1 ? "bebida" : "bebidas"}
+            {searchQuery.trim().length > 0 && (
+              <> para &ldquo;<span className="text-primary">{searchQuery}</span>&rdquo;</>
+            )}
+            {quickFilter !== "all" && (
+              <span className="ml-1 text-cyan-300 font-semibold">
+                ({quickFilter === "featured" ? "⭐ Populares" : quickFilter === "alcohol" ? "🍸 Con Licor" : "🥤 Sin Alcohol"})
+              </span>
+            )}
           </span>
           <button
             type="button"
-            onClick={handleClearSearch}
+            onClick={handleResetAllFilters}
             className="text-primary hover:underline font-semibold min-h-[44px] inline-flex items-center"
           >
             Ver toda la carta
@@ -284,9 +433,15 @@ export default function ProductCatalogBrowser({ products, categories }: ProductC
                 </Badge>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              <div
+                className={
+                  viewMode === "grid"
+                    ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                    : "grid grid-cols-1 md:grid-cols-2 gap-3.5"
+                }
+              >
                 {catProducts.map((product) => (
-                  <ProductCard key={product.id} product={product} />
+                  <ProductCard key={product.id} product={product} layout={viewMode} />
                 ))}
               </div>
             </section>
@@ -301,12 +456,12 @@ export default function ProductCatalogBrowser({ products, categories }: ProductC
           <div className="space-y-2">
             <h3 className="text-xl font-headline font-bold text-white">No encontramos lo que buscas</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              No hay bebidas que coincidan con &ldquo;<span className="text-white">{searchQuery}</span>&rdquo;. Prueba buscando por otro sabor (ej. Fresa, Mango, Maracuyá).
+              No hay bebidas que coincidan con &ldquo;<span className="text-white">{searchQuery}</span>&rdquo;. Prueba buscando por otro sabor o cambiando los filtros rápidos.
             </p>
           </div>
           <Button
             variant="outline"
-            onClick={handleClearSearch}
+            onClick={handleResetAllFilters}
             aria-label="Restablecer búsqueda"
             className="min-h-[44px] rounded-full border-primary/30 text-white hover:bg-primary/20 font-bold px-6 active:scale-95 transition-all"
           >
