@@ -1,17 +1,27 @@
-import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
+import { config } from "dotenv";
+config({ path: ".env.local" });
+
+import { getSeedAdminAuth, getSeedAdminDb } from "./firebase-admin";
 
 async function main(): Promise<void> {
-  const uid = process.argv[2]?.trim();
-  if (!uid) {
-    throw new Error("Uso: pnpm exec tsx scripts/set-admin.ts <UID>");
+  const arg = process.argv[2]?.trim();
+  if (!arg) {
+    throw new Error("Uso: pnpm exec tsx scripts/set-admin.ts <UID o Email>");
   }
 
-  const auth = getAdminAuth();
-  const firebaseUser = await auth.getUser(uid);
+  const auth = getSeedAdminAuth();
+  let firebaseUser;
+  if (arg.includes("@")) {
+    firebaseUser = await auth.getUserByEmail(arg);
+  } else {
+    firebaseUser = await auth.getUser(arg);
+  }
+
+  const uid = firebaseUser.uid;
   const claims = { ...(firebaseUser.customClaims ?? {}), admin: true };
   await auth.setCustomUserClaims(uid, claims);
 
-  const ref = getAdminDb().collection("users").doc(uid);
+  const ref = getSeedAdminDb().collection("users").doc(uid);
   const existing = await ref.get();
   await ref.set({
     uid,
@@ -25,7 +35,7 @@ async function main(): Promise<void> {
     lastLoginAt: new Date().toISOString(),
   }, { merge: true });
 
-  console.log(`Administrador configurado para ${uid}.`);
+  console.log(`Administrador configurado con éxito para ${firebaseUser.email} (UID: ${uid}).`);
 }
 
 void main().catch((error: unknown) => {

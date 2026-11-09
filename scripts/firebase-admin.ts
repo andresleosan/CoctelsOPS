@@ -1,4 +1,5 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
+import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 
 let seedApp: App | undefined;
@@ -25,4 +26,8 @@ export function getSeedAdminApp(): App {
 
 export function getSeedAdminDb(): Firestore {
   return getFirestore(getSeedAdminApp());
+}
+
+export function getSeedAdminAuth(): Auth {
+  return getAuth(getSeedAdminApp());
 }
