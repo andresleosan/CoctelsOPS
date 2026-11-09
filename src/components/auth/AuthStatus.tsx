@@ -46,9 +46,9 @@ export function AuthStatus({ mobileMenu = false }: { mobileMenu?: boolean }) {
           Mi cuenta
         </Link>
         {isAdmin && (
-          <Link href="/admin/dashboard" className="flex items-center gap-2 text-sm font-medium text-accent hover:text-primary transition-colors">
-            <ShieldCheck className="h-5 w-5" />
-            Panel de administración
+          <Link href="/admin/dashboard" className="flex items-center gap-2 text-sm font-bold text-cyan-400 hover:text-cyan-300 transition-colors bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30">
+            <ShieldCheck className="h-5 w-5 text-cyan-400" />
+            <span>Panel Staff & Administración</span>
           </Link>
         )}
         <Button variant="ghost" size="sm" className="justify-start gap-2 px-0 text-sm font-medium" disabled={isLoggingOut} onClick={handleLogout}>
@@ -68,9 +68,16 @@ export function AuthStatus({ mobileMenu = false }: { mobileMenu?: boolean }) {
         </Link>
       </Button>
       {isAdmin && (
-        <Button variant="ghost" size="icon" asChild title="Panel de administración">
+        <Button
+          variant="outline"
+          size="sm"
+          asChild
+          className="border-cyan-500/40 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-900/40 hover:text-cyan-200 text-xs font-bold gap-1.5 shadow-sm shadow-cyan-500/20"
+          title="Panel Staff y Operaciones"
+        >
           <Link href="/admin/dashboard" aria-label="Panel de administración">
-            <ShieldCheck className="h-5 w-5 text-accent" />
+            <ShieldCheck className="h-4 w-4 text-cyan-400" />
+            <span className="hidden sm:inline">Panel Staff</span>
           </Link>
         </Button>
       )}
