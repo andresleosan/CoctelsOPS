@@ -5,7 +5,7 @@ import {
 
 export async function GET(): Promise<Response> {
   try {
-    return Response.json({ configuration: await getStoreConfiguration() });
+    return Response.json({ configuration: await getStoreConfiguration({ allowDefaults: true }) });
   } catch (error) {
     if (error instanceof StoreConfigurationUnavailableError) {
       return Response.json({ error: error.message }, { status: 503 });

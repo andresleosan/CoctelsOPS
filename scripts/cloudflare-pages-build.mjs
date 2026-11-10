@@ -45,19 +45,42 @@ if (fs.existsSync('.next/static')) {
   copyRecursive('.next/static', 'out/_next/static');
 }
 
-// 2. Copiar carpeta public
-if (fs.existsSync('public')) {
-  console.log('[Cloudflare Pages Build] Copiando public -> out...');
-  copyRecursive('public', 'out');
-}
-
-// 3. Copiar páginas estáticas prerenderizadas de .next/server/app
+// 2. Copiar páginas estáticas prerenderizadas de .next/server/app
 if (fs.existsSync('.next/server/app')) {
   console.log('[Cloudflare Pages Build] Copiando páginas estáticas .next/server/app -> out...');
   copyRecursive('.next/server/app', 'out');
 }
 
-// 4. Asegurar rutas index.html para todas las páginas .html (ej. login.html -> login/index.html)
+// 3. Resolver archivos .body generados por Next.js App Router (ej. icon.png.body -> icon.png)
+function resolveBodyFiles(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, item.name);
+    if (item.isDirectory()) {
+      resolveBodyFiles(fullPath);
+    } else if (item.isFile() && item.name.endsWith('.body')) {
+      const targetName = item.name.replace(/\.body$/, '');
+      const targetPath = path.join(dir, targetName);
+      try {
+        if (fs.existsSync(targetPath)) {
+          fs.rmSync(targetPath, { recursive: true, force: true });
+        }
+        fs.copyFileSync(fullPath, targetPath);
+      } catch (err) {
+        console.warn(`[Cloudflare Pages Build] No se pudo resolver body para ${item.name}: ${err.message}`);
+      }
+    }
+  }
+}
+resolveBodyFiles('out');
+
+// 4. Copiar carpeta public (al final para asegurar precedencia de assets oficiales)
+if (fs.existsSync('public')) {
+  console.log('[Cloudflare Pages Build] Copiando public -> out...');
+  copyRecursive('public', 'out');
+}
+
+// 5. Asegurar rutas index.html para todas las páginas .html (ej. login.html -> login/index.html)
 function createDirectoryIndexFiles(dir) {
   if (!fs.existsSync(dir)) return;
   for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -81,7 +104,7 @@ function createDirectoryIndexFiles(dir) {
 }
 createDirectoryIndexFiles('out');
 
-// 5. Generar _worker.js inteligente para Pages: sirve estáticos primero, y si no existe delega al Worker APP
+// 6. Generar _worker.js inteligente para Pages: sirve estáticos primero, y si no existe delega al Worker APP
 const workerContent = `export default {
   async fetch(request, env) {
     // 1. Intentar servir estáticos / páginas prerenderizadas directamente desde Cloudflare Pages ASSETS
@@ -104,5 +127,6 @@ const workerContent = `export default {
 };
 `;
 
-fs.writeFileSync('out/_worker.js', workerContent, 'utf8');
-console.log('[Cloudflare Pages Build] out/_worker.js generado exitosamente.');
+fs.writeFileSync('out/_worker.js', workerContent, 'utf-8');
+console.log('[Cloudflare Pages Build] Generado out/_worker.js para Cloudflare Pages');
+console.log('[Cloudflare Pages Build] Finalizado con éxito.');
