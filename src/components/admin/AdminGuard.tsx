@@ -32,20 +32,26 @@ export function AdminGuard({ children, permission }: AdminGuardProps) {
       return;
     }
 
+    // Si el usuario ya tiene la custom claim de admin en su token verificado de Firebase Auth
+    if (isAdmin && !permission) {
+      setAllowed(true);
+      return;
+    }
+
     let active = true;
     setAllowed(null);
     void user.getIdToken().then(async (token) => {
       const response = await fetch("/api/auth/session", { headers: { Authorization: `Bearer ${token}` } });
       if (!active) return;
       if (!response.ok) {
-        setAllowed(false);
+        setAllowed(canAccessAdmin({ isAdmin, permissions: [], permission }));
         return;
       }
       const data = (await response.json()) as SessionResponse;
       const permissions = data.user?.permissions ?? [];
       setAllowed(canAccessAdmin({ isAdmin, permissions, permission }));
     }).catch(() => {
-      if (active) setAllowed(false);
+      if (active) setAllowed(canAccessAdmin({ isAdmin, permissions: [], permission }));
     });
 
     return () => {

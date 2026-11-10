@@ -23,18 +23,23 @@ export function PermissionGate({ permission, children, fallback = null }: Permis
       return;
     }
 
+    if (isAdmin) {
+      setAllowed(true);
+      return;
+    }
+
     let active = true;
     void user.getIdToken().then(async (token) => {
       const response = await fetch("/api/auth/session", { headers: { Authorization: `Bearer ${token}` } });
       if (!active) return;
       if (!response.ok) {
-        setAllowed(false);
+        setAllowed(canAccessAdmin({ isAdmin, permissions: [], permission }));
         return;
       }
       const data = (await response.json()) as { user?: { permissions?: Permission[] } };
       setAllowed(canAccessAdmin({ isAdmin, permissions: data.user?.permissions ?? [], permission }));
     }).catch(() => {
-      if (active) setAllowed(false);
+      if (active) setAllowed(canAccessAdmin({ isAdmin, permissions: [], permission }));
     });
 
     return () => {

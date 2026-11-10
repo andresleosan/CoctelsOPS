@@ -42,6 +42,28 @@ export async function verifyRequest(request: NextRequest): Promise<VerifiedUser>
   const snapshot = await getAdminDb().collection("users").doc(token.uid).get();
 
   if (!snapshot.exists) {
+    if (token.admin === true) {
+      const fallbackAdminProfile: UserProfile = {
+        uid: token.uid,
+        email: typeof token.email === "string" ? token.email : "",
+        displayName: typeof token.name === "string" ? token.name : "Administrador",
+        photoURL: typeof token.picture === "string" ? token.picture : null,
+        telefono: null,
+        addresses: [],
+        active: true,
+        accountType: "admin",
+        roleIds: ["admin"],
+        permissions: [],
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+      };
+      return {
+        uid: token.uid,
+        token,
+        profile: fallbackAdminProfile,
+        permissions: [],
+      };
+    }
     throw new AuthorizationError(401, "El perfil de usuario no está disponible");
   }
 
