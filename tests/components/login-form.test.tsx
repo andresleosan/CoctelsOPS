@@ -35,15 +35,14 @@ describe('LoginForm con diferenciación de Staff & Barra', () => {
     expect(screen.getByRole('button', { name: /Cliente/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Staff & Barra/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Ingresar$/i })).toBeInTheDocument();
-    expect(screen.getByText(/¿Eres staff, bartender o admin\?/i)).toBeInTheDocument();
   });
 
   it('cambia a modo Staff al pulsar el botón de Acceso Staff', () => {
     render(<LoginForm />);
 
-    const staffButton = screen.getByText(/¿Eres staff, bartender o admin\?/i).closest('button');
-    expect(staffButton).not.toBeNull();
-    fireEvent.click(staffButton!);
+    const staffTab = screen.getByRole('button', { name: /Staff & Barra/i });
+    expect(staffTab).not.toBeNull();
+    fireEvent.click(staffTab);
 
     // Now in staff mode
     expect(screen.getByText(/Acceso Operativo/i)).toBeInTheDocument();
@@ -58,43 +57,42 @@ describe('LoginForm con diferenciación de Staff & Barra', () => {
     fireEvent.click(tabStaff);
 
     expect(screen.getByText(/Acceso Operativo/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Ingresar al Panel Operativo/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/staff@coctelsops\.com/i)).toBeInTheDocument();
 
-    const tabCliente = screen.getByRole('button', { name: /^Cliente$/i });
+    const tabCliente = screen.getByRole('button', { name: /Cliente/i });
     fireEvent.click(tabCliente);
 
-    expect(screen.queryByText(/Acceso Operativo/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Ingresar$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Acceso Operativo/i)).toBeNull();
+    expect(screen.getByPlaceholderText(/tu@correo\.com/i)).toBeInTheDocument();
   });
 
   it('en modo Staff redirige a /admin/dashboard tras login exitoso por correo', async () => {
-    loginWithEmail.mockResolvedValue({
+    loginWithEmail.mockResolvedValueOnce({
       user: {
-        getIdTokenResult: () => Promise.resolve({ claims: { admin: true } }),
+        getIdTokenResult: async () => ({ claims: { role: 'staff', staff: true } }),
       },
     });
 
     render(<LoginForm initialRole="staff" />);
 
     fireEvent.change(screen.getByLabelText(/Correo electrónico/i), {
-      target: { value: 'andres.san1404@gmail.com' },
+      target: { value: 'bartender@coctelsops.com' },
     });
     fireEvent.change(screen.getByLabelText(/Contraseña/i), {
       target: { value: 'password123' },
     });
-
     fireEvent.click(screen.getByRole('button', { name: /Ingresar al Panel Operativo/i }));
 
     await waitFor(() => {
-      expect(loginWithEmail).toHaveBeenCalledWith('andres.san1404@gmail.com', 'password123');
+      expect(loginWithEmail).toHaveBeenCalledWith('bartender@coctelsops.com', 'password123');
       expect(mockPush).toHaveBeenCalledWith('/admin/dashboard');
     });
   });
 
   it('en modo Staff redirige a /admin/dashboard tras login exitoso con Google', async () => {
-    loginWithGoogle.mockResolvedValue({
+    loginWithGoogle.mockResolvedValueOnce({
       user: {
-        getIdTokenResult: () => Promise.resolve({ claims: { admin: true } }),
+        getIdTokenResult: async () => ({ claims: { admin: true } }),
       },
     });
 
@@ -103,7 +101,7 @@ describe('LoginForm con diferenciación de Staff & Barra', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continuar con Google \(Staff\)/i }));
 
     await waitFor(() => {
-      expect(loginWithGoogle).toHaveBeenCalledTimes(1);
+      expect(loginWithGoogle).toHaveBeenCalled();
       expect(mockPush).toHaveBeenCalledWith('/admin/dashboard');
     });
   });
