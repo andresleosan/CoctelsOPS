@@ -57,12 +57,48 @@ if (fs.existsSync('.next/server/app')) {
   copyRecursive('.next/server/app', 'out');
 }
 
-// 4. Generar _worker.js para el gateway hacia el Worker APP
+// 4. Asegurar rutas index.html para todas las páginas .html (ej. login.html -> login/index.html)
+function createDirectoryIndexFiles(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, item.name);
+    if (item.isDirectory()) {
+      createDirectoryIndexFiles(fullPath);
+    } else if (item.isFile() && item.name.endsWith('.html') && item.name !== 'index.html') {
+      const baseName = item.name.replace(/\.html$/, '');
+      const subDir = path.join(dir, baseName);
+      const indexFile = path.join(subDir, 'index.html');
+      try {
+        fs.mkdirSync(subDir, { recursive: true });
+        if (!fs.existsSync(indexFile)) {
+          fs.copyFileSync(fullPath, indexFile);
+        }
+      } catch (err) {
+        console.warn(`[Cloudflare Pages Build] No se pudo crear index para ${item.name}: ${err.message}`);
+      }
+    }
+  }
+}
+createDirectoryIndexFiles('out');
+
+// 5. Generar _worker.js inteligente para Pages: sirve estáticos primero, y si no existe delega al Worker APP
 const workerContent = `export default {
   async fetch(request, env) {
+    // 1. Intentar servir estáticos / páginas prerenderizadas directamente desde Cloudflare Pages ASSETS
+    try {
+      const response = await env.ASSETS.fetch(request);
+      if (response && response.status !== 404) {
+        return response;
+      }
+    } catch {
+      // Continuar al fallback
+    }
+
+    // 2. Si no es un estático de out/ y hay backend Worker APP, delegar la petición dinámica
     if (env.APP && typeof env.APP.fetch === 'function') {
       return await env.APP.fetch(request);
     }
+
     return new Response('Not Found', { status: 404 });
   }
 };
