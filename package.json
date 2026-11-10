@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev --webpack -p 9002",
     "build": "next build --webpack",
+    "build:cloudflare": "next build --webpack && node scripts/cloudflare-pages-build.mjs",
     "start": "next start",
     "lint": "eslint . --ignore-pattern next-env.d.ts --max-warnings=0",
     "test": "vitest run --exclude tests/e2e/**",
