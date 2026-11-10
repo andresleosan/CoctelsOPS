@@ -17,8 +17,46 @@ export function AuthStatus({ mobileMenu = false }: { mobileMenu?: boolean }) {
   }
 
   if (!user) {
+    if (mobileMenu) {
+      return (
+        <div className="flex flex-col gap-3 border-t border-border pt-4">
+          <Link
+            href="/login"
+            className="flex items-center gap-2 text-sm font-medium text-primary hover:text-accent transition-colors"
+          >
+            <UserRound className="h-5 w-5" />
+            Ingresar como Cliente
+          </Link>
+          <Link
+            href="/registro"
+            className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-white transition-colors"
+          >
+            Crear cuenta
+          </Link>
+          <Link
+            href="/admin/login"
+            className="flex items-center gap-2 text-sm font-bold text-cyan-400 hover:text-cyan-300 transition-colors bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-500/30 shadow-sm shadow-cyan-500/20"
+          >
+            <ShieldCheck className="h-5 w-5 text-cyan-400" />
+            <span>Acceso Staff & Barra</span>
+          </Link>
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-center gap-1 sm:gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-cyan-500/40 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-900/40 hover:text-cyan-200 text-xs font-bold gap-1 px-2.5 shadow-sm shadow-cyan-500/20"
+          asChild
+        >
+          <Link href="/admin/login" title="Acceso exclusivo para Staff y Barra" aria-label="Acceso Staff">
+            <ShieldCheck className="h-3.5 w-3.5 text-cyan-400" />
+            <span>Staff</span>
+          </Link>
+        </Button>
         <Button variant="ghost" size="sm" asChild>
           <Link href="/login">Ingresar</Link>
         </Button>
