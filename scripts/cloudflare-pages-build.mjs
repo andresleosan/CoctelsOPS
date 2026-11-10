@@ -105,8 +105,32 @@ function createDirectoryIndexFiles(dir) {
 createDirectoryIndexFiles('out');
 
 // 6. Generar _worker.js inteligente para Pages: sirve estáticos primero, y si no existe delega al Worker APP
-const workerContent = `export default {
+const defaultStoreConfigJson = JSON.stringify({
+  whatsappNumber: "573000000000",
+  businessHours: [
+    { day: "Lunes", open: "10:00", close: "22:00" },
+    { day: "Martes", open: "10:00", close: "22:00" },
+    { day: "Miércoles", open: "10:00", close: "22:00" },
+    { day: "Jueves", open: "10:00", close: "22:00" },
+    { day: "Viernes", open: "10:00", close: "23:00" },
+    { day: "Sábado", open: "10:00", close: "23:00" },
+    { day: "Domingo", open: "12:00", close: "20:00" },
+  ],
+  deliveryZones: ["Laureles", "El Poblado", "Belén"],
+  estimatedDeliveryMinutes: 45,
+  messages: {
+    orderReceived: "Recibimos tu pedido y pronto confirmaremos la preparación.",
+    orderStatus: "El estado de tu pedido cambió a {status}.",
+    unavailable: "En este momento no podemos procesar el pedido.",
+  },
+});
+
+const workerContent = `const DEFAULT_CONFIG = ${defaultStoreConfigJson};
+
+export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+
     // 1. Intentar servir estáticos / páginas prerenderizadas directamente desde Cloudflare Pages ASSETS
     try {
       const response = await env.ASSETS.fetch(request);
@@ -119,7 +143,31 @@ const workerContent = `export default {
 
     // 2. Si no es un estático de out/ y hay backend Worker APP, delegar la petición dinámica
     if (env.APP && typeof env.APP.fetch === 'function') {
-      return await env.APP.fetch(request);
+      try {
+        const response = await env.APP.fetch(request);
+        if (response.status >= 500 && url.pathname === '/api/configuration') {
+          return new Response(JSON.stringify({ configuration: DEFAULT_CONFIG }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }
+          });
+        }
+        return response;
+      } catch {
+        if (url.pathname === '/api/configuration') {
+          return new Response(JSON.stringify({ configuration: DEFAULT_CONFIG }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }
+          });
+        }
+        return new Response('Error en el servicio backend', { status: 502 });
+      }
+    }
+
+    if (url.pathname === '/api/configuration') {
+      return new Response(JSON.stringify({ configuration: DEFAULT_CONFIG }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }
+      });
     }
 
     return new Response('Not Found', { status: 404 });
@@ -128,5 +176,5 @@ const workerContent = `export default {
 `;
 
 fs.writeFileSync('out/_worker.js', workerContent, 'utf-8');
-console.log('[Cloudflare Pages Build] Generado out/_worker.js para Cloudflare Pages');
+console.log('[Cloudflare Pages Build] Generado out/_worker.js con resiliencia de configuración para Cloudflare Pages');
 console.log('[Cloudflare Pages Build] Finalizado con éxito.');
