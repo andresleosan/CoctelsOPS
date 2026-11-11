@@ -89,5 +89,10 @@ export async function sendVerificationEmail(user: User): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem('coctels_admin_authenticated');
+    } catch {}
+  }
   await signOut(getClientAuth());
 }

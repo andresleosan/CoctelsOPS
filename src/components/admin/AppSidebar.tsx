@@ -23,6 +23,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { esEmailAdmin } from "@/lib/auth-claims";
 import { logout } from "@/lib/auth-client";
 import type { Permission } from "@/types/auth";
 import { getVisibleAdminNavigation, ADMIN_NAVIGATION, ADVANCED_ADMIN_NAVIGATION } from "@/components/admin/admin-navigation";
@@ -32,27 +33,49 @@ type AppSidebarProps = { onNavigate?: () => void };
 export function AppSidebar({ onNavigate }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, isAdmin } = useAuth();
+  const { user, loading, isAdmin } = useAuth();
   const [permissions, setPermissions] = React.useState<Permission[]>([]);
+  const [isAccountAdmin, setIsAccountAdmin] = React.useState<boolean>(false);
 
   React.useEffect(() => {
+    try {
+      if (sessionStorage.getItem("coctels_admin_authenticated") === "true") {
+        setIsAccountAdmin(true);
+      }
+    } catch {}
+  }, []);
+
+  React.useEffect(() => {
+    if (loading) return;
     if (!user) {
       setPermissions([]);
+      setIsAccountAdmin(false);
       return;
+    }
+    if (esEmailAdmin(user.email)) {
+      setIsAccountAdmin(true);
     }
     let mounted = true;
     void user.getIdToken().then(async (token) => {
       const response = await fetch("/api/auth/session", { headers: { Authorization: `Bearer ${token}` } });
       if (!mounted || !response.ok) return;
-      const data = await response.json() as { user?: { permissions?: Permission[] } };
+      const data = await response.json() as {
+        user?: { permissions?: Permission[]; accountType?: string; isAdmin?: boolean; roleIds?: string[] };
+      };
+      if (data.user?.accountType === "admin" || data.user?.isAdmin || data.user?.roleIds?.includes("admin")) {
+        setIsAccountAdmin(true);
+      }
       setPermissions(data.user?.permissions ?? []);
     }).catch(() => {
       if (mounted) setPermissions([]);
     });
     return () => { mounted = false; };
-  }, [user]);
+  }, [loading, user]);
 
-  const visibleNavigation = isAdmin ? [...ADMIN_NAVIGATION, ...ADVANCED_ADMIN_NAVIGATION] : getVisibleAdminNavigation(false, permissions);
+  const hasFullAdminAccess = isAdmin || isAccountAdmin || esEmailAdmin(user?.email);
+  const visibleNavigation = hasFullAdminAccess
+    ? [...ADMIN_NAVIGATION, ...ADVANCED_ADMIN_NAVIGATION]
+    : getVisibleAdminNavigation(false, permissions);
   const visibleItems = visibleNavigation.map((item) => ({
     ...item,
     icon: ADMIN_NAVIGATION.find((candidate) => candidate.href === item.href)?.href === "/admin/dashboard"

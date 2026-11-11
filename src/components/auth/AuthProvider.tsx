@@ -4,7 +4,7 @@ import { onIdTokenChanged, type User } from 'firebase/auth';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { useFirebase } from '@/firebase';
-import { esClaimAdmin } from '@/lib/auth-claims';
+import { esClaimAdmin, esEmailAdmin } from '@/lib/auth-claims';
 import { isCurrentAuthSession } from '@/lib/auth-session';
 
 type AuthContextValue = {
@@ -37,11 +37,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const token = await refreshUser.getIdTokenResult(true);
       if (isCurrentAuthSession(sessionVersion.current, refreshVersion) && currentUser.current === refreshUser) {
-        setIsAdmin(esClaimAdmin(token.claims));
+        setIsAdmin(esClaimAdmin(token.claims) || esEmailAdmin(refreshUser.email));
       }
     } catch {
       if (isCurrentAuthSession(sessionVersion.current, refreshVersion) && currentUser.current === refreshUser) {
-        setIsAdmin(false);
+        setIsAdmin(esEmailAdmin(refreshUser.email));
       }
     }
   }, [user]);
@@ -68,18 +68,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      if (esEmailAdmin(nextUser.email)) {
+        setIsAdmin(true);
+        setLoading(false);
+      }
+
       void nextUser
         .getIdTokenResult(true)
         .then((token) => {
           if (mounted && isCurrentAuthSession(sessionVersion.current, callbackVersion) && currentUser.current === nextUser) {
-            setIsAdmin(esClaimAdmin(token.claims));
+            setIsAdmin(esClaimAdmin(token.claims) || esEmailAdmin(nextUser.email));
             setLoading(false);
             void syncUserProfile(token.token, () => mounted && isCurrentAuthSession(sessionVersion.current, callbackVersion) && currentUser.current === nextUser);
           }
         })
         .catch(() => {
           if (mounted && isCurrentAuthSession(sessionVersion.current, callbackVersion) && currentUser.current === nextUser) {
-            setIsAdmin(false);
+            setIsAdmin(esEmailAdmin(nextUser.email));
             setLoading(false);
           }
         });

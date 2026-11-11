@@ -2,6 +2,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 
+import { esEmailAdmin } from "@/lib/auth-claims";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import type { TokenClaims, UserProfile, VerifiedUser } from "@/types/auth";
 
@@ -40,9 +41,10 @@ export async function verifyToken(request: NextRequest): Promise<TokenClaims> {
 export async function verifyRequest(request: NextRequest): Promise<VerifiedUser> {
   const token = await verifyToken(request);
   const snapshot = await getAdminDb().collection("users").doc(token.uid).get();
+  const isOwnerAdmin = token.admin === true || (esEmailAdmin(token.email) && token.email_verified === true);
 
   if (!snapshot.exists) {
-    if (token.admin === true) {
+    if (isOwnerAdmin) {
       const fallbackAdminProfile: UserProfile = {
         uid: token.uid,
         email: typeof token.email === "string" ? token.email : "",
@@ -72,11 +74,16 @@ export async function verifyRequest(request: NextRequest): Promise<VerifiedUser>
     throw new AuthorizationError(401, "La cuenta está inactiva");
   }
 
+  const resolvedProfile: UserProfile =
+    isOwnerAdmin && profile.accountType !== "admin"
+      ? { ...profile, accountType: "admin", roleIds: ["admin"] }
+      : profile;
+
   return {
     uid: token.uid,
     token,
-    profile,
-    permissions: profile.permissions ?? [],
+    profile: resolvedProfile,
+    permissions: resolvedProfile.permissions ?? [],
   };
 }
 

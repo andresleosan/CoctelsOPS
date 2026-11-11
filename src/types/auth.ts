@@ -50,6 +50,7 @@ export type AuthProfile = {
   email: string;
   displayName: string | null;
   photoURL: string | null;
+  emailVerified?: boolean;
 };
 
 export type TokenClaims = {

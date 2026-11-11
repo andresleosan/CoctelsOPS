@@ -42,6 +42,7 @@ describe("POST /api/auth/sync", () => {
       email: "cliente@example.com",
       displayName: "Cliente",
       photoURL: null,
+      emailVerified: false,
     });
     await expect(response.json()).resolves.toMatchObject({ user: { uid: "user-1", accountType: "customer" } });
   });

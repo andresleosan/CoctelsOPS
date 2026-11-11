@@ -2,6 +2,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 
+import { esEmailAdmin } from "@/lib/auth-claims";
 import { getAdminDb } from "@/lib/firebase-admin";
 import type { Permission, Role, UserProfile, VerifiedUser } from "@/types/auth";
 import { AuthorizationError, verifyRequest } from "@/lib/auth/verify-request";
@@ -35,7 +36,10 @@ export async function requirePermission(request: NextRequest, permission: Permis
   const verified = await verifyRequest(request);
   const permissions = await resolvePermissions(verified.profile);
   const profile = { ...verified.profile, permissions };
-  const hasAdminClaim = verified.token.admin === true && profile.accountType === "admin";
+  const isOwnerAdmin =
+    verified.token.admin === true ||
+    (esEmailAdmin(verified.token.email) && verified.token.email_verified === true);
+  const hasAdminClaim = isOwnerAdmin && profile.accountType === "admin";
   const hasRolePermission = profile.accountType !== "admin" && permissions.includes(permission);
 
   if (!hasAdminClaim && !hasRolePermission) {
@@ -56,7 +60,10 @@ export function requireUserOwnership(user: VerifiedUser, uid: string): void {
 }
 
 export function isGlobalAdmin(user: VerifiedUser): boolean {
-  return Boolean(user.token.admin === true && user.profile.accountType === "admin");
+  const isOwnerAdmin =
+    user.token.admin === true ||
+    (esEmailAdmin(user.token.email) && user.token.email_verified === true);
+  return Boolean(isOwnerAdmin && user.profile.accountType === "admin");
 }
 
 export function hasNegocioAccess(user: VerifiedUser, negocioId: string): boolean {

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { esEmailAdmin } from "@/lib/auth-claims";
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction, createAuditEntry } from "@/lib/firestore/audit";
@@ -46,8 +47,8 @@ export async function syncUser(uid: string, data: AuthProfile): Promise<UserProf
     telefono: current?.telefono ?? null,
     addresses: current?.addresses ?? [],
     active: current?.active ?? true,
-    accountType: current?.accountType ?? "customer",
-    roleIds: current?.roleIds?.length ? current.roleIds : ["customer"],
+    accountType: (esEmailAdmin(data.email) && data.emailVerified === true) ? "admin" : (current?.accountType ?? "customer"),
+    roleIds: (esEmailAdmin(data.email) && data.emailVerified === true) ? ["admin"] : (current?.roleIds?.length ? current.roleIds : ["customer"]),
     permissions: current?.permissions ?? [],
     createdAt: current?.createdAt ?? now,
     lastLoginAt: now,

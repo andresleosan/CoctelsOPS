@@ -8,6 +8,7 @@ export async function POST(request: Request): Promise<Response> {
       email: typeof token.email === "string" ? token.email : "",
       displayName: typeof token.name === "string" ? token.name : null,
       photoURL: typeof token.picture === "string" ? token.picture : null,
+      emailVerified: token.email_verified === true,
     });
     return Response.json({ user }, { status: 200 });
   } catch (error) {
