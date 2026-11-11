@@ -127,26 +127,18 @@ const defaultStoreConfigJson = JSON.stringify({
 
 const workerContent = `const DEFAULT_CONFIG = ${defaultStoreConfigJson};
 
-function decodeJwtPayload(token) {
-  try {
-    const parts = token.split('.');
-    if (parts.length < 2) return null;
-    let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    while (base64.length % 4) {
-      base64 += '=';
-    }
-    const jsonStr = atob(base64);
-    return JSON.parse(jsonStr);
-  } catch {
-    return null;
-  }
-}
+const configurationFallback = () => new Response(JSON.stringify({ configuration: DEFAULT_CONFIG }), {
+  status: 200,
+  headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }
+});
 
+// La autenticacion y autorizacion las resuelve unicamente el Worker APP (verifica la firma
+// del token de Firebase y el perfil en D1). Este gateway nunca fabrica sesiones.
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // 1. Intentar servir estáticos / páginas prerenderizadas directamente desde Cloudflare Pages ASSETS
+    // 1. Estaticos / paginas prerenderizadas desde Cloudflare Pages ASSETS
     try {
       const response = await env.ASSETS.fetch(request);
       if (response && response.status !== 404) {
@@ -156,112 +148,24 @@ export default {
       // Continuar al fallback
     }
 
-    // 2. Extraer token de autorización si está presente
-    const authHeader = request.headers.get('Authorization') || request.headers.get('authorization') || '';
-    const tokenMatch = authHeader.match(/^Bearer\\s+([^\\s]+)$/i);
-    const token = tokenMatch ? tokenMatch[1] : '';
-    const payload = token ? decodeJwtPayload(token) : null;
-    const isVerifiedAdmin = Boolean(payload && (payload.admin === true || payload.email === 'andres.san1404@gmail.com'));
-
-    // 3. Si no es un estático de out/ y hay backend Worker APP, delegar la petición dinámica
+    // 2. Delegar la peticion dinamica al Worker APP
     if (env.APP && typeof env.APP.fetch === 'function') {
       try {
         const response = await env.APP.fetch(request.clone());
-
-        // Resiliencia para api/configuration
         if (response.status >= 500 && url.pathname === '/api/configuration') {
-          return new Response(JSON.stringify({ configuration: DEFAULT_CONFIG }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }
-          });
+          return configurationFallback();
         }
-
-        // Resiliencia para api/auth/session y api/auth/sync si el backend falla pero el usuario es admin
-        if (!response.ok && isVerifiedAdmin && (url.pathname === '/api/auth/session' || url.pathname === '/api/auth/sync')) {
-          const adminUser = {
-            uid: payload.user_id || payload.sub || 'admin',
-            email: payload.email || 'andres.san1404@gmail.com',
-            displayName: payload.name || 'Andres Sanchez',
-            photoURL: payload.picture || null,
-            active: true,
-            accountType: 'admin',
-            roleIds: ['admin'],
-            permissions: [
-              'catalog.read', 'catalog.write', 'orders.read', 'orders.write',
-              'configuracion.read', 'configuracion.write', 'roles.read', 'roles.write',
-              'usuarios.read', 'usuarios.write', 'reportes.read', 'inventario.read',
-              'inventario.write', 'clientes.read', 'promociones.read', 'promociones.write',
-              'auditoria.read', 'notificaciones.read', 'notificaciones.write'
-            ]
-          };
-          return new Response(JSON.stringify({ user: adminUser }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
-        }
-
         return response;
       } catch {
         if (url.pathname === '/api/configuration') {
-          return new Response(JSON.stringify({ configuration: DEFAULT_CONFIG }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }
-          });
-        }
-        if (isVerifiedAdmin && (url.pathname === '/api/auth/session' || url.pathname === '/api/auth/sync')) {
-          const adminUser = {
-            uid: payload.user_id || payload.sub || 'admin',
-            email: payload.email || 'andres.san1404@gmail.com',
-            displayName: payload.name || 'Andres Sanchez',
-            photoURL: payload.picture || null,
-            active: true,
-            accountType: 'admin',
-            roleIds: ['admin'],
-            permissions: [
-              'catalog.read', 'catalog.write', 'orders.read', 'orders.write',
-              'configuracion.read', 'configuracion.write', 'roles.read', 'roles.write',
-              'usuarios.read', 'usuarios.write', 'reportes.read', 'inventario.read',
-              'inventario.write', 'clientes.read', 'promociones.read', 'promociones.write',
-              'auditoria.read', 'notificaciones.read', 'notificaciones.write'
-            ]
-          };
-          return new Response(JSON.stringify({ user: adminUser }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          return configurationFallback();
         }
         return new Response('Error en el servicio backend', { status: 502 });
       }
     }
 
     if (url.pathname === '/api/configuration') {
-      return new Response(JSON.stringify({ configuration: DEFAULT_CONFIG }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' }
-      });
-    }
-
-    if (isVerifiedAdmin && (url.pathname === '/api/auth/session' || url.pathname === '/api/auth/sync')) {
-      const adminUser = {
-        uid: payload.user_id || payload.sub || 'admin',
-        email: payload.email || 'andres.san1404@gmail.com',
-        displayName: payload.name || 'Andres Sanchez',
-        photoURL: payload.picture || null,
-        active: true,
-        accountType: 'admin',
-        roleIds: ['admin'],
-        permissions: [
-          'catalog.read', 'catalog.write', 'orders.read', 'orders.write',
-          'configuracion.read', 'configuracion.write', 'roles.read', 'roles.write',
-          'usuarios.read', 'usuarios.write', 'reportes.read', 'inventario.read',
-          'inventario.write', 'clientes.read', 'promociones.read', 'promociones.write',
-          'auditoria.read', 'notificaciones.read', 'notificaciones.write'
-        ]
-      };
-      return new Response(JSON.stringify({ user: adminUser }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return configurationFallback();
     }
 
     return new Response('Not Found', { status: 404 });
