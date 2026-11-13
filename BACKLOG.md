@@ -190,7 +190,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Controlar el stock de insumos críticos de coctelería y granizados (botellas de licor como Ron/Vodka/Tequila, pulpas de fruta, jarabes, vasos de 8/16/24 oz y pitillos) en Firestore (`insumos`), registrar movimientos de entrada/merma/ajuste con auditoría, definir umbrales de stock mínimo con alertas visuales de semáforo ("OK", "Bajo", "Crítico/Agotado") y permitir al staff de barra consultar y ajustar existencias en 1 tap desde smartphones.
   - **Archivos:** `src/types/supplies.ts`, `src/lib/firestore/supplies.ts`, `src/app/api/admin/insumos/route.ts`, `src/app/api/admin/insumos/[id]/route.ts`, `src/components/admin/SuppliesManager.tsx`, `src/app/admin/inventario/page.tsx`, `tests/lib/supplies.test.ts`, `tests/api/admin-supplies.test.ts`, `tests/components/supplies-manager.test.tsx`.
 
-- [ ] **TASK-22: Panel Móvil del Repartidor / Domiciliario en Moto (`/repartidor/[pedidoId]`)**
+- [x] **TASK-22: Panel Móvil del Repartidor / Domiciliario en Moto (`/repartidor/[pedidoId]`)**
   - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Vista mobile-first ultra-rápida para el mensajero con 1 tap para llamar por teléfono o escribir por WhatsApp al cliente, botón de navegación GPS (Waze/Google Maps) y confirmación de cobro marcando el pedido como entregado.
   - **Archivos:** `src/app/repartidor/[pedidoId]/page.tsx`, `src/components/delivery/DriverOrderView.tsx`, `tests/components/driver-order-view.test.tsx`.
