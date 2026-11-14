@@ -24,7 +24,21 @@ import {
   orderRatingSchema,
 } from "@/lib/validation/orders";
 import type { VerifiedUser } from "@/types/auth";
-import type { CreateOrderInput, Order, OrderRating, OrderRatingInput, OrderStatus, OrderStatusHistoryEntry, StatusUpdate, CustomerOrder } from "@/types/orders";
+import {
+  POS_DIGITAL_CHANNELS,
+  POS_PAYMENT_METHODS,
+  type CreateOrderInput,
+  type CustomerOrder,
+  type Order,
+  type OrderPaymentBreakdown,
+  type OrderRating,
+  type OrderRatingInput,
+  type OrderStatus,
+  type OrderStatusHistoryEntry,
+  type PosDigitalChannel,
+  type PosPaymentMethod,
+  type StatusUpdate,
+} from "@/types/orders";
 
 export class OrderNotFoundError extends Error {
   readonly status = 404;
@@ -51,6 +65,51 @@ function ordersCollection() {
 
 function isOrderStatus(value: unknown): value is OrderStatus {
   return typeof value === "string" && ["pendiente", "confirmado", "preparando", "en_camino", "entregado", "cancelado"].includes(value);
+}
+
+function isPosPaymentMethod(value: unknown): value is PosPaymentMethod {
+  return typeof value === "string" && (POS_PAYMENT_METHODS as readonly string[]).includes(value);
+}
+
+function isPosDigitalChannel(value: unknown): value is PosDigitalChannel {
+  return typeof value === "string" && (POS_DIGITAL_CHANNELS as readonly string[]).includes(value);
+}
+
+function parsePaymentBreakdown(raw: unknown): OrderPaymentBreakdown | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  const cashAmount = typeof candidate.cashAmount === "number" && Number.isFinite(candidate.cashAmount) ? Math.max(0, Math.round(candidate.cashAmount)) : 0;
+  const cashReceived = typeof candidate.cashReceived === "number" && Number.isFinite(candidate.cashReceived) ? Math.max(0, Math.round(candidate.cashReceived)) : 0;
+  const changeAmount = typeof candidate.changeAmount === "number" && Number.isFinite(candidate.changeAmount) ? Math.max(0, Math.round(candidate.changeAmount)) : 0;
+  const digitalAmount = typeof candidate.digitalAmount === "number" && Number.isFinite(candidate.digitalAmount) ? Math.max(0, Math.round(candidate.digitalAmount)) : 0;
+
+  return {
+    cashAmount,
+    cashReceived,
+    changeAmount,
+    digitalAmount,
+    ...(isPosDigitalChannel(candidate.digitalMethod) ? { digitalMethod: candidate.digitalMethod } : {}),
+    ...(typeof candidate.digitalReference === "string" && candidate.digitalReference.trim()
+      ? { digitalReference: candidate.digitalReference.trim() }
+      : {}),
+  };
+}
+
+function sanitizePaymentBreakdown(breakdown: OrderPaymentBreakdown): OrderPaymentBreakdown {
+  const cashAmount = Math.max(0, Math.round(breakdown.cashAmount));
+  const cashReceived = Math.max(0, Math.round(breakdown.cashReceived));
+  const digitalAmount = Math.max(0, Math.round(breakdown.digitalAmount));
+  const changeAmount = Math.max(0, cashReceived - cashAmount);
+  const cleanReference = breakdown.digitalReference?.trim();
+
+  return {
+    cashAmount,
+    cashReceived,
+    changeAmount,
+    digitalAmount,
+    ...(breakdown.digitalMethod ? { digitalMethod: breakdown.digitalMethod } : {}),
+    ...(cleanReference ? { digitalReference: cleanReference } : {}),
+  };
 }
 
 function toOrder(id: string, data: Record<string, unknown>): Order {
@@ -99,6 +158,12 @@ function toOrder(id: string, data: Record<string, unknown>): Order {
       : {}),
     ...(typeof data.loyaltyDiscount === "number"
       ? { loyaltyDiscount: data.loyaltyDiscount }
+      : {}),
+    ...(isPosPaymentMethod(data.paymentMethod)
+      ? { paymentMethod: data.paymentMethod }
+      : {}),
+    ...(parsePaymentBreakdown(data.paymentBreakdown)
+      ? { paymentBreakdown: parsePaymentBreakdown(data.paymentBreakdown) }
       : {}),
     ...(data.rating && typeof data.rating === "object" && typeof (data.rating as Record<string, unknown>).stars === "number"
       ? {
@@ -172,6 +237,9 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     loyaltyPointsRedeemed = redemption.pointsCost;
     loyaltyDiscount = redemption.discount;
   }
+  const sanitizedPaymentBreakdown = validated.paymentBreakdown
+    ? sanitizePaymentBreakdown(validated.paymentBreakdown)
+    : undefined;
   const now = new Date().toISOString();
   const data = {
     clienteUid: user.uid,
@@ -197,6 +265,8 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
           loyaltyDiscount,
         }
       : {}),
+    ...(validated.paymentMethod ? { paymentMethod: validated.paymentMethod } : {}),
+    ...(sanitizedPaymentBreakdown ? { paymentBreakdown: sanitizedPaymentBreakdown } : {}),
     ...(idempotencyKey ? { idempotencyKey, requestFingerprint: orderFingerprint(validated) } : {}),
   };
   const db = getAdminDb();

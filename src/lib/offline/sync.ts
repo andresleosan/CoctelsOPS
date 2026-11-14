@@ -6,6 +6,7 @@ import {
   updateOfflineQueueItem,
   type OfflineActionType,
   type OfflineCreateOrderPayload,
+  type OfflineOrderPreview,
   type OfflineQueueItem,
   type OfflineUpdateStatusPayload,
 } from "@/lib/offline/db";
@@ -338,12 +339,13 @@ export async function enqueueAndSyncOrderStatus(
 
 export async function enqueueAndSyncBarOrder(
   payload: OfflineCreateOrderPayload,
-  options: SyncOfflineOptions & { idempotencyKey?: string } = {},
+  options: SyncOfflineOptions & { idempotencyKey?: string; preview?: OfflineOrderPreview } = {},
 ): Promise<{ item: OfflineQueueItem; synced: boolean; syncReport?: OfflineSyncReport }> {
   const item = await enqueueOfflineOperation({
     type: "create_order",
     idempotencyKey: options.idempotencyKey,
     payload,
+    ...(options.preview ? { preview: options.preview } : {}),
   });
 
   const online = options.ignoreOnlineCheck ? true : isClientOnline();

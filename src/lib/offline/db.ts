@@ -1,3 +1,4 @@
+import type { Product } from "@/types/catalog";
 import type { CreateOrderInput, Order, OrderItem, OrderStatus } from "@/types/orders";
 
 export const OFFLINE_DB_NAME = "coctels_ops_offline_db";
@@ -6,11 +7,23 @@ export const OFFLINE_QUEUE_STORE = "offline_queue";
 export const OFFLINE_ORDERS_CACHE_STORE = "orders_cache";
 export const OFFLINE_QUEUE_STORAGE_KEY = "coctels_ops_offline_queue";
 export const OFFLINE_ORDERS_CACHE_STORAGE_KEY = "coctels_ops_orders_cache";
+export const OFFLINE_PRODUCTS_CACHE_STORAGE_KEY = "coctels_ops_pos_products_cache";
 
 export type OfflineActionType = "create_order" | "update_status";
 export type OfflineSyncStatus = "pending" | "syncing" | "synced" | "failed";
 
 export type OfflineCreateOrderPayload = CreateOrderInput;
+
+export type OfflineOrderPreview = {
+  total: number;
+  items: Array<{
+    productId: string;
+    name: string;
+    unitPrice: number;
+    quantity: number;
+    size: string;
+  }>;
+};
 
 export type OfflineUpdateStatusPayload = {
   orderId: string;
@@ -25,6 +38,7 @@ export type OfflineQueueItem = {
   idempotencyKey: string;
   type: OfflineActionType;
   payload: OfflinePayload;
+  preview?: OfflineOrderPreview;
   status: OfflineSyncStatus;
   attempts: number;
   lastError?: string;
@@ -36,6 +50,7 @@ export type EnqueueOfflineInput =
   | {
       type: "create_order";
       payload: OfflineCreateOrderPayload;
+      preview?: OfflineOrderPreview;
       idempotencyKey?: string;
     }
   | {
@@ -50,11 +65,19 @@ type OrdersCacheRecord = {
   updatedAt: string;
 };
 
+type ProductsCacheRecord = {
+  id: string;
+  products: Product[];
+  updatedAt: string;
+};
+
 const ORDERS_SNAPSHOT_RECORD_ID = "latest_snapshot";
+const PRODUCTS_SNAPSHOT_RECORD_ID = "pos_products_snapshot";
 
 let monotonicCounter = 0;
 let memoryQueueFallback: OfflineQueueItem[] = [];
 let memoryOrdersCacheFallback: Order[] = [];
+let memoryProductsCacheFallback: Product[] = [];
 
 function createMonotonicSuffix(): string {
   monotonicCounter = (monotonicCounter + 1) % 10000;
@@ -79,22 +102,38 @@ function createOfflineIdempotencyKey(type: OfflineActionType): string {
 }
 
 function cloneQueueItem(item: OfflineQueueItem): OfflineQueueItem {
+  if (item.type === "create_order") {
+    const createPayload = item.payload as OfflineCreateOrderPayload;
+    return {
+      ...item,
+      payload: {
+        ...createPayload,
+        ...(createPayload.paymentBreakdown
+          ? { paymentBreakdown: { ...createPayload.paymentBreakdown } }
+          : {}),
+        items: createPayload.items.map((line) => ({
+          ...line,
+          customization: {
+            size: line.customization.size,
+            flavors: [...line.customization.flavors],
+            addOns: [...line.customization.addOns],
+          },
+        })),
+      },
+      ...(item.preview
+        ? {
+            preview: {
+              total: item.preview.total,
+              items: item.preview.items.map((previewLine) => ({ ...previewLine })),
+            },
+          }
+        : {}),
+    };
+  }
+
   return {
     ...item,
-    payload:
-      item.type === "create_order"
-        ? {
-            ...(item.payload as OfflineCreateOrderPayload),
-            items: (item.payload as OfflineCreateOrderPayload).items.map((line) => ({
-              ...line,
-              customization: {
-                size: line.customization.size,
-                flavors: [...line.customization.flavors],
-                addOns: [...line.customization.addOns],
-              },
-            })),
-          }
-        : { ...(item.payload as OfflineUpdateStatusPayload) },
+    payload: { ...(item.payload as OfflineUpdateStatusPayload) },
   };
 }
 
@@ -179,6 +218,33 @@ function writeOrdersCacheFallback(orders: Order[]): void {
   if (!storage) return;
   try {
     storage.setItem(OFFLINE_ORDERS_CACHE_STORAGE_KEY, JSON.stringify(copy));
+  } catch {
+    // Keep in-memory fallback when localStorage is unavailable.
+  }
+}
+
+function readProductsCacheFallback(): Product[] {
+  const storage = getStorageSafe();
+  if (!storage) {
+    return [...memoryProductsCacheFallback];
+  }
+  try {
+    const raw = storage.getItem(OFFLINE_PRODUCTS_CACHE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as Product[]) : [];
+  } catch {
+    return [...memoryProductsCacheFallback];
+  }
+}
+
+function writeProductsCacheFallback(products: Product[]): void {
+  const copy = products.map((product) => ({ ...product }));
+  memoryProductsCacheFallback = copy;
+  const storage = getStorageSafe();
+  if (!storage) return;
+  try {
+    storage.setItem(OFFLINE_PRODUCTS_CACHE_STORAGE_KEY, JSON.stringify(copy));
   } catch {
     // Keep in-memory fallback when localStorage is unavailable.
   }
@@ -392,6 +458,7 @@ export async function enqueueOfflineOperation(
     const updated: OfflineQueueItem = {
       ...sameKeyItem,
       payload: input.payload,
+      ...(input.type === "create_order" && input.preview ? { preview: input.preview } : {}),
       status: "pending",
       lastError: undefined,
       updatedAt: now,
@@ -428,6 +495,7 @@ export async function enqueueOfflineOperation(
     idempotencyKey,
     type: input.type,
     payload: input.payload,
+    ...(input.type === "create_order" && input.preview ? { preview: input.preview } : {}),
     status: "pending",
     attempts: 0,
     createdAt: now,
@@ -502,12 +570,14 @@ export async function clearSyncedOfflineItems(): Promise<number> {
 export async function clearOfflineDb(): Promise<void> {
   memoryQueueFallback = [];
   memoryOrdersCacheFallback = [];
+  memoryProductsCacheFallback = [];
 
   const storage = getStorageSafe();
   if (storage) {
     try {
       storage.removeItem(OFFLINE_QUEUE_STORAGE_KEY);
       storage.removeItem(OFFLINE_ORDERS_CACHE_STORAGE_KEY);
+      storage.removeItem(OFFLINE_PRODUCTS_CACHE_STORAGE_KEY);
     } catch {
       // Ignore storage errors on cleanup.
     }
@@ -572,21 +642,79 @@ export async function getCachedOrdersSnapshot(): Promise<Order[]> {
   }
 }
 
+export async function cacheProductsSnapshot(products: Product[]): Promise<void> {
+  const snapshot = products.map((product) => ({ ...product }));
+  const db = await openOfflineDb();
+  if (!db) {
+    writeProductsCacheFallback(snapshot);
+    return;
+  }
+
+  try {
+    const record: ProductsCacheRecord = {
+      id: PRODUCTS_SNAPSHOT_RECORD_ID,
+      products: snapshot,
+      updatedAt: new Date().toISOString(),
+    };
+    await runIdbWrite(db, OFFLINE_ORDERS_CACHE_STORE, (store) => {
+      store.put(record);
+    });
+  } catch {
+    writeProductsCacheFallback(snapshot);
+  } finally {
+    db.close?.();
+  }
+}
+
+export async function getCachedProductsSnapshot(): Promise<Product[]> {
+  const db = await openOfflineDb();
+  if (!db) {
+    return readProductsCacheFallback();
+  }
+
+  try {
+    const record = await runIdbRead<ProductsCacheRecord | undefined>(
+      db,
+      OFFLINE_ORDERS_CACHE_STORE,
+      (store) => store.get(PRODUCTS_SNAPSHOT_RECORD_ID),
+    );
+    return Array.isArray(record?.products) ? record.products : [];
+  } catch {
+    return readProductsCacheFallback();
+  } finally {
+    db.close?.();
+  }
+}
+
 function buildProvisionalOrder(
   item: OfflineQueueItem & { type: "create_order"; payload: OfflineCreateOrderPayload },
 ): Order {
-  const orderItems: OrderItem[] = item.payload.items.map((line) => ({
-    productId: line.productId,
-    name: line.productId,
-    quantity: line.quantity,
-    unitPrice: 0,
-    subtotal: 0,
-    customization: {
-      size: line.customization.size,
-      flavors: [...line.customization.flavors],
-      addOns: [...line.customization.addOns],
-    },
-  }));
+  const orderItems: OrderItem[] = item.payload.items.map((line, index) => {
+    const previewMatch =
+      item.preview?.items[index] ??
+      item.preview?.items.find(
+        (candidate) =>
+          candidate.productId === line.productId &&
+          candidate.size === line.customization.size,
+      );
+    const unitPrice = previewMatch?.unitPrice ?? 0;
+
+    return {
+      productId: line.productId,
+      name: previewMatch?.name ?? line.productId,
+      quantity: line.quantity,
+      unitPrice,
+      subtotal: unitPrice * line.quantity,
+      customization: {
+        size: line.customization.size,
+        flavors: [...line.customization.flavors],
+        addOns: [...line.customization.addOns],
+      },
+    };
+  });
+
+  const computedTotal =
+    item.preview?.total ?? orderItems.reduce((sum, line) => sum + line.subtotal, 0);
 
   return {
     id: `offline-${item.idempotencyKey}`,
@@ -597,9 +725,13 @@ function buildProvisionalOrder(
     notes: item.payload.notes,
     serviceType: item.payload.serviceType,
     tableNumber: item.payload.tableNumber,
+    ...(item.payload.paymentMethod ? { paymentMethod: item.payload.paymentMethod } : {}),
+    ...(item.payload.paymentBreakdown
+      ? { paymentBreakdown: { ...item.payload.paymentBreakdown } }
+      : {}),
     items: orderItems,
-    subtotal: 0,
-    total: 0,
+    subtotal: computedTotal,
+    total: computedTotal,
     status: "pendiente",
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,

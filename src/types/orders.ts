@@ -14,6 +14,27 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export const SERVICE_TYPES = ["delivery", "mesa", "pickup"] as const;
 export type ServiceType = (typeof SERVICE_TYPES)[number];
 
+export const POS_PAYMENT_METHODS = [
+  "efectivo",
+  "nequi",
+  "daviplata",
+  "qr",
+  "mixto",
+] as const;
+export type PosPaymentMethod = (typeof POS_PAYMENT_METHODS)[number];
+
+export const POS_DIGITAL_CHANNELS = ["nequi", "daviplata", "qr"] as const;
+export type PosDigitalChannel = (typeof POS_DIGITAL_CHANNELS)[number];
+
+export type OrderPaymentBreakdown = {
+  cashAmount: number;
+  cashReceived: number;
+  changeAmount: number;
+  digitalAmount: number;
+  digitalMethod?: PosDigitalChannel;
+  digitalReference?: string;
+};
+
 export type OrderCustomization = {
   size: string;
   flavors: string[];
@@ -36,6 +57,8 @@ export type CreateOrderInput = {
   items: CheckoutItemInput[];
   promotionCode?: string;
   loyaltyRewardId?: LoyaltyRewardId;
+  paymentMethod?: PosPaymentMethod;
+  paymentBreakdown?: OrderPaymentBreakdown;
 };
 
 export type OrderItem = {
@@ -101,6 +124,8 @@ export type Order = {
   loyaltyPointsEarned?: number;
   loyaltyPointsRedeemed?: number;
   loyaltyDiscount?: number;
+  paymentMethod?: PosPaymentMethod;
+  paymentBreakdown?: OrderPaymentBreakdown;
   rating?: OrderRating;
   legacy?: boolean;
   historical?: boolean;

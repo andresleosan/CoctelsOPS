@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import type { Product } from "@/types/catalog";
-import type { CreateOrderInput, OrderItem, OrderStatus } from "@/types/orders";
+import { POS_DIGITAL_CHANNELS, POS_PAYMENT_METHODS, type CreateOrderInput, type OrderItem, type OrderStatus } from "@/types/orders";
 
 export class OrderValidationError extends Error {
   readonly status = 422;
@@ -19,6 +19,15 @@ const customizationSchema = z.object({
   addOns: z.array(z.string().trim().min(1)).max(20),
 });
 
+const paymentBreakdownSchema = z.object({
+  cashAmount: z.number().int().min(0).max(50_000_000),
+  cashReceived: z.number().int().min(0).max(50_000_000),
+  changeAmount: z.number().int().min(0).max(50_000_000),
+  digitalAmount: z.number().int().min(0).max(50_000_000),
+  digitalMethod: z.enum(POS_DIGITAL_CHANNELS).optional(),
+  digitalReference: z.string().trim().max(80).optional(),
+});
+
 export const createOrderInputSchema = z.object({
   customerName: z.string().trim().min(2, "El nombre es obligatorio").max(120),
   phone: z.string().trim().min(7, "El telefono es obligatorio").max(30).regex(/^[+\d()\s-]+$/, "El telefono no es valido"),
@@ -33,6 +42,8 @@ export const createOrderInputSchema = z.object({
   })).min(1, "El carrito no puede estar vacio").max(50),
   promotionCode: z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9-]+$/, "El código de promoción no es válido").optional(),
   loyaltyRewardId: z.enum(["TOP_GRATIS", "DESC_5000", "COCTEL_CORTESIA"]).optional(),
+  paymentMethod: z.enum(POS_PAYMENT_METHODS).optional(),
+  paymentBreakdown: paymentBreakdownSchema.optional(),
 });
 
 export const statusUpdateSchema = z.object({

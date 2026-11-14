@@ -204,7 +204,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 
 ## Fase 9: Eficiencia Financiera, Escandallo de Recetas y Terminal POS en Barra (v1.5)
 
-- [ ] **TASK-24: Terminal POS Rápido de Caja en Barra con Cobro Mixto (Efectivo / Nequi / Código QR)**
+- [x] **TASK-24: Terminal POS Rápido de Caja en Barra con Cobro Mixto (Efectivo / Nequi / Código QR)**
   - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Interfaz táctil rápida en `/admin/pedidos` o `/admin/pos` para que el cajero en barra tome pedidos presenciales en menos de 10 segundos con cálculo automático de vueltas en efectivo, desglose de cobro mixto (Efectivo + Nequi/Daviplata) y encolado resiliente offline.
   - **Archivos:** `src/components/admin/QuickBarPosModal.tsx`, `src/lib/orders/pos-calculator.ts`, `src/app/admin/pedidos/page.tsx`, `tests/components/quick-bar-pos.test.tsx`.

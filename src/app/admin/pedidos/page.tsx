@@ -9,6 +9,7 @@ import {
   CloudUpload,
   Columns3,
   LayoutList,
+  PlusCircle,
   RefreshCw,
   Search,
   Timer,
@@ -18,7 +19,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import { OrderKdsBoard } from "@/components/admin/OrderKdsBoard";
+import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
 import { PermissionGate } from "@/components/admin/PermissionGate";
+import {
+  QuickBarPosModal,
+  type PosOrderSubmitResult,
+} from "@/components/admin/QuickBarPosModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,19 +33,28 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   applyOfflineMutationsToOrders,
   cacheOrdersSnapshot,
+  cacheProductsSnapshot,
   enqueueOfflineOperation,
   getCachedOrdersSnapshot,
+  getCachedProductsSnapshot,
   listOfflineQueue,
+  removeOfflineQueueItem,
 } from "@/lib/offline/db";
 import {
+  enqueueAndSyncBarOrder,
   isClientOnline,
   registerBackgroundSync,
   subscribeOfflineConnectivity,
   syncOfflineQueue,
 } from "@/lib/offline/sync";
 import { detectNewPendingOrderIds, getOrderSlaStatus } from "@/lib/orders/kds-sla";
+import {
+  formatPosPaymentSummary,
+  type PosOrderPreview,
+} from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
-import type { Order, OrderStatus } from "@/types/orders";
+import type { Product } from "@/types/catalog";
+import type { CreateOrderInput, Order, OrderStatus } from "@/types/orders";
 
 class ApiResponseError extends Error {
   constructor(message: string) {
@@ -100,6 +115,10 @@ export default function AdminOrdersPage() {
   const [pendingOfflineCount, setPendingOfflineCount] = useState(0);
   const [syncingQueue, setSyncingQueue] = useState(false);
   const [offlineNotice, setOfflineNotice] = useState("");
+  const [isPosOpen, setIsPosOpen] = useState(false);
+  const [posProducts, setPosProducts] = useState<Product[]>([]);
+  const [loadingPosProducts, setLoadingPosProducts] = useState(false);
+  const [posPrintOrder, setPosPrintOrder] = useState<Order | null>(null);
   const seenOrderIdsRef = useRef<Set<string> | null>(null);
 
   async function loadFromOfflineCache(noticeMessage: string): Promise<boolean> {
@@ -215,9 +234,103 @@ export default function AdminOrdersPage() {
     }
   }
 
+  async function loadPosProducts() {
+    setLoadingPosProducts(true);
+    try {
+      if (!isClientOnline()) {
+        const cached = await getCachedProductsSnapshot();
+        if (cached.length > 0) setPosProducts(cached);
+        return;
+      }
+
+      const response = await fetch("/api/productos");
+      const body = (await response.json().catch(() => ({}))) as { products?: Product[] };
+      if (response.ok && Array.isArray(body.products)) {
+        setPosProducts(body.products);
+        await cacheProductsSnapshot(body.products);
+        return;
+      }
+
+      const cached = await getCachedProductsSnapshot();
+      if (cached.length > 0) setPosProducts(cached);
+    } catch {
+      const cached = await getCachedProductsSnapshot();
+      if (cached.length > 0) setPosProducts(cached);
+    } finally {
+      setLoadingPosProducts(false);
+    }
+  }
+
+  async function handleSubmitPosOrder(
+    payload: CreateOrderInput,
+    preview: PosOrderPreview,
+  ): Promise<PosOrderSubmitResult> {
+    if (!user) {
+      return { ok: false, error: "Debes iniciar sesión para registrar comandas POS." };
+    }
+
+    const result = await enqueueAndSyncBarOrder(payload, {
+      getAuthToken: () => user.getIdToken(),
+      preview,
+    });
+
+    const queueItemResult = result.syncReport?.results.find(
+      (entry) => entry.id === result.item.id,
+    );
+
+    if (
+      !result.synced &&
+      queueItemResult?.statusCode &&
+      [400, 404, 422].includes(queueItemResult.statusCode)
+    ) {
+      await removeOfflineQueueItem(result.item.id);
+      const remainingQueue = (await listOfflineQueue()).filter((item) => item.status !== "synced");
+      setPendingOfflineCount(remainingQueue.length);
+      return {
+        ok: false,
+        error: queueItemResult.error ?? "No se pudo validar el pedido en el servidor.",
+      };
+    }
+
+    const queue = await listOfflineQueue();
+    const activeQueue = queue.filter((item) => item.status !== "synced");
+    setPendingOfflineCount(activeQueue.length);
+
+    if (result.synced) {
+      const syncedOrder = queueItemResult?.order;
+      if (syncedOrder) {
+        setOrders((current) => {
+          const withoutDuplicate = current.filter((item) => item.id !== syncedOrder.id);
+          const next = [syncedOrder, ...withoutDuplicate];
+          seenOrderIdsRef.current = new Set(next.map((item) => item.id));
+          void cacheOrdersSnapshot(next);
+          return next;
+        });
+      } else {
+        await loadOrders(true);
+      }
+      return { ok: true, synced: true, order: syncedOrder };
+    }
+
+    setIsOnline(isClientOnline());
+    const baseOrders = orders.filter((item) => !item.id.startsWith("offline-"));
+    const projectedOrders = applyOfflineMutationsToOrders(baseOrders, activeQueue);
+    const provisionalOrder = projectedOrders.find(
+      (item) => item.id === `offline-${result.item.idempotencyKey}`,
+    );
+    seenOrderIdsRef.current = new Set(projectedOrders.map((item) => item.id));
+    setOrders(projectedOrders);
+    setOfflineNotice(
+      "Modo Offline activo: pedido POS encolado localmente para sincronizar al volver el WiFi.",
+    );
+
+    return { ok: true, synced: false, order: provisionalOrder };
+  }
+
   useEffect(() => {
     setIsOnline(isClientOnline());
     void loadOrders();
+    void loadPosProducts();
   }, [user]);
 
   useEffect(() => {
@@ -225,6 +338,9 @@ export default function AdminOrdersPage() {
       onOnline: () => {
         setIsOnline(true);
         void handleSyncOfflineQueue();
+        if (posProducts.length === 0) {
+          void loadPosProducts();
+        }
       },
       onOffline: () => {
         setIsOnline(false);
@@ -386,6 +502,23 @@ export default function AdminOrdersPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <PermissionGate permission="pedidos.update">
+              <Button
+                type="button"
+                size="sm"
+                data-testid="btn-open-quick-pos"
+                onClick={() => {
+                  setIsPosOpen(true);
+                  if (posProducts.length === 0) {
+                    void loadPosProducts();
+                  }
+                }}
+                className="min-h-11 bg-[#E5196E] px-4 font-bold text-white shadow-sm hover:bg-[#c8145f]"
+              >
+                <PlusCircle className="h-4 w-4" /> POS Barra
+              </Button>
+            </PermissionGate>
+
             <div
               className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm"
               role="group"
@@ -529,6 +662,14 @@ export default function AdminOrdersPage() {
                         <Badge variant="secondary" className="bg-slate-100 text-xs text-slate-700">
                           {sla.label}
                         </Badge>
+                        {order.paymentMethod && (
+                          <Badge
+                            variant="outline"
+                            className="border-emerald-300 bg-emerald-50 text-xs font-semibold text-emerald-900"
+                          >
+                            {formatPosPaymentSummary(order.paymentMethod, order.paymentBreakdown)}
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-slate-500">
                         #{order.id} · {order.phone} · {order.items.length} productos
@@ -576,6 +717,25 @@ export default function AdminOrdersPage() {
             })}
           </div>
         )}
+
+        <QuickBarPosModal
+          isOpen={isPosOpen}
+          onClose={() => setIsPosOpen(false)}
+          products={posProducts}
+          loadingProducts={loadingPosProducts}
+          isOnline={isOnline}
+          onSubmitPosOrder={handleSubmitPosOrder}
+          onPrintOrder={(orderToPrint) => {
+            setIsPosOpen(false);
+            setPosPrintOrder(orderToPrint);
+          }}
+        />
+
+        <OrderReceiptPrint
+          order={posPrintOrder}
+          isOpen={posPrintOrder !== null}
+          onClose={() => setPosPrintOrder(null)}
+        />
       </div>
     </AdminGuard>
   );

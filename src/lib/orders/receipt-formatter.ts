@@ -1,3 +1,7 @@
+import {
+  POS_DIGITAL_CHANNEL_LABELS,
+  formatPosPaymentMethodLabel,
+} from "@/lib/orders/pos-calculator";
 import type { Order } from "@/types/orders";
 
 export type ReceiptPaperWidth = "58mm" | "80mm";
@@ -170,6 +174,32 @@ export function formatOrderReceiptText(
   lines.push(divider("=", cols));
   lines.push(twoColumns("TOTAL A COBRAR:", `$${order.total.toLocaleString("es-CO")}`, cols));
   lines.push(divider("=", cols));
+
+  // Desglose de pago POS (si aplica)
+  if (order.paymentMethod) {
+    const breakdown = order.paymentBreakdown;
+    const methodLabel = formatPosPaymentMethodLabel(order.paymentMethod, breakdown?.digitalMethod);
+    lines.push(twoColumns("PAGO:", methodLabel, cols));
+    if (breakdown) {
+      if (breakdown.cashAmount > 0) {
+        lines.push(twoColumns("Efectivo:", `$${breakdown.cashAmount.toLocaleString("es-CO")}`, cols));
+      }
+      if (breakdown.digitalAmount > 0) {
+        const channelLabel = breakdown.digitalMethod
+          ? POS_DIGITAL_CHANNEL_LABELS[breakdown.digitalMethod]
+          : "Digital";
+        lines.push(twoColumns(`${channelLabel}:`, `$${breakdown.digitalAmount.toLocaleString("es-CO")}`, cols));
+      }
+      if (breakdown.cashReceived > breakdown.cashAmount) {
+        lines.push(twoColumns("Recibido:", `$${breakdown.cashReceived.toLocaleString("es-CO")}`, cols));
+        lines.push(twoColumns("Vueltas:", `$${breakdown.changeAmount.toLocaleString("es-CO")}`, cols));
+      }
+      if (breakdown.digitalReference) {
+        lines.push(`Ref Digital: ${breakdown.digitalReference}`);
+      }
+    }
+    lines.push(divider("-", cols));
+  }
 
   // Notas especiales de la orden
   if (order.notes && order.notes.trim().length > 0) {

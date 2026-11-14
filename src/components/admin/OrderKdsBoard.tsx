@@ -15,6 +15,7 @@ import {
   type KdsColumnKey,
   type SlaLevel,
 } from "@/lib/orders/kds-sla";
+import { formatPosPaymentSummary } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
 import type { Order } from "@/types/orders";
 
@@ -134,6 +135,14 @@ export function OrderKdsBoard({
                             🍸 En Barra
                           </Badge>
                         ) : null}
+                        {order.paymentMethod && (
+                          <Badge
+                            variant="outline"
+                            className="border-emerald-300 bg-emerald-50 text-emerald-900 font-semibold text-[11px]"
+                          >
+                            💳 {formatPosPaymentSummary(order.paymentMethod, order.paymentBreakdown)}
+                          </Badge>
+                        )}
                       </div>
                     </CardHeader>
 
