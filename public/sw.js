@@ -57,3 +57,23 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+
+const OFFLINE_SYNC_TAG = 'coctels-ops-offline-sync';
+const OFFLINE_SW_MESSAGE_TYPE = 'COCTELS_OPS_SYNC_OFFLINE_QUEUE';
+
+self.addEventListener('sync', (event) => {
+  if (event.tag !== OFFLINE_SYNC_TAG) {
+    return;
+  }
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        client.postMessage({
+          type: OFFLINE_SW_MESSAGE_TYPE,
+          tag: event.tag,
+        });
+      }
+    })
+  );
+});

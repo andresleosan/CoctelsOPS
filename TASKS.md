@@ -166,7 +166,21 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Vista mobile-first ultra-rápida para el mensajero con 1 tap para llamar por teléfono o escribir por WhatsApp al cliente, botón de navegación GPS (Waze/Google Maps) y confirmación de cobro marcando el pedido como entregado.
   - **Archivos:** `src/app/repartidor/[pedidoId]/page.tsx`, `src/components/delivery/DriverOrderView.tsx`, `tests/components/driver-order-view.test.tsx`.
 
-- [ ] **TASK-23: Modo Resiliencia Offline PWA para Barra y Caja en Horas Pico**
+- [x] **TASK-23: Modo Resiliencia Offline PWA para Barra y Caja en Horas Pico**
   - **Nivel Asignado:** `3.8 Flash (High)`
   - **Objetivo:** Soporte PWA con IndexedDB y Background Sync para registrar comandas y ventas en barra aunque falle la conectividad WiFi del local durante la rumba de viernes o sábado.
-  - **Archivos:** `src/lib/offline/db.ts`, `src/lib/offline/sync.ts`, `tests/lib/offline-sync.test.ts`.
+  - **Archivos:** `src/lib/offline/db.ts`, `src/lib/offline/sync.ts`, `public/sw.js`, `src/app/admin/pedidos/page.tsx`, `tests/lib/offline-sync.test.ts`.
+
+---
+
+## Fase 9: Eficiencia Financiera, Escandallo de Recetas y Terminal POS en Barra (v1.5)
+
+- [ ] **TASK-24: Terminal POS Rápido de Caja en Barra con Cobro Mixto (Efectivo / Nequi / Código QR)**
+  - **Nivel Asignado:** `3.8 Flash (High)`
+  - **Objetivo:** Interfaz táctil rápida en `/admin/pedidos` o `/admin/pos` para que el cajero en barra tome pedidos presenciales en menos de 10 segundos con cálculo automático de vueltas en efectivo, desglose de cobro mixto (Efectivo + Nequi/Daviplata) y encolado resiliente offline.
+  - **Archivos:** `src/components/admin/QuickBarPosModal.tsx`, `src/lib/orders/pos-calculator.ts`, `src/app/admin/pedidos/page.tsx`, `tests/components/quick-bar-pos.test.tsx`.
+
+- [ ] **TASK-25: Escandallo y Recetas Estándar con Descuento Automático de Insumos al Preparar Comanda**
+  - **Nivel Asignado:** `Argon (Medium)`
+  - **Objetivo:** Vincular cada producto/presentación de la carta con su receta de insumos (`insumos` en ml, oz y unidades de vaso/pitillo) para descontar automáticamente las existencias de barra y calcular el costo real por cóctel cuando el pedido pasa a `preparando` o `entregado`.
+  - **Archivos:** `src/types/recipes.ts`, `src/lib/firestore/recipes.ts`, `src/lib/firestore/orders.ts`, `tests/lib/recipes-depletion.test.ts`.

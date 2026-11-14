@@ -6,11 +6,13 @@ import {
   ArrowRight,
   Bell,
   BellOff,
+  CloudUpload,
   Columns3,
   LayoutList,
   RefreshCw,
   Search,
   Timer,
+  WifiOff,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -22,9 +24,29 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  applyOfflineMutationsToOrders,
+  cacheOrdersSnapshot,
+  enqueueOfflineOperation,
+  getCachedOrdersSnapshot,
+  listOfflineQueue,
+} from "@/lib/offline/db";
+import {
+  isClientOnline,
+  registerBackgroundSync,
+  subscribeOfflineConnectivity,
+  syncOfflineQueue,
+} from "@/lib/offline/sync";
 import { detectNewPendingOrderIds, getOrderSlaStatus } from "@/lib/orders/kds-sla";
 import { getOrderAction } from "@/lib/orders/status-actions";
 import type { Order, OrderStatus } from "@/types/orders";
+
+class ApiResponseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApiResponseError";
+  }
+}
 
 const statuses: Array<OrderStatus | "todos"> = [
   "todos",
@@ -74,13 +96,47 @@ export default function AdminOrdersPage() {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
+  const [isOnline, setIsOnline] = useState(true);
+  const [pendingOfflineCount, setPendingOfflineCount] = useState(0);
+  const [syncingQueue, setSyncingQueue] = useState(false);
+  const [offlineNotice, setOfflineNotice] = useState("");
   const seenOrderIdsRef = useRef<Set<string> | null>(null);
+
+  async function loadFromOfflineCache(noticeMessage: string): Promise<boolean> {
+    const [cachedOrders, queue] = await Promise.all([
+      getCachedOrdersSnapshot(),
+      listOfflineQueue(),
+    ]);
+    const activeQueue = queue.filter((item) => item.status !== "synced");
+    setPendingOfflineCount(activeQueue.length);
+
+    if (cachedOrders.length === 0 && activeQueue.length === 0) {
+      return false;
+    }
+
+    const projected = applyOfflineMutationsToOrders(cachedOrders, activeQueue);
+    seenOrderIdsRef.current = new Set(projected.map((item) => item.id));
+    setOrders(projected);
+    setOfflineNotice(noticeMessage);
+    return true;
+  }
 
   async function loadOrders(silent = false) {
     if (!user) return;
     if (!silent) setLoading(true);
     setError("");
     try {
+      if (!isClientOnline()) {
+        setIsOnline(false);
+        const restored = await loadFromOfflineCache(
+          "Modo Offline activo: mostrando último respaldo local de barra y comandas en cola.",
+        );
+        if (!restored) {
+          setError("Sin conexión WiFi y sin respaldo local de pedidos todavía.");
+        }
+        return;
+      }
+
       const response = await fetch("/api/pedidos", {
         headers: { Authorization: `Bearer ${await user.getIdToken()}` },
       });
@@ -88,26 +144,99 @@ export default function AdminOrdersPage() {
         orders?: Order[];
         error?: string;
       };
-      if (!response.ok) throw new Error(body.error ?? "No se pudieron cargar los pedidos.");
+      if (!response.ok) {
+        throw new ApiResponseError(body.error ?? "No se pudieron cargar los pedidos.");
+      }
       const loadedOrders = body.orders ?? [];
+      await cacheOrdersSnapshot(loadedOrders);
+
+      const queue = await listOfflineQueue();
+      const activeQueue = queue.filter((item) => item.status !== "synced");
+      setPendingOfflineCount(activeQueue.length);
+
+      const projectedOrders = applyOfflineMutationsToOrders(loadedOrders, activeQueue);
 
       if (seenOrderIdsRef.current !== null && soundEnabled) {
-        const newPendingIds = detectNewPendingOrderIds(seenOrderIdsRef.current, loadedOrders);
+        const newPendingIds = detectNewPendingOrderIds(seenOrderIdsRef.current, projectedOrders);
         if (newPendingIds.length > 0) {
           playNewOrderChime();
         }
       }
-      seenOrderIdsRef.current = new Set(loadedOrders.map((item) => item.id));
-      setOrders(loadedOrders);
+      seenOrderIdsRef.current = new Set(projectedOrders.map((item) => item.id));
+      setOrders(projectedOrders);
+      if (activeQueue.length === 0) {
+        setOfflineNotice("");
+      }
     } catch (loadError) {
+      if (!(loadError instanceof ApiResponseError)) {
+        const restored = await loadFromOfflineCache(
+          "Conexión inestable: operando con caché local de pedidos y cola offline.",
+        );
+        if (restored) {
+          return;
+        }
+      }
       setError(loadError instanceof Error ? loadError.message : "No se pudieron cargar los pedidos.");
     } finally {
       if (!silent) setLoading(false);
     }
   }
 
+  async function handleSyncOfflineQueue() {
+    if (!user || syncingQueue || !isClientOnline()) return;
+    const queueBefore = await listOfflineQueue();
+    const activeBefore = queueBefore.filter((item) => item.status !== "synced");
+    setPendingOfflineCount(activeBefore.length);
+    if (activeBefore.length === 0) return;
+
+    setSyncingQueue(true);
+    setActionError("");
+    try {
+      const report = await syncOfflineQueue({
+        getAuthToken: () => user.getIdToken(),
+      });
+      const queueAfter = await listOfflineQueue();
+      const activeAfter = queueAfter.filter((item) => item.status !== "synced");
+      setPendingOfflineCount(activeAfter.length);
+
+      if (report.synced > 0) {
+        setOfflineNotice(
+          activeAfter.length > 0
+            ? `Sincronizadas ${report.synced} operaciones. Quedan ${activeAfter.length} en cola.`
+            : `Cola offline sincronizada (${report.synced} ${report.synced === 1 ? "operación" : "operaciones"}).`,
+        );
+        await loadOrders(true);
+      } else if (report.failed > 0) {
+        const firstFailure = report.results.find((result) => result.outcome === "failed")?.error;
+        setActionError(firstFailure ?? "No se pudieron sincronizar las comandas en cola.");
+      }
+    } finally {
+      setSyncingQueue(false);
+    }
+  }
+
   useEffect(() => {
+    setIsOnline(isClientOnline());
     void loadOrders();
+  }, [user]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeOfflineConnectivity({
+      onOnline: () => {
+        setIsOnline(true);
+        void handleSyncOfflineQueue();
+      },
+      onOffline: () => {
+        setIsOnline(false);
+        setOfflineNotice(
+          "Modo Offline activo: los avances de comanda en barra se guardarán localmente.",
+        );
+      },
+      onServiceWorkerSync: () => {
+        void handleSyncOfflineQueue();
+      },
+    });
+    return unsubscribe;
   }, [user]);
 
   useEffect(() => {
@@ -157,7 +286,29 @@ export default function AdminOrdersPage() {
     }
     setActionError("");
     setUpdatingOrderId(order.id);
+
+    const queueOfflineTransition = async (noticeMessage: string) => {
+      await enqueueOfflineOperation({
+        type: "update_status",
+        payload: { orderId: order.id, status: action.nextStatus },
+      });
+      await registerBackgroundSync();
+      const queue = await listOfflineQueue();
+      const activeQueue = queue.filter((item) => item.status !== "synced");
+      setPendingOfflineCount(activeQueue.length);
+      setOrders((current) => applyOfflineMutationsToOrders(current, activeQueue));
+      setOfflineNotice(noticeMessage);
+    };
+
     try {
+      if (!isClientOnline()) {
+        setIsOnline(false);
+        await queueOfflineTransition(
+          `Sin WiFi: comanda #${order.id} guardada en cola offline (${action.nextStatus.replace("_", " ")}).`,
+        );
+        return;
+      }
+
       const response = await fetch(`/api/pedidos/${encodeURIComponent(order.id)}`, {
         method: "PATCH",
         headers: {
@@ -170,14 +321,22 @@ export default function AdminOrdersPage() {
         order?: Order;
         error?: string;
       };
-      if (!response.ok) throw new Error(body.error ?? "No se pudo actualizar el pedido.");
-      setOrders((current) =>
-        current.map((item) => (item.id === order.id && body.order ? body.order : item)),
+      if (!response.ok) {
+        throw new ApiResponseError(body.error ?? "No se pudo actualizar el pedido.");
+      }
+      const nextOrders = orders.map((item) =>
+        item.id === order.id && body.order ? body.order : item,
       );
+      setOrders(nextOrders);
+      await cacheOrdersSnapshot(nextOrders);
     } catch (updateError) {
-      setActionError(
-        updateError instanceof Error ? updateError.message : "No se pudo actualizar el pedido.",
-      );
+      if (!(updateError instanceof ApiResponseError)) {
+        await queueOfflineTransition(
+          `Fallo de red: comanda #${order.id} guardada en cola offline para sincronizar al volver el WiFi.`,
+        );
+        return;
+      }
+      setActionError(updateError.message);
     } finally {
       setUpdatingOrderId(null);
     }
@@ -194,6 +353,32 @@ export default function AdminOrdersPage() {
               <Badge variant="outline" className="border-cyan-300 bg-cyan-50 text-cyan-950">
                 {activeBarCount} activos en barra
               </Badge>
+              {!isOnline && (
+                <Badge
+                  variant="outline"
+                  data-testid="badge-offline-mode"
+                  className="inline-flex items-center gap-1.5 border-amber-300 bg-amber-50 text-amber-950 font-semibold"
+                >
+                  <WifiOff className="h-3.5 w-3.5 text-amber-700" />
+                  Modo Offline
+                </Badge>
+              )}
+              {pendingOfflineCount > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-testid="btn-sync-offline-queue"
+                  onClick={() => void handleSyncOfflineQueue()}
+                  disabled={syncingQueue || !isOnline}
+                  className="min-h-10 border-cyan-300 bg-cyan-50 text-cyan-950 font-semibold hover:bg-cyan-100"
+                >
+                  <CloudUpload className="h-4 w-4 text-cyan-700" />
+                  {syncingQueue
+                    ? "Sincronizando..."
+                    : `Sincronizar cola (${pendingOfflineCount})`}
+                </Button>
+              )}
             </div>
             <p className="mt-1 text-sm text-slate-600">
               Gestiona el estado de cada pedido y supervisa las recetas en barra con semáforo SLA.
@@ -288,6 +473,16 @@ export default function AdminOrdersPage() {
           </CardContent>
         </Card>
 
+        {offlineNotice && (
+          <div
+            role="status"
+            data-testid="offline-status-banner"
+            className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm font-medium text-amber-950"
+          >
+            <WifiOff className="h-4 w-4 shrink-0 text-amber-700" />
+            <span>{offlineNotice}</span>
+          </div>
+        )}
         {error && (
           <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
             {error}
