@@ -6,6 +6,9 @@ export function toCustomerOrder(order: Order): CustomerOrder {
   delete visibleOrder.audit;
   delete visibleOrder.clienteUid;
   delete visibleOrder.statusHistory;
+  delete visibleOrder.escandallo;
+  delete visibleOrder.suppliesDepletedAt;
+  delete visibleOrder.suppliesDepletedOnStatus;
   const visibleHistory: CustomerStatusHistoryEntry[] = (statusHistory?.length ? statusHistory : [{ status: order.status, at: order.updatedAt || order.createdAt }]).map(({ status, at, reason }) => ({
     status,
     at,

@@ -1,4 +1,5 @@
 import type { LoyaltyRewardId } from "@/types/loyalty";
+import type { OrderEscandalloSummary } from "@/types/recipes";
 
 export const ORDER_STATUSES = [
   "pendiente",
@@ -127,13 +128,20 @@ export type Order = {
   paymentMethod?: PosPaymentMethod;
   paymentBreakdown?: OrderPaymentBreakdown;
   rating?: OrderRating;
+  negocioId?: string;
+  suppliesDepletedAt?: string;
+  suppliesDepletedOnStatus?: "preparando" | "entregado";
+  escandallo?: OrderEscandalloSummary;
   legacy?: boolean;
   historical?: boolean;
 };
 
 export type CustomerStatusHistoryEntry = Pick<OrderStatusHistoryEntry, "status" | "at" | "reason">;
 
-export type CustomerOrder = Omit<Order, "audit" | "clienteUid" | "statusHistory"> & {
+export type CustomerOrder = Omit<
+  Order,
+  "audit" | "clienteUid" | "statusHistory" | "escandallo" | "suppliesDepletedAt" | "suppliesDepletedOnStatus"
+> & {
   statusHistory: CustomerStatusHistoryEntry[];
   rating?: OrderRating;
 };

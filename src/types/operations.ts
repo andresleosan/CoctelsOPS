@@ -67,7 +67,18 @@ export const DEFAULT_STORE_CONFIGURATION: StoreConfiguration = {
 export type AuditInput = {
   actorUid: string;
   action: string;
-  module: "roles" | "usuarios" | "pedidos" | "productos" | "inventario" | "promociones" | "configuracion" | "categorias" | "negocios" | "usuarios_negocio";
+  module:
+    | "roles"
+    | "usuarios"
+    | "pedidos"
+    | "productos"
+    | "inventario"
+    | "recetas"
+    | "promociones"
+    | "configuracion"
+    | "categorias"
+    | "negocios"
+    | "usuarios_negocio";
   entityId: string;
   changes?: Record<string, unknown>;
 };

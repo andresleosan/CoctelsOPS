@@ -13,6 +13,7 @@ import {
   getUserLoyaltySummary,
 } from "@/lib/firestore/loyalty";
 import { calculatePromotion, getPromotionByCode, toPromotion } from "@/lib/firestore/promotions";
+import { prepareOrderSupplyDepletion } from "@/lib/firestore/recipes";
 import { toCustomerOrder } from "@/lib/orders/customer-order";
 import {
   assertOrderOwnership,
@@ -24,6 +25,8 @@ import {
   orderRatingSchema,
 } from "@/lib/validation/orders";
 import type { VerifiedUser } from "@/types/auth";
+import type { OrderEscandalloSummary } from "@/types/recipes";
+import { DEFAULT_TENANT_ID } from "@/types/tenant";
 import {
   POS_DIGITAL_CHANNELS,
   POS_PAYMENT_METHODS,
@@ -112,6 +115,19 @@ function sanitizePaymentBreakdown(breakdown: OrderPaymentBreakdown): OrderPaymen
   };
 }
 
+function parseEscandalloSummary(raw: unknown): OrderEscandalloSummary | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  if (
+    typeof candidate.totalCostCop !== "number" ||
+    typeof candidate.revenueCop !== "number" ||
+    !Array.isArray(candidate.items)
+  ) {
+    return undefined;
+  }
+  return candidate as OrderEscandalloSummary;
+}
+
 function toOrder(id: string, data: Record<string, unknown>): Order {
   if (!isOrderStatus(data.status)) throw new OrderValidationError("El estado del pedido no es valido");
   const status = data.status;
@@ -179,6 +195,18 @@ function toOrder(id: string, data: Record<string, unknown>): Order {
           },
         }
       : {}),
+    ...(typeof data.negocioId === "string" && data.negocioId.trim()
+      ? { negocioId: data.negocioId.trim() }
+      : {}),
+    ...(typeof data.suppliesDepletedAt === "string" && data.suppliesDepletedAt.trim()
+      ? { suppliesDepletedAt: data.suppliesDepletedAt }
+      : {}),
+    ...(data.suppliesDepletedOnStatus === "preparando" || data.suppliesDepletedOnStatus === "entregado"
+      ? { suppliesDepletedOnStatus: data.suppliesDepletedOnStatus }
+      : {}),
+    ...(parseEscandalloSummary(data.escandallo)
+      ? { escandallo: parseEscandalloSummary(data.escandallo) }
+      : {}),
   };
 }
 
@@ -240,12 +268,16 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
   const sanitizedPaymentBreakdown = validated.paymentBreakdown
     ? sanitizePaymentBreakdown(validated.paymentBreakdown)
     : undefined;
+  const derivedNegocioId = availableProducts
+    .map((product) => (typeof product.negocioId === "string" ? product.negocioId.trim() : ""))
+    .find(Boolean);
   const now = new Date().toISOString();
   const data = {
     clienteUid: user.uid,
     customerName: validated.customerName,
     phone: validated.phone,
     address: validated.address,
+    ...(derivedNegocioId ? { negocioId: derivedNegocioId } : {}),
     ...(validated.notes ? { notes: validated.notes } : {}),
     ...(validated.serviceType ? { serviceType: validated.serviceType } : {}),
     ...(validated.tableNumber ? { tableNumber: validated.tableNumber } : {}),
@@ -321,11 +353,15 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     }
 
     const transactionNow = new Date().toISOString();
+    const transactionNegocioId = transactionProducts
+      .map((product) => (typeof product.negocioId === "string" ? product.negocioId.trim() : ""))
+      .find(Boolean);
     orderData = {
       ...data,
       items: transactionCalculated.items,
       subtotal: transactionCalculated.subtotal,
       total: transactionTotal,
+      ...(transactionNegocioId ? { negocioId: transactionNegocioId } : {}),
       createdAt: transactionNow,
       updatedAt: transactionNow,
       statusHistory: [{ status: "pendiente" as const, actorUid: user.uid, at: transactionNow }],
@@ -401,14 +437,40 @@ export async function updateOrderStatus(user: VerifiedUser, id: string, input: S
       validated.status === "entregado"
         ? calculateEarnedPoints(current.total)
         : current.loyaltyPointsEarned;
+    const shouldDepleteSupplies =
+      (validated.status === "preparando" || validated.status === "entregado") &&
+      !current.suppliesDepletedAt;
+    const targetNegocioId =
+      current.negocioId?.trim() || user.profile.negocioId?.trim() || DEFAULT_TENANT_ID;
+    const preparedDepletion = shouldDepleteSupplies
+      ? await prepareOrderSupplyDepletion({
+          db,
+          transaction,
+          order: current,
+          actorUid: user.uid,
+          targetStatus: validated.status as "preparando" | "entregado",
+          negocioId: targetNegocioId,
+          now,
+        })
+      : null;
     const update = {
       status: validated.status,
       updatedAt: now,
       statusHistory,
       audit: { ...current.audit, updatedByUid: user.uid, updatedAt: now },
       ...(typeof loyaltyPointsEarned === "number" ? { loyaltyPointsEarned } : {}),
+      ...(preparedDepletion
+        ? {
+            suppliesDepletedAt: now,
+            suppliesDepletedOnStatus: validated.status as "preparando" | "entregado",
+            escandallo: preparedDepletion.escandallo,
+          }
+        : {}),
     };
     transaction.update(reference, update);
+    if (preparedDepletion) {
+      preparedDepletion.applyWrites(transaction);
+    }
     transaction.create(notification, {
       uid: current.clienteUid,
       orderId: id,

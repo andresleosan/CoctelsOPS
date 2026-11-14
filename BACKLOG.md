@@ -209,7 +209,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Interfaz táctil rápida en `/admin/pedidos` o `/admin/pos` para que el cajero en barra tome pedidos presenciales en menos de 10 segundos con cálculo automático de vueltas en efectivo, desglose de cobro mixto (Efectivo + Nequi/Daviplata) y encolado resiliente offline.
   - **Archivos:** `src/components/admin/QuickBarPosModal.tsx`, `src/lib/orders/pos-calculator.ts`, `src/app/admin/pedidos/page.tsx`, `tests/components/quick-bar-pos.test.tsx`.
 
-- [ ] **TASK-25: Escandallo y Recetas Estándar con Descuento Automático de Insumos al Preparar Comanda**
+- [x] **TASK-25: Escandallo y Recetas Estándar con Descuento Automático de Insumos al Preparar Comanda**
   - **Nivel Asignado:** `Argon (Medium)`
   - **Objetivo:** Vincular cada producto/presentación de la carta con su receta de insumos (`insumos` en ml, oz y unidades de vaso/pitillo) para descontar automáticamente las existencias de barra y calcular el costo real por cóctel cuando el pedido pasa a `preparando` o `entregado`.
   - **Archivos:** `src/types/recipes.ts`, `src/lib/firestore/recipes.ts`, `src/lib/firestore/orders.ts`, `tests/lib/recipes-depletion.test.ts`.

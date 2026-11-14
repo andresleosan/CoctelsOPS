@@ -1,10 +1,11 @@
 "use client";
 
-import { History, Layers, RefreshCw, Save } from "lucide-react";
+import { FlaskConical, History, Layers, RefreshCw, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import { PermissionGate } from "@/components/admin/PermissionGate";
+import { RecipesManager } from "@/components/admin/RecipesManager";
 import { SuppliesManager } from "@/components/admin/SuppliesManager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +16,7 @@ import type { InventoryMovement, InventoryMovementType } from "@/types/operation
 
 export default function InventoryPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<"insumos" | "movimientos">("insumos");
+  const [activeTab, setActiveTab] = useState<"insumos" | "escandallo" | "movimientos">("insumos");
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [form, setForm] = useState({
     productId: "",
@@ -105,14 +106,14 @@ export default function InventoryPage() {
         </header>
 
         {/* Selector de Pestañas Mobile-First */}
-        <div className="flex border-b border-slate-700/60 pb-1 gap-2">
+        <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
           <button
             type="button"
             onClick={() => setActiveTab("insumos")}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold min-h-[44px] transition-all ${
               activeTab === "insumos"
-                ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                ? "bg-slate-900 text-cyan-300 border border-slate-800 shadow-sm"
+                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-950"
             }`}
           >
             <Layers className="h-4 w-4" />
@@ -121,11 +122,24 @@ export default function InventoryPage() {
 
           <button
             type="button"
+            onClick={() => setActiveTab("escandallo")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold min-h-[44px] transition-all ${
+              activeTab === "escandallo"
+                ? "bg-slate-900 text-cyan-300 border border-slate-800 shadow-sm"
+                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-950"
+            }`}
+          >
+            <FlaskConical className="h-4 w-4" />
+            Recetas y Escandallo
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab("movimientos")}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-bold min-h-[44px] transition-all ${
               activeTab === "movimientos"
-                ? "bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                ? "bg-slate-900 text-cyan-300 border border-slate-800 shadow-sm"
+                : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-950"
             }`}
           >
             <History className="h-4 w-4" />
@@ -135,6 +149,8 @@ export default function InventoryPage() {
 
         {activeTab === "insumos" ? (
           <SuppliesManager />
+        ) : activeTab === "escandallo" ? (
+          <RecipesManager />
         ) : (
           <div className="space-y-6">
             {error && (

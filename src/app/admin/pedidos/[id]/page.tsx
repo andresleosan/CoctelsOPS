@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Clock, MessageCircle, Printer } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock, FlaskConical, MessageCircle, Printer } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -240,6 +240,127 @@ export default function AdminOrderDetailPage() {
                   </CardContent>
                 </Card>
               </div>
+              {order.escandallo && (
+                <Card className="border-slate-200 bg-white shadow-sm">
+                  <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-lg text-slate-950">
+                        <FlaskConical className="h-5 w-5 text-cyan-700" />
+                        Escandallo y Descuento Automático de Barra
+                      </CardTitle>
+                      <p className="text-xs text-slate-600">
+                        Descontado al pasar a{" "}
+                        <span className="font-semibold text-slate-900">
+                          {order.escandallo.triggeredOnStatus}
+                        </span>{" "}
+                        el {new Date(order.escandallo.depletedAt).toLocaleString("es-CO")} (
+                        {order.escandallo.coveredItemsCount}/{order.escandallo.totalItemsCount}{" "}
+                        ítems con receta)
+                      </p>
+                    </div>
+                    <Badge
+                      className={
+                        order.escandallo.coverage === "complete"
+                          ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                          : "bg-amber-100 text-amber-900 border border-amber-300"
+                      }
+                    >
+                      {order.escandallo.coverage === "complete"
+                        ? "Escandallo completo"
+                        : "Escandallo parcial"}
+                    </Badge>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase text-slate-600">
+                          Venta Pedido
+                        </p>
+                        <p className="mt-1 text-lg font-extrabold text-slate-950">
+                          ${order.escandallo.revenueCop.toLocaleString("es-CO")}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase text-slate-600">
+                          Costo Estándar Insumos
+                        </p>
+                        <p className="mt-1 text-lg font-extrabold text-amber-800">
+                          ${order.escandallo.totalCostCop.toLocaleString("es-CO")}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase text-slate-600">
+                          Utilidad / Margen Bruto
+                        </p>
+                        <p className="mt-1 text-lg font-extrabold text-emerald-800">
+                          ${order.escandallo.grossProfitCop.toLocaleString("es-CO")} (
+                          {order.escandallo.grossMarginPct}%)
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {order.escandallo.items.map((escItem, idx) => (
+                        <div
+                          key={`${escItem.productId}-${idx}`}
+                          className="rounded-xl border border-slate-200 p-3 text-sm"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-bold text-slate-950">
+                              {escItem.quantity} × {escItem.productName}{" "}
+                              <span className="text-xs font-semibold text-cyan-800">
+                                ({escItem.presentation})
+                              </span>
+                            </p>
+                            <div className="flex flex-wrap items-center gap-3 text-xs font-semibold">
+                              <span className="text-amber-800">
+                                Costo: ${escItem.totalCostCop.toLocaleString("es-CO")}
+                              </span>
+                              <span className="text-emerald-800">
+                                Margen: {escItem.grossMarginPct}%
+                              </span>
+                            </div>
+                          </div>
+                          {escItem.ingredients.length === 0 ? (
+                            <p className="mt-2 text-xs text-slate-500">
+                              Sin receta estándar asociada a esta presentación.
+                            </p>
+                          ) : (
+                            <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                              {escItem.ingredients.map((ing, ingIdx) => (
+                                <li
+                                  key={`${ing.supplyId}-${ingIdx}`}
+                                  className="flex flex-wrap items-center justify-between gap-2 rounded bg-slate-50 px-2.5 py-1"
+                                >
+                                  <span>
+                                    <strong className="text-slate-900">{ing.supplyName}</strong>
+                                    {ing.addOnName && (
+                                      <span className="ml-1.5 rounded bg-pink-100 px-1.5 py-0.5 text-[11px] font-semibold text-pink-900">
+                                        +{ing.addOnName}
+                                      </span>
+                                    )}
+                                    : {ing.recipeQuantity} {ing.recipeUnit} (descontado{" "}
+                                    {ing.supplyQuantity} {ing.supplyUnit})
+                                  </span>
+                                  <span className="flex items-center gap-2 font-semibold text-slate-900">
+                                    {typeof ing.shortfallQuantity === "number" &&
+                                      ing.shortfallQuantity > 0 && (
+                                        <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-900">
+                                          Faltante: {ing.shortfallQuantity} {ing.supplyUnit}
+                                        </span>
+                                      )}
+                                    ${ing.costCop.toLocaleString("es-CO")}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               <OrderReceiptPrint
                 order={order}
                 isOpen={isPrintOpen}
