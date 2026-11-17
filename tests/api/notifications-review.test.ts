@@ -28,4 +28,22 @@ describe("mutación de notificaciones", () => {
     expect(verifyRequest).not.toHaveBeenCalled();
     expect(markNotificationRead).toHaveBeenCalledWith("notification-1", "customer-1", false);
   });
+
+  it("reconoce al propietario admin verificado al marcar notificaciones del equipo", async () => {
+    requirePermission.mockResolvedValueOnce({
+      uid: "owner-1",
+      token: { email: "andres.san1404@gmail.com", email_verified: true, admin: false },
+      profile: { accountType: "admin" },
+    });
+
+    const response = await PATCH(
+      new Request("http://localhost/api/notifications", {
+        method: "PATCH",
+        body: JSON.stringify({ id: "notification-2" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(markNotificationRead).toHaveBeenCalledWith("notification-2", "owner-1", true);
+  });
 });

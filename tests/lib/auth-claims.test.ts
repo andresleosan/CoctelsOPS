@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { esClaimAdmin, esEmailAdmin } from "@/lib/auth-claims";
+import { esClaimAdmin, esEmailAdmin, esTokenAdminVerificado } from "@/lib/auth-claims";
 
 describe("esClaimAdmin", () => {
   it("acepta un claim admin booleano verdadero", () => {
@@ -28,5 +28,35 @@ describe("esClaimAdmin", () => {
 
   it.each(["true", 1, null, undefined, [], {}])("rechaza valores no booleanos: %s", (value) => {
     expect(esClaimAdmin({ admin: value })).toBe(false);
+  });
+});
+
+describe("esTokenAdminVerificado", () => {
+  it("acepta al propietario con correo verificado aunque no tenga claim admin booleano", () => {
+    expect(
+      esTokenAdminVerificado({
+        email: "andres.san1404@gmail.com",
+        email_verified: true,
+      }),
+    ).toBe(true);
+    expect(
+      esTokenAdminVerificado({
+        email: "ANDRES.SAN1404@GMAIL.COM",
+        email_verified: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("rechaza al correo propietario si el correo no está verificado y falta el claim admin", () => {
+    expect(
+      esTokenAdminVerificado({
+        email: "andres.san1404@gmail.com",
+        email_verified: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("acepta un token con claim admin booleano verdadero", () => {
+    expect(esTokenAdminVerificado({ admin: true, email: "otro@correo.com" })).toBe(true);
   });
 });

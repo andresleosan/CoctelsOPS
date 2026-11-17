@@ -4,31 +4,54 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  ClipboardList,
-  Bell,
   BarChart3,
+  Bell,
   Boxes,
+  ClipboardList,
   FolderTree,
   LayoutDashboard,
   LogOut,
   Martini,
+  Settings,
   ShieldCheck,
   ShoppingBag,
-  Settings,
+  Store,
   Tag,
-  Users,
   UserCog,
+  Users,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
+import {
+  ADMIN_NAVIGATION,
+  ADVANCED_ADMIN_NAVIGATION,
+  getVisibleAdminNavigation,
+} from "@/components/admin/admin-navigation";
+import { fetchAdminSession } from "@/components/admin/admin-session-cache";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { esEmailAdmin } from "@/lib/auth-claims";
 import { logout } from "@/lib/auth-client";
 import type { Permission } from "@/types/auth";
-import { getVisibleAdminNavigation, ADMIN_NAVIGATION, ADVANCED_ADMIN_NAVIGATION } from "@/components/admin/admin-navigation";
 
 type AppSidebarProps = { onNavigate?: () => void };
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "/admin/dashboard": LayoutDashboard,
+  "/admin/pedidos": ClipboardList,
+  "/admin/productos": Martini,
+  "/admin/categorias": FolderTree,
+  "/admin/clientes": Users,
+  "/admin/usuarios": UserCog,
+  "/admin/roles": ShieldCheck,
+  "/admin/inventario": Boxes,
+  "/admin/promociones": Tag,
+  "/admin/reportes": BarChart3,
+  "/admin/configuracion": Settings,
+  "/admin/negocios": Store,
+  "/admin/notificaciones": Bell,
+};
 
 export function AppSidebar({ onNavigate }: AppSidebarProps) {
   const pathname = usePathname();
@@ -38,69 +61,51 @@ export function AppSidebar({ onNavigate }: AppSidebarProps) {
   const [isAccountAdmin, setIsAccountAdmin] = React.useState<boolean>(false);
 
   React.useEffect(() => {
-    try {
-      if (sessionStorage.getItem("coctels_admin_authenticated") === "true") {
-        setIsAccountAdmin(true);
-      }
-    } catch {}
-  }, []);
-
-  React.useEffect(() => {
     if (loading) return;
     if (!user) {
       setPermissions([]);
       setIsAccountAdmin(false);
       return;
     }
-    if (esEmailAdmin(user.email)) {
-      setIsAccountAdmin(true);
-    }
+
+    const ownerByEmail = esEmailAdmin(user.email);
+    setIsAccountAdmin(ownerByEmail);
+
     let mounted = true;
-    void user.getIdToken().then(async (token) => {
-      const response = await fetch("/api/auth/session", { headers: { Authorization: `Bearer ${token}` } });
-      if (!mounted || !response.ok) return;
-      const data = await response.json() as {
-        user?: { permissions?: Permission[]; accountType?: string; isAdmin?: boolean; roleIds?: string[] };
-      };
-      if (data.user?.accountType === "admin" || data.user?.isAdmin || data.user?.roleIds?.includes("admin")) {
-        setIsAccountAdmin(true);
+    void fetchAdminSession(user).then((result) => {
+      if (!mounted) return;
+      if (!result.ok) {
+        setPermissions([]);
+        if (result.status === 401 || result.status === 403) {
+          setIsAccountAdmin(false);
+        }
+        return;
       }
-      setPermissions(data.user?.permissions ?? []);
-    }).catch(() => {
-      if (mounted) setPermissions([]);
+
+      const sessionUser = result.data.user;
+      const adminVerified = Boolean(
+        result.data.adminAccess?.isAdmin ||
+          sessionUser?.accountType === "admin" ||
+          sessionUser?.isAdmin ||
+          sessionUser?.roleIds?.includes("admin"),
+      );
+      setIsAccountAdmin(adminVerified);
+      setPermissions(sessionUser?.permissions ?? []);
     });
-    return () => { mounted = false; };
+
+    return () => {
+      mounted = false;
+    };
   }, [loading, user]);
 
   const hasFullAdminAccess = isAdmin || isAccountAdmin || esEmailAdmin(user?.email);
   const visibleNavigation = hasFullAdminAccess
     ? [...ADMIN_NAVIGATION, ...ADVANCED_ADMIN_NAVIGATION]
     : getVisibleAdminNavigation(false, permissions);
+
   const visibleItems = visibleNavigation.map((item) => ({
     ...item,
-    icon: ADMIN_NAVIGATION.find((candidate) => candidate.href === item.href)?.href === "/admin/dashboard"
-      ? LayoutDashboard
-      : item.href === "/admin/pedidos"
-        ? ClipboardList
-        : item.href === "/admin/productos"
-          ? Martini
-          : item.href === "/admin/categorias"
-            ? FolderTree
-            : item.href === "/admin/clientes"
-              ? Users
-                : item.href === "/admin/usuarios"
-              ? UserCog
-              : item.href === "/admin/inventario"
-                ? Boxes
-                : item.href === "/admin/promociones"
-                  ? Tag
-                  : item.href === "/admin/reportes"
-                    ? BarChart3
-                    : item.href === "/admin/configuracion"
-                      ? Settings
-                      : item.href === "/admin/notificaciones"
-                        ? Bell
-                        : ShieldCheck,
+    icon: NAV_ICONS[item.href] ?? ShieldCheck,
   }));
 
   async function handleLogout() {
@@ -120,35 +125,78 @@ export function AppSidebar({ onNavigate }: AppSidebarProps) {
             <span className="block text-[10px] font-semibold tracking-[0.25em] text-slate-400">OPS CONTROL</span>
           </span>
         </Link>
-        <Button variant="ghost" size="icon" className="text-slate-400 hover:bg-slate-800 hover:text-white md:hidden" onClick={onNavigate} aria-label="Cerrar menú">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-slate-400 hover:bg-slate-800 hover:text-white md:hidden"
+          onClick={onNavigate}
+          aria-label="Cerrar menú"
+        >
           <X className="h-5 w-5" />
         </Button>
       </div>
+
       <nav aria-label="Navegación de administración" className="flex-1 space-y-1 overflow-y-auto p-4">
         <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">Operaciones</p>
         {visibleItems.map((item) => {
           const Icon = item.icon;
-          const active = pathname === item.href || (item.href !== "/admin/dashboard" && pathname.startsWith(`${item.href}/`));
+          const active =
+            pathname === item.href ||
+            (item.href !== "/admin/dashboard" && pathname.startsWith(`${item.href}/`));
           return (
             <Link
               key={item.href}
               href={item.href}
               onClick={onNavigate}
-              className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${active ? "bg-cyan-400/15 text-cyan-200" : "text-slate-300 hover:bg-slate-800 hover:text-white"}`}
+              className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${
+                active ? "bg-cyan-400/15 text-cyan-200" : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              }`}
               aria-current={active ? "page" : undefined}
             >
-              <Icon className="h-4 w-4" aria-hidden="true" />
+              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
               {item.label}
             </Link>
           );
         })}
-        {visibleItems.length === 0 && <p className="px-3 text-sm text-slate-400">No tienes módulos asignados.</p>}
+        {visibleItems.length === 0 && (
+          <p className="px-3 text-sm text-slate-400">No tienes módulos asignados.</p>
+        )}
       </nav>
+
       <div className="space-y-3 border-t border-slate-700/80 p-4">
-        <Link href="/menu" onClick={onNavigate} className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white">
+        {user && (
+          <div className="rounded-lg border border-slate-700/70 bg-slate-900/70 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate text-xs font-semibold text-white">
+                {user.displayName ?? user.email ?? "Operador"}
+              </p>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                  hasFullAdminAccess
+                    ? "bg-cyan-400/20 text-cyan-300"
+                    : "bg-slate-700 text-slate-300"
+                }`}
+              >
+                {hasFullAdminAccess ? "Admin" : "Staff"}
+              </span>
+            </div>
+            {user.email && (
+              <p className="mt-0.5 truncate text-[11px] text-slate-400">{user.email}</p>
+            )}
+          </div>
+        )}
+        <Link
+          href="/menu"
+          onClick={onNavigate}
+          className="flex min-h-10 items-center gap-3 rounded-lg px-3 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+        >
           <Martini className="h-4 w-4" aria-hidden="true" /> Volver a la tienda
         </Link>
-        <Button variant="ghost" onClick={handleLogout} className="w-full justify-start gap-3 px-3 text-slate-300 hover:bg-slate-800 hover:text-white">
+        <Button
+          variant="ghost"
+          onClick={handleLogout}
+          className="w-full justify-start gap-3 px-3 text-slate-300 hover:bg-slate-800 hover:text-white"
+        >
           <LogOut className="h-4 w-4" aria-hidden="true" /> Cerrar sesión
         </Button>
       </div>

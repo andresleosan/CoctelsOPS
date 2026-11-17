@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { esTokenAdminVerificado } from "@/lib/auth-claims";
 import { requirePermission } from "@/lib/auth/permissions";
 import { toAuthorizationResponse, verifyRequest } from "@/lib/auth/verify-request";
 import { listAdminNotifications, listNotifications, markNotificationRead } from "@/lib/firestore/notifications";
@@ -17,7 +18,11 @@ export async function PATCH(request: Request): Promise<Response> {
   try {
     const user = await requirePermission(request as never, "notificaciones.read");
     const input = z.object({ id: z.string().trim().min(1) }).parse(await request.json());
-    await markNotificationRead(input.id, user.uid, user.token.admin === true && user.profile.accountType === "admin");
+    await markNotificationRead(
+      input.id,
+      user.uid,
+      esTokenAdminVerificado(user.token) && user.profile.accountType === "admin",
+    );
     return Response.json({ ok: true });
   } catch (error) {
     if (error instanceof z.ZodError) return Response.json({ error: "Notificación inválida" }, { status: 422 });

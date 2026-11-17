@@ -9,3 +9,11 @@ export function esClaimAdmin(claims: Record<string, unknown> | null | undefined)
   if (typeof claims?.email === "string" && esEmailAdmin(claims.email)) return true;
   return false;
 }
+
+export function esTokenAdminVerificado(
+  token: { admin?: unknown; email?: unknown; email_verified?: unknown } | null | undefined,
+): boolean {
+  if (!token) return false;
+  if (token.admin === true) return true;
+  return esEmailAdmin(token.email) && token.email_verified === true;
+}

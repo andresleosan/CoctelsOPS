@@ -21,6 +21,7 @@ export const ADVANCED_ADMIN_NAVIGATION: AdminNavigationItem[] = [
   { href: "/admin/promociones", label: "Promociones", permission: "promociones.read" },
   { href: "/admin/reportes", label: "Reportes", permission: "reportes.read" },
   { href: "/admin/configuracion", label: "Configuración", permission: "configuracion.read" },
+  { href: "/admin/negocios", label: "Locales SaaS", permission: "configuracion.read" },
   { href: "/admin/auditoria", label: "Auditoría", permission: "auditoria.read" },
   { href: "/admin/notificaciones", label: "Notificaciones", permission: "notificaciones.read" },
 ];

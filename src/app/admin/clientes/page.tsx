@@ -746,7 +746,7 @@ export default function CustomersCrmPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setCampaignModalOpen(false)}
-                className="border-slate-200 text-slate-700"
+                className="min-h-[40px] border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
               >
                 Cerrar
               </Button>
@@ -756,7 +756,7 @@ export default function CustomersCrmPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => void handleCopyMessage()}
-                  className="gap-1.5 border-slate-300"
+                  className="min-h-[40px] gap-1.5 border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
                 >
                   {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
                   {copied ? "Copiado" : "Copiar"}

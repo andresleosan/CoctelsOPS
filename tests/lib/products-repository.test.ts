@@ -200,4 +200,32 @@ describe("products repository", () => {
     expect(collection).toHaveBeenCalledWith("categorias");
     expect(where).toHaveBeenCalledWith("active", "==", true);
   });
+
+  it("permite al propietario admin verificado gestionar productos y categorías sin custom claim admin booleano", async () => {
+    const ownerCaller: CatalogCaller = {
+      uid: "owner-1",
+      token: {
+        uid: "owner-1",
+        email: "andres.san1404@gmail.com",
+        email_verified: true,
+        admin: false,
+      },
+      profile: {
+        ...caller.profile,
+        uid: "owner-1",
+        email: "andres.san1404@gmail.com",
+        accountType: "admin",
+        roleIds: ["admin"],
+        permissions: [],
+      },
+      permissions: [],
+    };
+
+    get.mockResolvedValueOnce({ docs: [] });
+    await expect(listAllProducts(ownerCaller)).resolves.toEqual([]);
+
+    get.mockResolvedValueOnce({ docs: [] });
+    const { listAllCategories } = await import("@/lib/firestore/categories");
+    await expect(listAllCategories(ownerCaller)).resolves.toEqual([]);
+  });
 });

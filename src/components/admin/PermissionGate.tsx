@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 
-import { useAuth } from "@/hooks/use-auth";
+import { fetchAdminSession } from "@/components/admin/admin-session-cache";
 import { canAccessAdmin } from "@/components/admin/permission-check";
+import { useAuth } from "@/hooks/use-auth";
 import type { Permission } from "@/types/auth";
 
 type PermissionGateProps = {
@@ -29,17 +30,14 @@ export function PermissionGate({ permission, children, fallback = null }: Permis
     }
 
     let active = true;
-    void user.getIdToken().then(async (token) => {
-      const response = await fetch("/api/auth/session", { headers: { Authorization: `Bearer ${token}` } });
+    void fetchAdminSession(user).then((result) => {
       if (!active) return;
-      if (!response.ok) {
+      if (!result.ok) {
         setAllowed(canAccessAdmin({ isAdmin, permissions: [], permission }));
         return;
       }
-      const data = (await response.json()) as { user?: { permissions?: Permission[] } };
-      setAllowed(canAccessAdmin({ isAdmin, permissions: data.user?.permissions ?? [], permission }));
-    }).catch(() => {
-      if (active) setAllowed(canAccessAdmin({ isAdmin, permissions: [], permission }));
+      const permissions = result.data.user?.permissions ?? [];
+      setAllowed(canAccessAdmin({ isAdmin, permissions, permission }));
     });
 
     return () => {

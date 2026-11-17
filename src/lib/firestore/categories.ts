@@ -1,5 +1,6 @@
 import "server-only";
 
+import { esTokenAdminVerificado } from "@/lib/auth-claims";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
@@ -15,7 +16,7 @@ function toCategory(id: string, data: Record<string, unknown>): Category {
 }
 
 function requireCategoryPermission(caller: CatalogCaller, permission: "categorias.read" | "categorias.write"): void {
-  const isAdmin = caller.token.admin === true && caller.profile.accountType === "admin";
+  const isAdmin = esTokenAdminVerificado(caller.token) && caller.profile.accountType === "admin";
   if (!caller.profile.active || (!isAdmin && !caller.permissions.includes(permission))) {
     throw new AuthorizationError(403, "No tienes permiso para gestionar las categorías");
   }

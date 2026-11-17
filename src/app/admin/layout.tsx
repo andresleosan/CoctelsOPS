@@ -28,13 +28,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     ["/admin/promociones", "promociones.read"],
     ["/admin/reportes", "reportes.read"],
     ["/admin/configuracion", "configuracion.read"],
+    ["/admin/negocios", "configuracion.read"],
     ["/admin/auditoria", "auditoria.read"],
     ["/admin/notificaciones", "notificaciones.read"],
   ];
   const requiredPermission = permissionByPath.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[1];
 
   return (
-    <div className="min-h-[calc(100svh-1rem)] bg-slate-100 text-slate-900">
+    <div className="admin-theme min-h-[calc(100svh-1rem)] bg-slate-100 text-slate-900">
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-[18rem] border-slate-700 bg-[#111827] p-0 [&>button]:hidden">
           <AppSidebar onNavigate={() => setMobileOpen(false)} />

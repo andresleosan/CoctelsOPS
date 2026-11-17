@@ -7,7 +7,12 @@ import { Award, CheckCircle2, Flame, Gift, GlassWater, Sparkles, Star } from 'lu
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
-import { LOYALTY_REWARDS, LOYALTY_STAMPS_PER_CARD, type LoyaltySummary } from '@/types/loyalty';
+import {
+  LOYALTY_REWARDS,
+  LOYALTY_STAMPS_PER_CARD,
+  LOYALTY_TIERS,
+  type LoyaltySummary,
+} from '@/types/loyalty';
 
 export type LoyaltyCardProps = {
   initialSummary?: LoyaltySummary | null;
@@ -17,11 +22,13 @@ export function LoyaltyCard({ initialSummary = null }: LoyaltyCardProps) {
   const { user } = useAuth();
   const [summary, setSummary] = useState<LoyaltySummary | null>(initialSummary);
   const [loading, setLoading] = useState(!initialSummary);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (initialSummary) {
       setSummary(initialSummary);
       setLoading(false);
+      setLoadError(false);
       return;
     }
     if (!user) return;
@@ -33,13 +40,19 @@ export function LoyaltyCard({ initialSummary = null }: LoyaltyCardProps) {
         const response = await fetch('/api/loyalty', {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (active) setLoadError(true);
+          return;
+        }
         const data = (await response.json()) as { loyalty?: LoyaltySummary };
         if (active && data.loyalty) {
           setSummary(data.loyalty);
+          setLoadError(false);
+        } else if (active) {
+          setLoadError(true);
         }
       } catch {
-        // Fallback silencioso
+        if (active) setLoadError(true);
       } finally {
         if (active) setLoading(false);
       }
@@ -55,10 +68,12 @@ export function LoyaltyCard({ initialSummary = null }: LoyaltyCardProps) {
   const lifetimePoints = summary?.lifetimeEarnedPoints ?? 0;
   const stampsInCard = summary?.stampsInCurrentCard ?? 0;
   const completedCards = summary?.completedStampCards ?? 0;
-  const tierName = summary?.tier.name ?? 'Bronce Neón';
-  const tierBadge = summary?.tier.badgeColor ?? 'text-amber-400 border-amber-400/30 bg-amber-500/10';
-  const nextTier = summary?.nextTier ?? null;
-  const pointsToNextTier = summary?.pointsToNextTier ?? 50;
+  const tierName = summary?.tier.name ?? LOYALTY_TIERS[0].name;
+  const tierBadge = summary?.tier.badgeColor ?? LOYALTY_TIERS[0].badgeColor;
+  const nextTier = summary ? summary.nextTier : LOYALTY_TIERS[1];
+  const pointsToNextTier = summary
+    ? summary.pointsToNextTier
+    : LOYALTY_TIERS[1].minLifetimePoints;
 
   return (
     <Card
@@ -112,7 +127,15 @@ export function LoyaltyCard({ initialSummary = null }: LoyaltyCardProps) {
                 <span>Progreso VIP</span>
                 <span>{lifetimePoints} pts históricos</span>
               </div>
-              {nextTier ? (
+              {loading ? (
+                <p className="mt-1.5 text-xs text-slate-300">
+                  Consultando tu progreso VIP...
+                </p>
+              ) : loadError || !summary ? (
+                <p className="mt-1.5 text-xs text-amber-200/90">
+                  No pudimos sincronizar tu saldo en este momento.
+                </p>
+              ) : nextTier ? (
                 <p className="mt-1.5 text-xs text-slate-300">
                   Te faltan <strong>{pointsToNextTier} pts</strong> para subir a{' '}
                   <span className="font-bold text-cyan-300">{nextTier.name}</span>.

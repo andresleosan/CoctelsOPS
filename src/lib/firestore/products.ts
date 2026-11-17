@@ -1,5 +1,6 @@
 import "server-only";
 
+import { esTokenAdminVerificado } from "@/lib/auth-claims";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
@@ -15,7 +16,7 @@ function productCollection() {
 }
 
 function requireCatalogPermission(caller: CatalogCaller | undefined, permission: CatalogPermission): void {
-  const isAdmin = caller?.token.admin === true && caller.profile.accountType === "admin";
+  const isAdmin = Boolean(caller && esTokenAdminVerificado(caller.token) && caller.profile.accountType === "admin");
   const writeImpliesRead = permission === "productos.read" && caller?.permissions.includes("productos.write") === true;
   const isAllowed = caller?.profile.active === true && (isAdmin || caller.permissions.includes(permission) || writeImpliesRead);
 
@@ -26,7 +27,7 @@ function requireCatalogPermission(caller: CatalogCaller | undefined, permission:
 
 export function assertProductTenantAccess(caller: CatalogCaller | undefined, productNegocioId: string | undefined): void {
   if (!caller) return;
-  const isAdmin = caller.token.admin === true && caller.profile.accountType === "admin";
+  const isAdmin = esTokenAdminVerificado(caller.token) && caller.profile.accountType === "admin";
   if (isAdmin) return;
   const userNegocio = caller.profile.negocioId;
   const effectiveProductNegocio = productNegocioId || DEFAULT_TENANT_ID;

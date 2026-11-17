@@ -77,7 +77,12 @@ export default function ConfigurationPage() {
               Canales, horarios, zonas, mensajes de atención y códigos QR de mesa.
             </p>
           </div>
-          <Button variant="outline" onClick={() => void load()} disabled={loading} className="gap-2">
+          <Button
+            variant="outline"
+            onClick={() => void load()}
+            disabled={loading}
+            className="min-h-[44px] gap-2 border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+          >
             <RefreshCw className={loading ? "animate-spin" : ""} /> Actualizar
           </Button>
         </header>
@@ -141,7 +146,7 @@ export default function ConfigurationPage() {
                           .filter(Boolean),
                       })
                     }
-                    className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="min-h-24 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
                   />
                 </div>
               </CardContent>

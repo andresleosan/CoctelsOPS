@@ -14,6 +14,7 @@ import {
 } from 'firebase/auth';
 
 import { getFirebaseAuth } from '@/firebase';
+import { invalidateAdminSessionCache } from '@/components/admin/admin-session-cache';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -89,6 +90,7 @@ export async function sendVerificationEmail(user: User): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
+  invalidateAdminSessionCache();
   if (typeof window !== 'undefined') {
     try {
       sessionStorage.removeItem('coctels_admin_authenticated');

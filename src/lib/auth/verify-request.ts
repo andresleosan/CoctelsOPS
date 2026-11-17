@@ -2,7 +2,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 
-import { esEmailAdmin } from "@/lib/auth-claims";
+import { esTokenAdminVerificado } from "@/lib/auth-claims";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import type { TokenClaims, UserProfile, VerifiedUser } from "@/types/auth";
 
@@ -41,7 +41,7 @@ export async function verifyToken(request: NextRequest): Promise<TokenClaims> {
 export async function verifyRequest(request: NextRequest): Promise<VerifiedUser> {
   const token = await verifyToken(request);
   const snapshot = await getAdminDb().collection("users").doc(token.uid).get();
-  const isOwnerAdmin = token.admin === true || (esEmailAdmin(token.email) && token.email_verified === true);
+  const isOwnerAdmin = esTokenAdminVerificado(token);
 
   if (!snapshot.exists) {
     if (isOwnerAdmin) {

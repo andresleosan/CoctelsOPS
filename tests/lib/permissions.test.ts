@@ -11,7 +11,14 @@ vi.mock("@/lib/firebase-admin", () => ({
   getAdminDb: () => ({ collection: () => ({ doc: () => ({ get }) }) }),
 }));
 
-import { hasPermission, requirePermission, requireUserOwnership } from "@/lib/auth/permissions";
+import {
+  buildAdminAccessDiagnostic,
+  hasPermission,
+  isGlobalAdmin,
+  requirePermission,
+  requireUserOwnership,
+} from "@/lib/auth/permissions";
+import { ALL_ADMIN_PERMISSIONS } from "@/types/auth";
 import { requireVerifiedEmail, verifyRequest } from "@/lib/auth/verify-request";
 
 function request(token?: string): NextRequest {
@@ -105,5 +112,57 @@ describe("authorization", () => {
     const verified = await requirePermission(request("token"), "pedidos.read");
 
     expect(() => requireUserOwnership(verified, "user-2")).toThrow();
+  });
+
+  it("otorga todos los permisos administrativos al correo propietario verificado andres.san1404@gmail.com", async () => {
+    get.mockResolvedValueOnce({
+      exists: true,
+      data: () =>
+        profile({
+          uid: "owner-1",
+          email: "andres.san1404@gmail.com",
+          accountType: "customer",
+          roleIds: ["customer"],
+          permissions: [],
+        }),
+    });
+    verifyIdToken.mockResolvedValueOnce({
+      uid: "owner-1",
+      email: "andres.san1404@gmail.com",
+      email_verified: true,
+      admin: false,
+    });
+
+    const verified = await requirePermission(request("token"), "configuracion.write");
+    const diagnostic = buildAdminAccessDiagnostic(verified, []);
+
+    expect(verified.profile.accountType).toBe("admin");
+    expect(isGlobalAdmin(verified)).toBe(true);
+    expect(diagnostic.isAdmin).toBe(true);
+    expect(diagnostic.isOwnerEmail).toBe(true);
+    expect(diagnostic.emailVerified).toBe(true);
+    expect(diagnostic.hasCustomClaim).toBe(false);
+    expect(diagnostic.effectivePermissions).toEqual([...ALL_ADMIN_PERMISSIONS]);
+  });
+
+  it("bloquea el correo propietario si email_verified es false y no tiene claim admin", async () => {
+    get.mockResolvedValueOnce({
+      exists: true,
+      data: () =>
+        profile({
+          uid: "owner-1",
+          email: "andres.san1404@gmail.com",
+          accountType: "customer",
+          permissions: [],
+        }),
+    });
+    verifyIdToken.mockResolvedValueOnce({
+      uid: "owner-1",
+      email: "andres.san1404@gmail.com",
+      email_verified: false,
+      admin: false,
+    });
+
+    await expect(requirePermission(request("token"), "roles.write")).rejects.toMatchObject({ status: 403 });
   });
 });

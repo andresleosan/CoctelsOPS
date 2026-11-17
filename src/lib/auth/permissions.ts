@@ -2,9 +2,16 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 
-import { esEmailAdmin } from "@/lib/auth-claims";
+import { esEmailAdmin, esTokenAdminVerificado } from "@/lib/auth-claims";
 import { getAdminDb } from "@/lib/firebase-admin";
-import type { Permission, Role, UserProfile, VerifiedUser } from "@/types/auth";
+import {
+  ALL_ADMIN_PERMISSIONS,
+  type AdminAccessDiagnostic,
+  type Permission,
+  type Role,
+  type UserProfile,
+  type VerifiedUser,
+} from "@/types/auth";
 import { AuthorizationError, verifyRequest } from "@/lib/auth/verify-request";
 
 function isPermission(value: unknown): value is Permission {
@@ -36,9 +43,7 @@ export async function requirePermission(request: NextRequest, permission: Permis
   const verified = await verifyRequest(request);
   const permissions = await resolvePermissions(verified.profile);
   const profile = { ...verified.profile, permissions };
-  const isOwnerAdmin =
-    verified.token.admin === true ||
-    (esEmailAdmin(verified.token.email) && verified.token.email_verified === true);
+  const isOwnerAdmin = esTokenAdminVerificado(verified.token);
   const hasAdminClaim = isOwnerAdmin && profile.accountType === "admin";
   const hasRolePermission = profile.accountType !== "admin" && permissions.includes(permission);
 
@@ -60,10 +65,27 @@ export function requireUserOwnership(user: VerifiedUser, uid: string): void {
 }
 
 export function isGlobalAdmin(user: VerifiedUser): boolean {
-  const isOwnerAdmin =
-    user.token.admin === true ||
-    (esEmailAdmin(user.token.email) && user.token.email_verified === true);
-  return Boolean(isOwnerAdmin && user.profile.accountType === "admin");
+  return Boolean(
+    user.profile.active &&
+      esTokenAdminVerificado(user.token) &&
+      user.profile.accountType === "admin",
+  );
+}
+
+export function buildAdminAccessDiagnostic(
+  verified: VerifiedUser,
+  resolvedPermissions: Permission[],
+): AdminAccessDiagnostic {
+  const isAdmin = isGlobalAdmin(verified);
+  return {
+    isAdmin,
+    hasCustomClaim: verified.token.admin === true,
+    isOwnerEmail: esEmailAdmin(verified.token.email),
+    emailVerified: verified.token.email_verified === true,
+    accountType: verified.profile.accountType,
+    active: verified.profile.active,
+    effectivePermissions: isAdmin ? [...ALL_ADMIN_PERMISSIONS] : resolvedPermissions,
+  };
 }
 
 export function hasNegocioAccess(user: VerifiedUser, negocioId: string): boolean {

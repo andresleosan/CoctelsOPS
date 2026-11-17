@@ -69,3 +69,36 @@ export type VerifiedUser = {
   profile: UserProfile;
   permissions: Permission[];
 };
+
+export const ALL_ADMIN_PERMISSIONS: readonly Permission[] = [
+  "pedidos.read",
+  "pedidos.update",
+  "productos.read",
+  "productos.write",
+  "categorias.read",
+  "categorias.write",
+  "clientes.read",
+  "usuarios.read",
+  "usuarios.manage",
+  "roles.read",
+  "roles.write",
+  "inventario.read",
+  "inventario.write",
+  "promociones.read",
+  "promociones.write",
+  "reportes.read",
+  "configuracion.read",
+  "configuracion.write",
+  "auditoria.read",
+  "notificaciones.read",
+] as const;
+
+export type AdminAccessDiagnostic = {
+  isAdmin: boolean;
+  hasCustomClaim: boolean;
+  isOwnerEmail: boolean;
+  emailVerified: boolean;
+  accountType: AccountType;
+  active: boolean;
+  effectivePermissions: Permission[];
+};

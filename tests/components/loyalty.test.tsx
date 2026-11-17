@@ -169,4 +169,23 @@ describe("Programa de Fidelización Puntos Coctels y Sellos Digitales", () => {
     expect(screen.getByTestId("loyalty-stamp-3")).toHaveAttribute("data-stamped", "false");
     expect(screen.getAllByText(/Canjear en Checkout/i)).toHaveLength(3);
   });
+
+  it("no muestra nivel máximo VIP cuando /api/loyalty falla y muestra mensaje honesto", async () => {
+    useAuth.mockReturnValue({
+      user: { uid: "user-1", getIdToken: vi.fn().mockResolvedValue("token-1") },
+      loading: false,
+      isVerified: true,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "Backend unavailable" }), { status: 502 })),
+    );
+
+    render(<LoyaltyCard />);
+
+    expect(
+      await screen.findByText(/No pudimos sincronizar tu saldo en este momento/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Alcanzaste el nivel máximo Oro Opsy VIP/i)).not.toBeInTheDocument();
+  });
 });

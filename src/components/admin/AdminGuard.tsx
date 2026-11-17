@@ -3,17 +3,14 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { useAuth } from "@/hooks/use-auth";
+import { fetchAdminSession } from "@/components/admin/admin-session-cache";
 import { canAccessAdmin } from "@/components/admin/permission-check";
+import { useAuth } from "@/hooks/use-auth";
 import type { Permission } from "@/types/auth";
 
 type AdminGuardProps = {
   children: React.ReactNode;
   permission?: Permission;
-};
-
-type SessionResponse = {
-  user?: { permissions?: Permission[] };
 };
 
 const SESSION_STORAGE_KEY = "coctels_admin_authenticated";
@@ -25,6 +22,16 @@ function getInitialAllowed(): boolean | null {
   } catch {
     return null;
   }
+}
+
+function persistAdminFlag(enabled: boolean): void {
+  try {
+    if (enabled) {
+      sessionStorage.setItem(SESSION_STORAGE_KEY, "true");
+    } else {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  } catch {}
 }
 
 export function AdminGuardSkeleton() {
@@ -60,48 +67,42 @@ export function AdminGuard({ children, permission }: AdminGuardProps) {
     if (loading) return;
 
     if (!user) {
-      try {
-        sessionStorage.removeItem(SESSION_STORAGE_KEY);
-      } catch {}
+      persistAdminFlag(false);
+      setAllowed(false);
       const query = window.location.search;
       const destination = `${pathname}${query ? `?${query}` : ""}`;
       router.replace(`/admin/login?redirect=${encodeURIComponent(destination)}`);
       return;
     }
 
-    // Si el usuario ya tiene la custom claim de admin en su token verificado de Firebase Auth
+    let active = true;
+
+    // Si el usuario tiene el claim o correo de propietario verificado en Auth,
+    // permitimos render inmediato y revalidamos la sesión del servidor en segundo plano.
     if (isAdmin) {
       setAllowed(true);
-      try {
-        sessionStorage.setItem(SESSION_STORAGE_KEY, "true");
-      } catch {}
-      return;
+      persistAdminFlag(true);
     }
 
-    let active = true;
-    void user.getIdToken().then(async (token) => {
-      const response = await fetch("/api/auth/session", { headers: { Authorization: `Bearer ${token}` } });
+    void fetchAdminSession(user).then((result) => {
       if (!active) return;
-      if (!response.ok) {
-        const canAccess = canAccessAdmin({ isAdmin, permissions: [], permission });
-        setAllowed(canAccess);
-        if (canAccess) {
-          try { sessionStorage.setItem(SESSION_STORAGE_KEY, "true"); } catch {}
+
+      if (!result.ok) {
+        if (result.status === 401 || result.status === 403) {
+          persistAdminFlag(false);
+          setAllowed(false);
+          return;
         }
+        const fallbackAccess = canAccessAdmin({ isAdmin, permissions: [], permission });
+        setAllowed(fallbackAccess);
+        persistAdminFlag(fallbackAccess);
         return;
       }
-      const data = (await response.json()) as SessionResponse;
-      const permissions = data.user?.permissions ?? [];
+
+      const permissions = result.data.user?.permissions ?? [];
       const canAccess = canAccessAdmin({ isAdmin, permissions, permission });
       setAllowed(canAccess);
-      if (canAccess) {
-        try { sessionStorage.setItem(SESSION_STORAGE_KEY, "true"); } catch {}
-      }
-    }).catch(() => {
-      if (active) {
-        const canAccess = canAccessAdmin({ isAdmin, permissions: [], permission });
-        setAllowed(canAccess);
-      }
+      persistAdminFlag(canAccess);
     });
 
     return () => {
@@ -109,7 +110,7 @@ export function AdminGuard({ children, permission }: AdminGuardProps) {
     };
   }, [isAdmin, loading, pathname, permission, router, user]);
 
-  if (allowed === true) {
+  if (allowed === true && user) {
     return children;
   }
 
@@ -118,7 +119,7 @@ export function AdminGuard({ children, permission }: AdminGuardProps) {
   }
 
   return (
-    <div className="mx-auto flex min-h-[40vh] max-w-xl items-center justify-center px-6 text-center text-sm text-muted-foreground">
+    <div className="mx-auto flex min-h-[40vh] max-w-xl items-center justify-center px-6 text-center text-sm text-slate-600">
       No tienes permisos para ver esta sección.
     </div>
   );
