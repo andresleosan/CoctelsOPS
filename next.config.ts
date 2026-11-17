@@ -3,6 +3,9 @@ import { getCatalogImageHosts } from './src/lib/catalog/image-hosts';
 
 const nextConfig: NextConfig = {
   /* config options here */
+  experimental: {
+    agentUpgrade: 'security',
+  },
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
   onDemandEntries: {
     maxInactiveAge: 60 * 1000,
