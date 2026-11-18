@@ -162,4 +162,82 @@ describe("ProductsPage (Panel Staff Menú)", () => {
       );
     });
   });
+
+  it("renderiza productos del catalogo V2 de D1 (sizes/flavors sin price plano) y actualiza stock via /api/admin/inventory", async () => {
+    const v2Products = [
+      {
+        id: "cremoso-baileys",
+        name: "El Cremoso OPS - Granizado de Baileys",
+        description: "Granizado cremoso con Baileys.",
+        image: "/catalog-placeholder.svg",
+        category: "cat-cremosos",
+        alcohol: "with",
+        stock: 0,
+        active: true,
+        featured: true,
+        sizes: [
+          { id: "sz-12", label: "12 oz", volumeOz: 12, priceCop: 16000 },
+          { id: "sz-16", label: "16 oz", volumeOz: 16, priceCop: 20000 },
+        ],
+        flavors: [{ id: "fl-1", name: "Baileys" }],
+        bases: [],
+        addOns: [],
+      },
+      {
+        id: "borrador-sin-precio",
+        name: "Borrador Especial",
+        description: "Pendiente por definir.",
+        image: "/catalog-placeholder.svg",
+        category: "cat-cremosos",
+        alcohol: "unknown",
+        stock: 0,
+        active: false,
+        featured: false,
+        sizes: [{ id: "sz-pending", label: "Único", volumeOz: null, priceCop: null }],
+        flavors: [],
+        bases: [],
+        addOns: [],
+      },
+    ];
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, options?: { method?: string }) => {
+        if (url.includes("/api/admin/productos") && (!options?.method || options.method === "GET")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              products: v2Products,
+              categories: [{ id: "cat-cremosos", name: "Cremosos" }],
+            }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      }),
+    );
+
+    render(<ProductsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("El Cremoso OPS - Granizado de Baileys")).toBeInTheDocument();
+      expect(screen.getByText("Borrador Especial")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/\$16\.000 COP/i)).toBeInTheDocument();
+    expect(screen.getByText(/Precio pendiente/i)).toBeInTheDocument();
+    expect(screen.getByText(/\(2 presentaciones\)/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Cremosos").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Baileys")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Marcar El Cremoso OPS - Granizado de Baileys como en stock" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/inventory",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+    });
+  });
 });

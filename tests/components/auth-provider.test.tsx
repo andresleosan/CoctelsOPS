@@ -64,4 +64,28 @@ describe("AuthProvider", () => {
     await waitFor(() => expect(screen.getByText("customer-new")).toBeInTheDocument());
     expect(screen.queryByText("loading")).not.toBeInTheDocument();
   });
+
+  it("fuerza el refresco del token solo una vez por UID ante multiples callbacks de onIdTokenChanged", async () => {
+    const user = {
+      uid: "admin-owner",
+      email: "andres.san1404@gmail.com",
+      emailVerified: true,
+      getIdTokenResult: vi.fn().mockResolvedValue({ token: "same-token", claims: { admin: true } }),
+    };
+    let listener: ((nextUser: typeof user) => void) | undefined;
+    onIdTokenChanged.mockImplementation((_auth: unknown, callback: (nextUser: typeof user) => void) => {
+      listener = callback;
+      void callback(user);
+      return vi.fn();
+    });
+
+    render(createElement(AuthProvider, null, createElement(SessionProbe)));
+
+    await waitFor(() => expect(user.getIdTokenResult).toHaveBeenCalledWith(true));
+    listener?.(user);
+    await waitFor(() => expect(user.getIdTokenResult).toHaveBeenCalledTimes(2));
+    expect(user.getIdTokenResult).toHaveBeenNthCalledWith(1, true);
+    expect(user.getIdTokenResult).toHaveBeenNthCalledWith(2, false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

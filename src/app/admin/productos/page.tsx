@@ -14,9 +14,74 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import type { Product } from "@/types/catalog";
 
+type CatalogSizeV2 = {
+  id: string;
+  label: string;
+  volumeOz?: number | null;
+  priceCop: number | null;
+};
+
+type CatalogOptionV2 = {
+  id: string;
+  name: string;
+};
+
+type CatalogBaseV2 = CatalogOptionV2 & {
+  containsAlcohol?: boolean;
+};
+
+type CatalogAddOnV2 = CatalogOptionV2 & {
+  priceCop: number;
+  maxQuantity?: number;
+};
+
+type AdminProduct = Omit<Product, "price" | "availableFlavors" | "availableAddOns"> & {
+  price?: number | null;
+  availableFlavors?: string[];
+  availableAddOns?: Product["availableAddOns"];
+  sizes?: CatalogSizeV2[];
+  flavors?: CatalogOptionV2[];
+  bases?: CatalogBaseV2[];
+  addOns?: CatalogAddOnV2[];
+  alcohol?: "with" | "without" | "both" | "unknown";
+};
+
+type CategoryChoice = {
+  id: string;
+  name: string;
+};
+
+function resolveProductPrice(product: AdminProduct): number | null {
+  if (typeof product.price === "number" && Number.isFinite(product.price)) {
+    return product.price;
+  }
+  const prices = (product.sizes ?? [])
+    .map((size) => size.priceCop)
+    .filter((price): price is number => typeof price === "number" && Number.isFinite(price));
+  return prices.length > 0 ? Math.min(...prices) : null;
+}
+
+function resolveSizeCount(product: AdminProduct): number {
+  if (Array.isArray(product.availableSizes) && product.availableSizes.length > 0) {
+    return product.availableSizes.length;
+  }
+  return Array.isArray(product.sizes) ? product.sizes.length : 0;
+}
+
+function resolveFlavorNames(product: AdminProduct): string[] {
+  if (Array.isArray(product.availableFlavors) && product.availableFlavors.length > 0) {
+    return product.availableFlavors;
+  }
+  if (Array.isArray(product.flavors) && product.flavors.length > 0) {
+    return product.flavors.map((flavor) => flavor.name);
+  }
+  return [];
+}
+
 export default function ProductsPage() {
   const { user } = useAuth();
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<AdminProduct[]>([]);
+  const [categoryNames, setCategoryNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -30,9 +95,18 @@ export default function ProductsPage() {
       const response = await fetch("/api/admin/productos", {
         headers: { Authorization: `Bearer ${await user.getIdToken()}` },
       });
-      const body = (await response.json().catch(() => ({}))) as { products?: Product[]; error?: string };
+      const body = (await response.json().catch(() => ({}))) as {
+        products?: AdminProduct[];
+        categories?: CategoryChoice[];
+        error?: string;
+      };
       if (!response.ok) throw new Error(body.error ?? "No se pudieron cargar los productos.");
       setProducts(body.products ?? []);
+      if (Array.isArray(body.categories)) {
+        setCategoryNames(
+          Object.fromEntries(body.categories.map((category) => [category.id, category.name])),
+        );
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "No se pudieron cargar los productos.");
     } finally {
@@ -44,7 +118,7 @@ export default function ProductsPage() {
     void load();
   }, [user]);
 
-  async function remove(product: Product) {
+  async function remove(product: AdminProduct) {
     if (!user || !window.confirm(`¿Eliminar ${product.name}? Esta acción no se puede deshacer.`)) return;
     const response = await fetch(`/api/admin/productos/${encodeURIComponent(product.id)}`, {
       method: "DELETE",
@@ -58,23 +132,39 @@ export default function ProductsPage() {
     setProducts((items) => items.filter((item) => item.id !== product.id));
   }
 
-  async function toggleStock(product: Product) {
+  async function toggleStock(product: AdminProduct) {
     if (!user) return;
     const newStock = product.stock > 0 ? 0 : 10;
+    const delta = newStock - product.stock;
     // Actualización optimista
     setProducts((items) =>
       items.map((item) => (item.id === product.id ? { ...item, stock: newStock } : item))
     );
 
     try {
-      const response = await fetch(`/api/admin/productos/${encodeURIComponent(product.id)}`, {
-        method: "PATCH",
-        headers: {
-          "content-type": "application/json",
-          Authorization: `Bearer ${await user.getIdToken()}`,
-        },
-        body: JSON.stringify({ stock: newStock }),
-      });
+      const token = await user.getIdToken();
+      const response = Array.isArray(product.sizes)
+        ? await fetch("/api/admin/inventory", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              productId: product.id,
+              type: "ajuste",
+              quantity: delta,
+              reason: newStock > 0 ? "Reposición rápida desde control de menú" : "Agotado desde control de menú",
+            }),
+          })
+        : await fetch(`/api/admin/productos/${encodeURIComponent(product.id)}`, {
+            method: "PATCH",
+            headers: {
+              "content-type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ stock: newStock }),
+          });
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "No se pudo actualizar el stock.");
@@ -88,7 +178,7 @@ export default function ProductsPage() {
     }
   }
 
-  async function toggleActive(product: Product) {
+  async function toggleActive(product: AdminProduct) {
     if (!user) return;
     const newActive = !product.active;
     // Actualización optimista
@@ -97,13 +187,28 @@ export default function ProductsPage() {
     );
 
     try {
+      const payload = Array.isArray(product.sizes)
+        ? {
+            name: product.name,
+            description: product.description,
+            image: product.image,
+            category: product.category,
+            alcohol: product.alcohol ?? "unknown",
+            active: newActive,
+            featured: product.featured,
+            sizes: product.sizes,
+            flavors: product.flavors ?? [],
+            bases: product.bases ?? [],
+            addOns: product.addOns ?? [],
+          }
+        : { active: newActive };
       const response = await fetch(`/api/admin/productos/${encodeURIComponent(product.id)}`, {
         method: "PATCH",
         headers: {
           "content-type": "application/json",
           Authorization: `Bearer ${await user.getIdToken()}`,
         },
-        body: JSON.stringify({ active: newActive }),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
@@ -119,9 +224,12 @@ export default function ProductsPage() {
   }
 
   const filteredProducts = products.filter((product) => {
+    const categoryLabel = categoryNames[product.category] ?? product.category ?? "";
+    const query = searchQuery.toLowerCase();
     const matchesSearch =
-      product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.category.toLowerCase().includes(searchQuery.toLowerCase());
+      (product.name ?? "").toLowerCase().includes(query) ||
+      categoryLabel.toLowerCase().includes(query) ||
+      (product.category ?? "").toLowerCase().includes(query);
     if (!matchesSearch) return false;
     if (statusFilter === "active") return product.active;
     if (statusFilter === "outOfStock") return product.stock === 0;
@@ -219,7 +327,12 @@ export default function ProductsPage() {
           </Card>
         ) : (
           <div className="grid gap-3">
-            {filteredProducts.map((product) => (
+            {filteredProducts.map((product) => {
+              const displayPrice = resolveProductPrice(product);
+              const sizeCount = resolveSizeCount(product);
+              const flavorNames = resolveFlavorNames(product);
+              const categoryLabel = categoryNames[product.category] ?? product.category;
+              return (
               <Card key={product.id} className="border-slate-200 bg-white shadow-sm overflow-hidden">
                 <CardContent className="flex flex-col gap-4 p-4 sm:p-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="space-y-1">
@@ -250,20 +363,20 @@ export default function ProductsPage() {
                       )}
                     </div>
                     <p className="text-sm text-slate-600">
-                      <span className="capitalize font-medium">{product.category}</span> ·{" "}
+                      <span className="capitalize font-medium">{categoryLabel}</span> ·{" "}
                       <span className="font-bold text-slate-900">
-                        ${product.price.toLocaleString("es-CO")} COP
+                        {displayPrice !== null ? `$${displayPrice.toLocaleString("es-CO")} COP` : "Precio pendiente"}
                       </span>
-                      {product.availableSizes && product.availableSizes.length > 0 && (
+                      {sizeCount > 0 && (
                         <span className="ml-1.5 text-xs text-slate-500">
-                          ({product.availableSizes.length} presentaciones)
+                          ({sizeCount} {sizeCount === 1 ? "presentación" : "presentaciones"})
                         </span>
                       )}
                     </p>
-                    {product.availableFlavors && product.availableFlavors.length > 0 && (
+                    {flavorNames.length > 0 && (
                       <div className="flex flex-wrap gap-1 pt-1">
                         <span className="text-xs text-slate-500 mr-1">Sabores:</span>
-                        {product.availableFlavors.map((flavor, fIdx) => (
+                        {flavorNames.map((flavor, fIdx) => (
                           <span
                             key={fIdx}
                             className="inline-block text-[11px] font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded border border-slate-200"
@@ -328,7 +441,8 @@ export default function ProductsPage() {
                   </PermissionGate>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -24,6 +24,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const sessionVersion = useRef(0);
   const currentUser = useRef<User | null>(null);
+  const refreshedUid = useRef<string | null>(null);
+  const syncedToken = useRef<string | null>(null);
 
   const refreshClaims = useCallback(async () => {
     if (!user) {
@@ -50,6 +52,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!auth) {
       sessionVersion.current += 1;
       currentUser.current = null;
+      refreshedUid.current = null;
+      syncedToken.current = null;
       setUser(null);
       setIsAdmin(false);
       setLoading(true);
@@ -63,6 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(nextUser);
 
       if (!nextUser) {
+        refreshedUid.current = null;
+        syncedToken.current = null;
         setIsAdmin(false);
         setLoading(false);
         return;
@@ -73,13 +79,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       }
 
+      // Forzar refresco solo una vez por UID para recoger claims actualizados sin provocar un bucle en onIdTokenChanged.
+      const shouldForceRefresh = refreshedUid.current !== nextUser.uid;
+      refreshedUid.current = nextUser.uid;
+
       void nextUser
-        .getIdTokenResult(true)
+        .getIdTokenResult(shouldForceRefresh)
         .then((token) => {
           if (mounted && isCurrentAuthSession(sessionVersion.current, callbackVersion) && currentUser.current === nextUser) {
             setIsAdmin(esClaimAdmin(token.claims) || esEmailAdmin(nextUser.email));
             setLoading(false);
-            void syncUserProfile(token.token, () => mounted && isCurrentAuthSession(sessionVersion.current, callbackVersion) && currentUser.current === nextUser);
+            if (syncedToken.current !== token.token) {
+              syncedToken.current = token.token;
+              void syncUserProfile(token.token, () => mounted && isCurrentAuthSession(sessionVersion.current, callbackVersion) && currentUser.current === nextUser);
+            }
           }
         })
         .catch(() => {
@@ -94,6 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       sessionVersion.current += 1;
       currentUser.current = null;
+      refreshedUid.current = null;
+      syncedToken.current = null;
       unsubscribe();
     };
   }, [auth]);
