@@ -12,6 +12,7 @@ const nextConfig: NextConfig = {
     pagesBufferLength: 5,
   },
   images: {
+    unoptimized: true,
     remotePatterns: [
       ...getCatalogImageHosts().map((hostname) => ({
         protocol: 'https' as const,

@@ -83,4 +83,15 @@ describe("Home page component", () => {
     expect(html).toContain("Cocteles");
     expect(html).toContain('href="/menu"');
   });
+
+  it("renderiza el showcase de granizados reales, la guia en 3 pasos y el spotlight de Opsy AI", async () => {
+    const html = renderToStaticMarkup(await Home());
+
+    expect(html).toContain("/granizados/Fresa.png");
+    expect(html).toContain("/brand/coctels-ops-logo.png");
+    expect(html).toContain("/opsy/opsy-bot.png");
+    expect(html).toContain("EN 3 PASOS");
+    expect(html).toContain("¿NO SABES CUÁL PEDIR?");
+    expect(html).toContain('href="/ai-suggest"');
+  });
 });
