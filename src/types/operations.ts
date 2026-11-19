@@ -1,4 +1,9 @@
 import type { OrderStatus } from "@/types/orders";
+import type {
+  CatalogProfitabilityReport,
+  OrderEscandalloSummary,
+  OrderProfitabilitySummary,
+} from "@/types/recipes";
 
 export type InventoryMovementType = "entrada" | "salida" | "ajuste";
 
@@ -129,6 +134,8 @@ export type ReportOrder = {
   createdAt: string;
   items: ReportOrderItem[];
   rating?: number;
+  negocioId?: string;
+  escandallo?: OrderEscandalloSummary;
 };
 
 export type OrderReportFilter = { from?: string; to?: string; status?: OrderStatus };
@@ -142,4 +149,6 @@ export type OrderReport = {
   cancellationCount: number;
   csat?: number;
   ratingCount?: number;
+  profitability?: OrderProfitabilitySummary;
+  catalogProfitability?: CatalogProfitabilityReport;
 };

@@ -106,6 +106,11 @@ export function generateOrderReportCsv(report: OrderReport, options: ReportExpor
   lines.push(`${escapeCsvCell("Ticket Promedio (COP)")},${escapeCsvCell(averageTicket)}`);
   lines.push(`${escapeCsvCell("Pedidos Cancelados")},${escapeCsvCell(report.cancellationCount)}`);
   lines.push(`${escapeCsvCell("Clientes Únicos")},${escapeCsvCell(report.topCustomers.length)}`);
+  if (report.profitability) {
+    lines.push(`${escapeCsvCell("Costo Insumos Escandallo (COP)")},${escapeCsvCell(report.profitability.totalCostCop)}`);
+    lines.push(`${escapeCsvCell("Utilidad Bruta Estimada (COP)")},${escapeCsvCell(report.profitability.grossProfitCop)}`);
+    lines.push(`${escapeCsvCell("Margen Bruto Real (%)")},${escapeCsvCell(report.profitability.grossMarginPct)}`);
+  }
   lines.push("");
 
   // Revenue by Status
@@ -141,6 +146,30 @@ export function generateOrderReportCsv(report: OrderReport, options: ReportExpor
     }
   }
 
+  if (report.profitability && report.profitability.cocktails.length > 0) {
+    lines.push("");
+    lines.push(
+      `${escapeCsvCell("RENTABILIDAD POR CÓCTEL (ESCANDALLO)")},${escapeCsvCell("PRESENTACIÓN")},${escapeCsvCell("UNIDADES")},${escapeCsvCell("VENTAS (COP)")},${escapeCsvCell("COSTO REAL (COP)")},${escapeCsvCell("UTILIDAD (COP)")},${escapeCsvCell("MARGEN (%)")}`
+    );
+    for (const cocktail of report.profitability.cocktails) {
+      lines.push(
+        `${escapeCsvCell(cocktail.productName)},${escapeCsvCell(cocktail.presentation)},${escapeCsvCell(cocktail.unitsSold)},${escapeCsvCell(cocktail.revenueCop)},${escapeCsvCell(cocktail.totalCostCop)},${escapeCsvCell(cocktail.grossProfitCop)},${escapeCsvCell(cocktail.grossMarginPct)}`
+      );
+    }
+  }
+
+  if (report.catalogProfitability && report.catalogProfitability.lowMarginAlerts.length > 0) {
+    lines.push("");
+    lines.push(
+      `${escapeCsvCell("ALERTAS DE BAJA RENTABILIDAD (CARTA)")},${escapeCsvCell("PRESENTACIÓN")},${escapeCsvCell("PRECIO ACTUAL (COP)")},${escapeCsvCell("COSTO REAL (COP)")},${escapeCsvCell("MARGEN (%)")},${escapeCsvCell("PRECIO SUGERIDO (COP)")}`
+    );
+    for (const alert of report.catalogProfitability.lowMarginAlerts) {
+      lines.push(
+        `${escapeCsvCell(alert.productName)},${escapeCsvCell(alert.presentation)},${escapeCsvCell(alert.salePriceCop ?? 0)},${escapeCsvCell(alert.unitCostCop)},${escapeCsvCell(alert.grossMarginPct ?? 0)},${escapeCsvCell(alert.suggestedPriceCop ?? 0)}`
+      );
+    }
+  }
+
   return bom + lines.join("\r\n");
 }
 
@@ -173,6 +202,19 @@ export function buildShiftClosingWhatsAppMessage(report: OrderReport, options: R
     `• *Cancelaciones:* ${report.cancellationCount}`,
     `• *Clientes:* ${report.topCustomers.length}`,
   ];
+
+  if (report.profitability) {
+    parts.push(`• *Costo Insumos:* ${formatCurrency(report.profitability.totalCostCop)}`);
+    parts.push(
+      `• *Utilidad Bruta:* ${formatCurrency(report.profitability.grossProfitCop)} (${report.profitability.grossMarginPct}%)`
+    );
+  }
+
+  if (report.catalogProfitability && report.catalogProfitability.lowMarginAlerts.length > 0) {
+    parts.push(
+      `⚠️ *Alertas Rentabilidad (<${report.catalogProfitability.summary.warningMarginPct}%):* ${report.catalogProfitability.lowMarginAlerts.length} recetas por revisar`
+    );
+  }
 
   if (report.topProducts.length > 0) {
     parts.push("");

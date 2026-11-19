@@ -124,4 +124,42 @@ describe("RecipesManager", () => {
       );
     });
   });
+
+  it("permite filtrar alertas de baja rentabilidad y abrir el editor desde presentaciones sin receta", async () => {
+    const lowMarginSupply = {
+      ...sampleSupplies[0],
+      costPerUnit: 250, // 2 oz = 60 ml * 250 = 15.000 sobre venta 22.000 => margen 31.8% (critico)
+    };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/admin/recetas")) {
+        return new Response(JSON.stringify({ recipes: sampleRecipes }), { status: 200 });
+      }
+      if (url.endsWith("/api/admin/productos")) {
+        return new Response(JSON.stringify({ products: sampleProducts }), { status: 200 });
+      }
+      if (url.endsWith("/api/admin/insumos")) {
+        return new Response(JSON.stringify({ supplies: [lowMarginSupply] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RecipesManager />);
+
+    expect(await screen.findByText("Mojito Clásico")).toBeTruthy();
+    expect(screen.getByText("Crítico (<35%)")).toBeInTheDocument();
+    expect(screen.getByText(/Presentaciones sin receta/i)).toBeInTheDocument();
+
+    // Filtrar por baja rentabilidad
+    fireEvent.click(screen.getByRole("button", { name: /Baja rentabilidad \(1\)/i }));
+    expect(screen.getByText("Mojito Clásico")).toBeInTheDocument();
+
+    // Abrir editor directamente para la presentación faltante (24 oz)
+    fireEvent.click(screen.getByRole("button", { name: /Crear Mojito Clásico \(24 oz\)/i }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText("Presentación / Vaso")).toHaveValue("24 oz");
+  });
 });

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   requirePermissionMock,
   listRecipesMock,
+  getCatalogProfitabilityForCallerMock,
   createRecipeMock,
   getRecipeByIdMock,
   updateRecipeMock,
@@ -11,6 +12,7 @@ const {
 } = vi.hoisted(() => ({
   requirePermissionMock: vi.fn(),
   listRecipesMock: vi.fn(),
+  getCatalogProfitabilityForCallerMock: vi.fn(),
   createRecipeMock: vi.fn(),
   getRecipeByIdMock: vi.fn(),
   updateRecipeMock: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock("@/lib/firestore/recipes", async () => {
     RecipeNotFoundError,
     RecipeConflictError,
     listRecipes: listRecipesMock,
+    getCatalogProfitabilityForCaller: getCatalogProfitabilityForCallerMock,
     createRecipe: createRecipeMock,
     getRecipeById: getRecipeByIdMock,
     updateRecipe: updateRecipeMock,
@@ -78,6 +81,44 @@ describe("/api/admin/recetas", () => {
       productId: "p1",
     });
     expect(body.recipes).toHaveLength(1);
+  });
+
+  it("returns recipes and profitability when includeProfitability=true", async () => {
+    getCatalogProfitabilityForCallerMock.mockResolvedValueOnce({
+      recipes: [{ id: "rec-1", productName: "Mojito" }],
+      profitability: {
+        summary: {
+          activeRecipeCount: 1,
+          coveredProductCount: 1,
+          totalActiveProducts: 1,
+          coveragePct: 100,
+          averageCostCop: 3600,
+          averageMarginPct: 76,
+          lowMarginCount: 0,
+          criticalMarginCount: 0,
+          targetMarginPct: 60,
+          warningMarginPct: 50,
+          criticalMarginPct: 35,
+        },
+        items: [],
+        lowMarginAlerts: [],
+        uncoveredPresentations: [],
+      },
+    });
+
+    const req = new Request(
+      "http://localhost/api/admin/recetas?negocioId=coctels-ops&includeProfitability=true"
+    );
+    const res = await GET(req as NextRequest);
+    const body = (await res.json()) as { recipes: unknown[]; profitability?: { summary: { averageMarginPct: number } } };
+
+    expect(res.status).toBe(200);
+    expect(getCatalogProfitabilityForCallerMock).toHaveBeenCalledWith(caller, {
+      negocioId: "coctels-ops",
+      productId: undefined,
+    });
+    expect(body.recipes).toHaveLength(1);
+    expect(body.profitability?.summary.averageMarginPct).toBe(76);
   });
 
   it("returns 422 on invalid ingredient unit mismatch when creating a recipe", async () => {

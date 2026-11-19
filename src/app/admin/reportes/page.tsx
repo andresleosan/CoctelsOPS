@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
+import { ProfitabilityDashboard } from "@/components/admin/ProfitabilityDashboard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +34,7 @@ import {
   type PresetRange,
 } from "@/lib/reports/export-report";
 import type { OrderReport } from "@/types/operations";
+import type { CatalogProfitabilityReport } from "@/types/recipes";
 
 export default function ReportsPage() {
   const { user } = useAuth();
@@ -40,6 +42,8 @@ export default function ReportsPage() {
   const [to, setTo] = useState(() => getPresetDateRange("today").to);
   const [activePreset, setActivePreset] = useState<PresetRange | "custom">("today");
   const [report, setReport] = useState<OrderReport | null>(null);
+  const [fallbackCatalogProfitability, setFallbackCatalogProfitability] =
+    useState<CatalogProfitabilityReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
@@ -62,7 +66,28 @@ export default function ReportsPage() {
 
         const body = (await response.json()) as { report?: OrderReport; error?: string };
         if (!response.ok) throw new Error(body.error || "Error al cargar reporte.");
-        setReport(body.report ?? null);
+        const nextReport = body.report ?? null;
+        setReport(nextReport);
+
+        if (nextReport && !nextReport.catalogProfitability) {
+          try {
+            const profRes = await fetch("/api/admin/recetas?includeProfitability=true", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (profRes.ok) {
+              const profBody = (await profRes.json().catch(() => ({}))) as {
+                profitability?: CatalogProfitabilityReport;
+              };
+              setFallbackCatalogProfitability(profBody.profitability ?? null);
+            } else {
+              setFallbackCatalogProfitability(null);
+            }
+          } catch {
+            setFallbackCatalogProfitability(null);
+          }
+        } else {
+          setFallbackCatalogProfitability(null);
+        }
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "No se pudo generar el reporte.");
       } finally {
@@ -158,13 +183,13 @@ export default function ReportsPage() {
               <span className="inline-flex items-center rounded-full bg-cyan-50 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider text-cyan-800">
                 Inteligencia de Barra
               </span>
-              <span className="text-xs font-semibold text-slate-500">v1.1</span>
+              <span className="text-xs font-semibold text-slate-500">v1.6</span>
             </div>
             <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
               Cierre de Caja & Reportes
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              Control financiero por turnos, métricas en tiempo real, ticket promedio y exportación ejecutiva.
+              Control financiero por turnos, rentabilidad por cóctel, ticket promedio y exportación ejecutiva.
             </p>
           </div>
 
@@ -591,6 +616,11 @@ export default function ReportsPage() {
                 </CardContent>
               </Card>
             </div>
+
+            <ProfitabilityDashboard
+              orderProfitability={report.profitability}
+              catalogProfitability={report.catalogProfitability ?? fallbackCatalogProfitability}
+            />
           </>
         )}
       </div>

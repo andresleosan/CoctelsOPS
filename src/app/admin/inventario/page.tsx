@@ -17,6 +17,11 @@ import type { InventoryMovement, InventoryMovementType } from "@/types/operation
 export default function InventoryPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"insumos" | "escandallo" | "movimientos">("insumos");
+  const [recipeDeepLink, setRecipeDeepLink] = useState<{
+    recipeId?: string;
+    productId?: string;
+    presentation?: string;
+  }>({});
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [form, setForm] = useState({
     productId: "",
@@ -44,6 +49,22 @@ export default function InventoryPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const recipeId = params.get("recipeId")?.trim() || undefined;
+    const productId = params.get("productId")?.trim() || undefined;
+    const presentation = params.get("presentation")?.trim() || undefined;
+
+    if (tab === "escandallo" || recipeId || productId) {
+      setActiveTab("escandallo");
+      setRecipeDeepLink({ recipeId, productId, presentation });
+    } else if (tab === "movimientos") {
+      setActiveTab("movimientos");
+    }
+  }, []);
 
   useEffect(() => {
     void load();
@@ -150,7 +171,11 @@ export default function InventoryPage() {
         {activeTab === "insumos" ? (
           <SuppliesManager />
         ) : activeTab === "escandallo" ? (
-          <RecipesManager />
+          <RecipesManager
+            initialRecipeId={recipeDeepLink.recipeId}
+            initialProductId={recipeDeepLink.productId}
+            initialPresentation={recipeDeepLink.presentation}
+          />
         ) : (
           <div className="space-y-6">
             {error && (

@@ -36,4 +36,111 @@ describe("reporte agregado de pedidos", () => {
     expect(result.csat).toBe(4.5);
     expect(result.ratingCount).toBe(2);
   });
+
+  it("agrega rentabilidad real por cóctel desde escandallo excluyendo cancelados e ítems sin receta", () => {
+    const escandalloOrders: ReportOrder[] = [
+      {
+        id: "ord-1",
+        status: "entregado",
+        total: 30_000,
+        customerId: "c1",
+        createdAt: "2026-08-01T10:00:00.000Z",
+        items: [
+          { name: "Mojito Clásico", quantity: 1, subtotal: 12_000 },
+          { name: "Botella Agua", quantity: 1, subtotal: 18_000 },
+        ],
+        escandallo: {
+          totalCostCop: 8_400,
+          revenueCop: 30_000,
+          grossProfitCop: 21_600,
+          grossMarginPct: 72,
+          coveredItemsCount: 1,
+          totalItemsCount: 2,
+          coverage: "partial",
+          depletedAt: "2026-08-01T10:05:00.000Z",
+          triggeredOnStatus: "entregado",
+          items: [
+            {
+              productId: "prod-mojito",
+              productName: "Mojito Clásico",
+              presentation: "14 oz",
+              quantity: 1,
+              unitPriceCop: 12_000,
+              subtotalCop: 12_000,
+              recipeId: "rec-mojito",
+              unitCostCop: 8_400,
+              totalCostCop: 8_400,
+              grossProfitCop: 3_600,
+              grossMarginPct: 30,
+              matchedAddOns: [],
+              ingredients: [],
+            },
+            {
+              productId: "prod-agua",
+              productName: "Botella Agua",
+              presentation: "Personal",
+              quantity: 1,
+              unitPriceCop: 18_000,
+              subtotalCop: 18_000,
+              // sin recipeId -> debe excluirse para no inflar margen
+              unitCostCop: 0,
+              totalCostCop: 0,
+              grossProfitCop: 18_000,
+              grossMarginPct: 100,
+              matchedAddOns: [],
+              ingredients: [],
+            },
+          ],
+        },
+      },
+      {
+        id: "ord-cancel",
+        status: "cancelado",
+        total: 12_000,
+        customerId: "c2",
+        createdAt: "2026-08-01T11:00:00.000Z",
+        items: [{ name: "Mojito Clásico", quantity: 1, subtotal: 12_000 }],
+        escandallo: {
+          totalCostCop: 8_400,
+          revenueCop: 12_000,
+          grossProfitCop: 3_600,
+          grossMarginPct: 30,
+          coveredItemsCount: 1,
+          totalItemsCount: 1,
+          coverage: "complete",
+          depletedAt: "2026-08-01T11:01:00.000Z",
+          triggeredOnStatus: "preparando",
+          items: [
+            {
+              productId: "prod-mojito",
+              productName: "Mojito Clásico",
+              presentation: "14 oz",
+              quantity: 1,
+              unitPriceCop: 12_000,
+              subtotalCop: 12_000,
+              recipeId: "rec-mojito",
+              unitCostCop: 8_400,
+              totalCostCop: 8_400,
+              grossProfitCop: 3_600,
+              grossMarginPct: 30,
+              matchedAddOns: [],
+              ingredients: [],
+            },
+          ],
+        },
+      },
+    ];
+
+    const report = aggregateOrders(escandalloOrders);
+    expect(report.profitability).toBeDefined();
+    expect(report.profitability?.coveredOrderCount).toBe(1);
+    expect(report.profitability?.totalEligibleOrderCount).toBe(1);
+    expect(report.profitability?.revenueCop).toBe(12_000);
+    expect(report.profitability?.totalCostCop).toBe(8_400);
+    expect(report.profitability?.grossProfitCop).toBe(3_600);
+    expect(report.profitability?.grossMarginPct).toBe(30);
+    expect(report.profitability?.cocktails).toHaveLength(1);
+    expect(report.profitability?.lowMarginAlerts).toHaveLength(1);
+    expect(report.profitability?.lowMarginAlerts[0]?.health).toBe("critico");
+  });
 });

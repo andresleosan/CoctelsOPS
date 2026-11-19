@@ -217,4 +217,100 @@ describe("ReportsPage (Panel de Reportes y Cierre de Caja)", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Permiso denegado");
     });
   });
+
+  it("renderiza el dashboard de rentabilidad por cóctel y alertas de baja rentabilidad con enlace directo", async () => {
+    const reportWithProfitability: OrderReport = {
+      ...mockReport,
+      catalogProfitability: {
+        summary: {
+          activeRecipeCount: 2,
+          coveredProductCount: 2,
+          totalActiveProducts: 2,
+          coveragePct: 100,
+          averageCostCop: 7000,
+          averageMarginPct: 51.3,
+          lowMarginCount: 1,
+          criticalMarginCount: 1,
+          targetMarginPct: 60,
+          warningMarginPct: 50,
+          criticalMarginPct: 35,
+        },
+        items: [
+          {
+            recipeId: "rec-low",
+            productId: "prod-1",
+            productName: "Mojito Especial",
+            presentation: "14 oz",
+            salePriceCop: 12000,
+            unitCostCop: 8400,
+            grossProfitCop: 3600,
+            grossMarginPct: 30,
+            health: "critico",
+            suggestedPriceCop: 21000,
+            ingredientCount: 2,
+            addOnCount: 0,
+            topCostSupplyName: "Ron Importado",
+            topCostSharePct: 85,
+            active: true,
+          },
+        ],
+        lowMarginAlerts: [
+          {
+            recipeId: "rec-low",
+            productId: "prod-1",
+            productName: "Mojito Especial",
+            presentation: "14 oz",
+            salePriceCop: 12000,
+            unitCostCop: 8400,
+            grossProfitCop: 3600,
+            grossMarginPct: 30,
+            health: "critico",
+            suggestedPriceCop: 21000,
+            ingredientCount: 2,
+            addOnCount: 0,
+            topCostSupplyName: "Ron Importado",
+            topCostSharePct: 85,
+            active: true,
+          },
+        ],
+        uncoveredPresentations: [
+          {
+            productId: "prod-2",
+            productName: "Fresa Salvaje",
+            presentation: "24 oz",
+            salePriceCop: 25000,
+          },
+        ],
+      },
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ report: reportWithProfitability }),
+      })
+    );
+
+    render(<ReportsPage />);
+
+    expect(await screen.findByText("Rentabilidad por Cóctel")).toBeInTheDocument();
+    expect(screen.getByText(/Alertas de Baja Rentabilidad/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Mojito Especial").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Ron Importado/).length).toBeGreaterThanOrEqual(1);
+
+    const adjustLink = screen.getByRole("link", { name: /Ajustar receta/i });
+    expect(adjustLink).toHaveAttribute(
+      "href",
+      "/admin/inventario?tab=escandallo&recipeId=rec-low"
+    );
+
+    const createGapLink = screen.getByRole("link", {
+      name: /Crear receta: Fresa Salvaje \(24 oz\)/i,
+    });
+    expect(createGapLink).toHaveAttribute(
+      "href",
+      "/admin/inventario?tab=escandallo&productId=prod-2&presentation=24%20oz"
+    );
+  });
 });

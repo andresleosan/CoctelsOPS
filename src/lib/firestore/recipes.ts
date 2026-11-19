@@ -18,6 +18,12 @@ import {
   roundSupplyQuantity,
 } from "@/lib/recipes/escandallo";
 import {
+  buildCatalogProfitabilityReport,
+  type RecipeCatalogAddOnV2,
+  type RecipeCatalogProduct,
+  type RecipeCatalogSizeV2,
+} from "@/lib/recipes/profitability";
+import {
   addOnRecipeIngredientSchema,
   productRecipeInputSchema,
   productRecipePatchSchema,
@@ -26,10 +32,12 @@ import {
 } from "@/lib/validation/recipes";
 import { supplyUnitSchema } from "@/lib/validation/supplies";
 import type { VerifiedUser } from "@/types/auth";
+import type { ProductAddOn, ProductSize } from "@/types/catalog";
 import type { Order } from "@/types/orders";
 import {
   RECIPE_UNITS,
   type AddOnRecipeIngredient,
+  type CatalogProfitabilityReport,
   type OrderEscandalloSummary,
   type ProductRecipe,
   type ProductRecipeInput,
@@ -375,6 +383,148 @@ export async function listRecipes(
     const byProduct = a.productName.localeCompare(b.productName, "es");
     return byProduct !== 0 ? byProduct : a.presentation.localeCompare(b.presentation, "es");
   });
+}
+
+function parseCatalogProductDoc(id: string, data: Record<string, unknown>): RecipeCatalogProduct {
+  const rawSizes = Array.isArray(data.availableSizes)
+    ? data.availableSizes.flatMap((entry): ProductSize[] => {
+        if (!entry || typeof entry !== "object") return [];
+        const obj = entry as Record<string, unknown>;
+        const name = typeof obj.name === "string" ? obj.name.trim() : "";
+        const price = typeof obj.price === "number" && Number.isFinite(obj.price) ? obj.price : 0;
+        return name ? [{ name, price }] : [];
+      })
+    : undefined;
+
+  const rawV2Sizes = Array.isArray(data.sizes)
+    ? data.sizes.flatMap((entry): RecipeCatalogSizeV2[] => {
+        if (!entry || typeof entry !== "object") return [];
+        const obj = entry as Record<string, unknown>;
+        const label = typeof obj.label === "string" ? obj.label.trim() : "";
+        const priceCop =
+          typeof obj.priceCop === "number" && Number.isFinite(obj.priceCop) ? obj.priceCop : null;
+        return label
+          ? [
+              {
+                ...(typeof obj.id === "string" ? { id: obj.id } : {}),
+                label,
+                priceCop,
+              },
+            ]
+          : [];
+      })
+    : undefined;
+
+  const rawAddOns = Array.isArray(data.availableAddOns)
+    ? data.availableAddOns.flatMap((entry): ProductAddOn[] => {
+        if (!entry || typeof entry !== "object") return [];
+        const obj = entry as Record<string, unknown>;
+        const name = typeof obj.name === "string" ? obj.name.trim() : "";
+        const price = typeof obj.price === "number" && Number.isFinite(obj.price) ? obj.price : 0;
+        return name ? [{ name, price }] : [];
+      })
+    : undefined;
+
+  const rawV2AddOns = Array.isArray(data.addOns)
+    ? data.addOns.flatMap((entry): RecipeCatalogAddOnV2[] => {
+        if (!entry || typeof entry !== "object") return [];
+        const obj = entry as Record<string, unknown>;
+        const name = typeof obj.name === "string" ? obj.name.trim() : "";
+        const priceCop =
+          typeof obj.priceCop === "number" && Number.isFinite(obj.priceCop) ? obj.priceCop : null;
+        return name
+          ? [
+              {
+                ...(typeof obj.id === "string" ? { id: obj.id } : {}),
+                name,
+                priceCop,
+              },
+            ]
+          : [];
+      })
+    : undefined;
+
+  const negocioId =
+    typeof data.negocioId === "string" && data.negocioId.trim()
+      ? data.negocioId.trim()
+      : DEFAULT_TENANT_ID;
+
+  return {
+    id,
+    negocioId,
+    name: typeof data.name === "string" && data.name.trim() ? data.name.trim() : id,
+    category: typeof data.category === "string" ? data.category.trim() : undefined,
+    price: typeof data.price === "number" && Number.isFinite(data.price) ? data.price : null,
+    active: data.active !== false,
+    ...(rawSizes ? { availableSizes: rawSizes } : {}),
+    ...(rawV2Sizes ? { sizes: rawV2Sizes } : {}),
+    ...(rawAddOns ? { availableAddOns: rawAddOns } : {}),
+    ...(rawV2AddOns ? { addOns: rawV2AddOns } : {}),
+  };
+}
+
+export async function getCatalogProfitability(
+  negocioId: string = DEFAULT_TENANT_ID,
+  options: { productId?: string } = {}
+): Promise<{ recipes: ProductRecipe[]; profitability: CatalogProfitabilityReport }> {
+  const targetNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
+  const db = getAdminDb();
+
+  const recipesCollection = db.collection("recetas");
+  const suppliesCollection = db.collection("insumos");
+  const productsCollection = db.collection("productos");
+
+  const [recipesSnap, suppliesSnap, productsSnap] = await Promise.all([
+    recipesCollection.where("negocioId", "==", targetNegocioId).get(),
+    suppliesCollection.where("negocioId", "==", targetNegocioId).get(),
+    typeof productsCollection.get === "function"
+      ? productsCollection.get()
+      : productsCollection.where("negocioId", "==", targetNegocioId).get(),
+  ]);
+
+  const recipes = (recipesSnap?.docs ?? [])
+    .map((doc) => recipeFromData(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
+    .filter((recipe) => !options.productId || recipe.productId === options.productId)
+    .sort((a, b) => {
+      const byProduct = a.productName.localeCompare(b.productName, "es");
+      return byProduct !== 0 ? byProduct : a.presentation.localeCompare(b.presentation, "es");
+    });
+
+  const supplies = (suppliesSnap?.docs ?? []).map((doc) => {
+    const data = (doc.data() ?? {}) as Record<string, unknown>;
+    const parsedUnit = supplyUnitSchema.safeParse(data.unit);
+    return {
+      id: doc.id,
+      name: typeof data.name === "string" && data.name.trim() ? data.name.trim() : doc.id,
+      unit: parsedUnit.success ? parsedUnit.data : ("unidad" as SupplyUnit),
+      costPerUnit:
+        typeof data.costPerUnit === "number" && Number.isFinite(data.costPerUnit)
+          ? Math.max(0, data.costPerUnit)
+          : 0,
+    };
+  });
+
+  const products = (productsSnap?.docs ?? [])
+    .map((doc) => parseCatalogProductDoc(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
+    .filter((product) => (product.negocioId || DEFAULT_TENANT_ID) === targetNegocioId)
+    .filter((product) => !options.productId || product.id === options.productId);
+
+  const profitability = buildCatalogProfitabilityReport({
+    recipes,
+    products,
+    supplies,
+  });
+
+  return { recipes, profitability };
+}
+
+export async function getCatalogProfitabilityForCaller(
+  caller: VerifiedUser,
+  options: { negocioId?: string; productId?: string } = {}
+): Promise<{ recipes: ProductRecipe[]; profitability: CatalogProfitabilityReport }> {
+  requireRecipePermission(caller, "inventario.read");
+  const targetNegocioId = resolveTenantScope(caller, options.negocioId);
+  return getCatalogProfitability(targetNegocioId, { productId: options.productId });
 }
 
 export async function getRecipeById(caller: VerifiedUser, id: string): Promise<ProductRecipe> {

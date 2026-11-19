@@ -189,7 +189,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 
 ## Fase 10: Rentabilidad, Arqueo de Caja, Cuentas por Mesa y Compras (v1.6)
 
-- [ ] **TASK-26: Editor Visual de Recetas (Escandallo) y Dashboard de Rentabilidad por Cóctel**
+- [x] **TASK-26: Editor Visual de Recetas (Escandallo) y Dashboard de Rentabilidad por Cóctel**
   - **Nivel Recomendado:** `3.8 Flash (High)`
   - **Objetivo:** Proveer una interfaz mobile-first en el panel administrativo para configurar las recetas de insumos creadas en `TASK-25` por producto y presentación, calculando el costo real, margen bruto (%) por cóctel y alertas de productos con baja rentabilidad en `/admin/reportes`.
   - **Archivos:** `src/components/admin/RecipeEditor.tsx`, `src/app/admin/inventario/page.tsx`, `src/app/admin/reportes/page.tsx`, `src/app/api/admin/recetas/route.ts`, `tests/components/recipe-editor.test.tsx`.
