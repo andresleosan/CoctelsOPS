@@ -7,19 +7,156 @@ import { usePathname } from "next/navigation";
 import { X, Send, RotateCcw, Sparkles, ChevronRight, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+export type ChatSuggestion = {
+  id: string;
+  name: string;
+  category: string;
+  priceCop: number | null;
+  hasMultipleSizes?: boolean;
+  image?: string;
+  href: string;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  suggestions?: Array<{
-    id: string;
-    name: string;
-    category: string;
-    priceCop: number;
-    image?: string;
-    href: string;
+  suggestions?: ChatSuggestion[];
+};
+
+const MAX_CHAT_CHARS = 1000;
+const RATE_LIMIT_ERROR_MESSAGE =
+  "¡Parce, te tomaste muchos tragos de preguntas! Espera unos minutos y volvemos a parchar 🐼⏱️";
+const DEFAULT_ERROR_MESSAGE =
+  "Opsy se embolató un segundo en la barra. ¡Prueba otra vez!";
+
+type RawWorkerProduct = {
+  id?: unknown;
+  name?: unknown;
+  image?: unknown;
+  href?: unknown;
+  sizes?: Array<{
+    priceCop?: unknown;
   }>;
 };
+
+type RawLegacySuggestion = {
+  id?: unknown;
+  name?: unknown;
+  category?: unknown;
+  priceCop?: unknown;
+  image?: unknown;
+  href?: unknown;
+};
+
+type RawOpsyResponse = {
+  reply?: unknown;
+  message?: unknown;
+  error?: unknown;
+  suggestions?: unknown;
+  products?: unknown;
+};
+
+function clampChatText(text: string): string {
+  return Array.from(text).slice(0, MAX_CHAT_CHARS).join("").trim();
+}
+
+function sanitizeHref(value: unknown, fallbackId?: string): string {
+  if (typeof value === "string" && value.startsWith("/") && !value.startsWith("//")) {
+    return value;
+  }
+  if (fallbackId) {
+    return `/menu?product=${encodeURIComponent(fallbackId)}`;
+  }
+  return "/menu";
+}
+
+function sanitizeImage(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+  if (trimmed.startsWith("https://")) return trimmed;
+  return undefined;
+}
+
+function normalizeOpsyResponse(data: unknown): {
+  content: string;
+  suggestions: ChatSuggestion[];
+} {
+  if (!data || typeof data !== "object") {
+    throw new Error(DEFAULT_ERROR_MESSAGE);
+  }
+
+  const raw = data as RawOpsyResponse;
+  const content =
+    typeof raw.reply === "string" && raw.reply.trim()
+      ? raw.reply.trim()
+      : typeof raw.message === "string" && raw.message.trim()
+        ? raw.message.trim()
+        : "";
+
+  if (!content) {
+    throw new Error(DEFAULT_ERROR_MESSAGE);
+  }
+
+  if (Array.isArray(raw.suggestions)) {
+    const suggestions: ChatSuggestion[] = [];
+    for (const item of raw.suggestions as RawLegacySuggestion[]) {
+      if (!item || typeof item !== "object") continue;
+      const id = typeof item.id === "string" && item.id.trim() ? item.id.trim() : "";
+      const name = typeof item.name === "string" && item.name.trim() ? item.name.trim() : "";
+      if (!id || !name) continue;
+
+      const priceCop =
+        typeof item.priceCop === "number" && Number.isFinite(item.priceCop) && item.priceCop >= 0
+          ? item.priceCop
+          : null;
+
+      suggestions.push({
+        id,
+        name,
+        category: typeof item.category === "string" ? item.category : "",
+        priceCop,
+        image: sanitizeImage(item.image),
+        href: sanitizeHref(item.href, id),
+      });
+    }
+    return { content, suggestions };
+  }
+
+  if (Array.isArray(raw.products)) {
+    const suggestions: ChatSuggestion[] = [];
+    for (const product of raw.products as RawWorkerProduct[]) {
+      if (!product || typeof product !== "object") continue;
+      const id = typeof product.id === "string" && product.id.trim() ? product.id.trim() : "";
+      const name = typeof product.name === "string" && product.name.trim() ? product.name.trim() : "";
+      if (!id || !name) continue;
+
+      const validPrices = Array.isArray(product.sizes)
+        ? product.sizes
+            .map((size) => (size && typeof size === "object" ? size.priceCop : undefined))
+            .filter((price): price is number => typeof price === "number" && Number.isFinite(price) && price >= 0)
+        : [];
+
+      const uniquePrices = new Set(validPrices);
+      const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
+
+      suggestions.push({
+        id,
+        name,
+        category: "",
+        priceCop: minPrice,
+        hasMultipleSizes: uniquePrices.size > 1,
+        image: sanitizeImage(product.image),
+        href: sanitizeHref(product.href, id),
+      });
+    }
+    return { content, suggestions };
+  }
+
+  return { content, suggestions: [] };
+}
 
 const INITIAL_MESSAGE: ChatMessage = {
   id: "initial-opsy-greeting",
@@ -73,13 +210,25 @@ export default function OpsyChat() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
+  // Abrir Opsy automáticamente si se navega con ?chat=opsy o mediante evento global
+  useEffect(() => {
+    if (isAdminRoute) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("chat") === "opsy") {
+      setIsOpen(true);
+    }
+    const handleOpenEvent = () => setIsOpen(true);
+    window.addEventListener("opsy:open", handleOpenEvent);
+    return () => window.removeEventListener("opsy:open", handleOpenEvent);
+  }, [isAdminRoute, pathname]);
+
   if (isAdminRoute) {
     return null;
   }
 
   const handleSendMessage = async (textToSend?: string) => {
     const rawText = textToSend || inputValue;
-    const trimmed = rawText.trim();
+    const trimmed = clampChatText(rawText);
     if (!trimmed || isLoading) return;
 
     setInputValue("");
@@ -96,16 +245,17 @@ export default function OpsyChat() {
     setIsLoading(true);
 
     try {
-      // Tomar hasta 6 turnos previos para no saturar tokens
+      // Tomar hasta 6 turnos previos (máximo 5 en history) respetando límites de caracteres
       const historyPayload = nextMessages
         .filter((m) => m.id !== "initial-opsy-greeting")
         .slice(-6)
         .map((m) => ({
           role: m.role,
-          content: m.content,
-        }));
+          content: clampChatText(m.content),
+        }))
+        .filter((m) => m.content.length > 0);
 
-      const response = await fetch("/api/opsy/chat", {
+      const requestInit: RequestInit = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -114,27 +264,42 @@ export default function OpsyChat() {
           message: trimmed,
           history: historyPayload.slice(0, -1), // Excluir el mensaje recién agregado que va en message
         }),
-      });
+        cache: "no-store",
+      };
+
+      let response = await fetch("/api/opsy/chat", requestInit);
+      if (response.status === 404) {
+        response = await fetch("/api/chat", requestInit);
+      }
 
       if (!response.ok) {
         if (response.status === 429) {
-          throw new Error(
-            "¡Parce, te tomaste muchos tragos de preguntas! Espera unos minutos y volvemos a parchar 🐼⏱️"
-          );
+          throw new Error(RATE_LIMIT_ERROR_MESSAGE);
         }
-        throw new Error("Opsy se embolató un segundo en la barra. ¡Prueba otra vez!");
+        let serverError: string | null = null;
+        if (typeof response.json === "function") {
+          try {
+            const errorBody = (await response.json()) as RawOpsyResponse;
+            if (typeof errorBody?.message === "string" && errorBody.message.trim()) {
+              serverError = errorBody.message.trim();
+            } else if (typeof errorBody?.error === "string" && errorBody.error.trim()) {
+              serverError = errorBody.error.trim();
+            }
+          } catch {
+            // Ignorar respuestas de error sin JSON válido
+          }
+        }
+        throw new Error(serverError || DEFAULT_ERROR_MESSAGE);
       }
 
-      const data = (await response.json()) as {
-        reply: string;
-        suggestions?: ChatMessage["suggestions"];
-      };
+      const data: unknown = await response.json();
+      const normalized = normalizeOpsyResponse(data);
 
       const assistantMessage: ChatMessage = {
         id: `opsy-${Date.now()}`,
         role: "assistant",
-        content: data.reply,
-        suggestions: data.suggestions,
+        content: normalized.content,
+        suggestions: normalized.suggestions,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -300,7 +465,9 @@ export default function OpsyChat() {
                                   {item.name}
                                 </h4>
                                 <span className="text-xs text-primary font-black">
-                                  ${item.priceCop.toLocaleString("es-CO")} COP
+                                  {typeof item.priceCop === "number"
+                                    ? `${item.hasMultipleSizes ? "Desde " : ""}$${item.priceCop.toLocaleString("es-CO")} COP`
+                                    : "Ver precio en carta"}
                                 </span>
                               </div>
                             </div>
@@ -346,7 +513,7 @@ export default function OpsyChat() {
 
           {/* Chips de Preguntas Rápidas */}
           {messages.length <= 2 && (
-            <div className="px-4 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar border-t border-white/5">
+            <div className="px-4 py-2 flex flex-wrap items-center gap-1.5 border-t border-white/5">
               {QUICK_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}

@@ -163,7 +163,19 @@ export default {
     // 2. Delegar la peticion dinamica al Worker APP
     if (env?.APP && typeof env.APP.fetch === 'function') {
       try {
+        const isOpsyChatAlias = url.pathname === '/api/opsy/chat' && request.method === 'POST';
+        const opsyFallbackBody = isOpsyChatAlias ? await request.clone().arrayBuffer() : null;
         const response = await env.APP.fetch(request.clone());
+        if (response.status === 404 && isOpsyChatAlias && opsyFallbackBody !== null) {
+          await response.body?.cancel?.();
+          const chatUrl = new URL(request.url);
+          chatUrl.pathname = '/api/chat';
+          return await env.APP.fetch(new Request(chatUrl.toString(), {
+            method: 'POST',
+            headers: request.headers,
+            body: opsyFallbackBody,
+          }));
+        }
         if (response.status >= 500 && url.pathname === '/api/configuration') {
           return configurationFallback();
         }

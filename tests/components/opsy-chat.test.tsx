@@ -173,4 +173,88 @@ describe("OpsyChat UI Component", () => {
     expect(screen.getByText(/¡Qué más pues, parce!/i)).toBeInTheDocument();
     expect(screen.queryByText("Hola Opsy")).toBeNull();
   });
+
+  it("hace fallback a /api/chat cuando /api/opsy/chat devuelve 404 y normaliza products de Cloudflare Worker", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          message: "Estas opciones están en nuestra carta. Evita compartir datos personales en el chat.",
+          products: [
+            {
+              id: "canva-limonadas",
+              name: "Limonadas",
+              description: "Publicado en la carta Canva, página 5.",
+              image: "/catalog-placeholder.svg",
+              href: "/menu?product=canva-limonadas",
+              available: true,
+              sizes: [{ id: "size-1", label: "Presentación de la carta", volumeOz: null, priceCop: 9000 }],
+            },
+            {
+              id: "granizado-margarita",
+              name: "Granizado Margarita",
+              description: "Cítrico con escarchado de sal.",
+              image: "/granizados/Lulo.png",
+              href: "/menu?product=granizado-margarita",
+              available: true,
+              sizes: [
+                { id: "size-1", label: "12 oz", volumeOz: 12, priceCop: 14000 },
+                { id: "size-2", label: "16 oz", volumeOz: 16, priceCop: 18000 },
+              ],
+            },
+          ],
+          links: { menu: "/menu", whatsapp: null },
+        }),
+      });
+    global.fetch = fetchMock;
+
+    render(<OpsyChat />);
+    fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
+    fireEvent.click(screen.getByRole("button", { name: /¿Qué me recomiendas cítrico\?/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Estas opciones están en nuestra carta/i)).toBeInTheDocument();
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/opsy/chat", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/chat", expect.objectContaining({ method: "POST" }));
+    expect(screen.getByText("Limonadas")).toBeInTheDocument();
+    expect(screen.getByText("$9.000 COP")).toBeInTheDocument();
+    expect(screen.getByText("Granizado Margarita")).toBeInTheDocument();
+    expect(screen.getByText("Desde $14.000 COP")).toBeInTheDocument();
+
+    const links = screen.getAllByRole("link", { name: /ver/i });
+    expect(links[0]).toHaveAttribute("href", "/menu?product=canva-limonadas");
+    expect(links[1]).toHaveAttribute("href", "/menu?product=granizado-margarita");
+  });
+
+  it("muestra el mensaje de error devuelto por el backend cuando falla con 503", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        code: "UNAVAILABLE",
+        message: "El asistente no está disponible en este momento. Consulta el menú.",
+      }),
+    });
+
+    render(<OpsyChat />);
+    fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
+
+    const input = screen.getByPlaceholderText(/pregúntale a opsy/i);
+    fireEvent.change(input, { target: { value: "Hola" } });
+    fireEvent.click(screen.getByRole("button", { name: /enviar mensaje/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/El asistente no está disponible en este momento\. Consulta el menú\./i)
+      ).toBeInTheDocument();
+    });
+  });
 });

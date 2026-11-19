@@ -169,4 +169,53 @@ describe('cloudflare-pages-build', () => {
     expect(appFetch).toHaveBeenCalledTimes(1);
     expect(buildPagesWorkerContent()).toContain("url.pathname === '/api' || url.pathname.startsWith('/api/')");
   });
+
+  it('reenvia POST /api/opsy/chat a /api/chat en env.APP cuando /api/opsy/chat responde 404', async () => {
+    const rootDir = createFixtureRoot();
+    buildCloudflarePages({ rootDir, log: () => {} });
+    const worker = await loadGeneratedWorker(rootDir);
+
+    const appFetch = vi.fn(async (req: Request) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/api/opsy/chat') {
+        return new Response('Not Found', { status: 404 });
+      }
+      const parsedBody = await req.json();
+      return Response.json(
+        {
+          message: 'Estas opciones están en nuestra carta.',
+          pathname,
+          receivedMessage: parsedBody.message,
+          ip: req.headers.get('cf-connecting-ip'),
+        },
+        { status: 200 },
+      );
+    });
+
+    const env = {
+      ASSETS: { fetch: vi.fn(async () => new Response('Method Not Allowed', { status: 405 })) },
+      APP: { fetch: appFetch },
+    };
+
+    const res = await worker.fetch(
+      new Request('https://coctelsops.pages.dev/api/opsy/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'cf-connecting-ip': '203.0.113.10',
+        },
+        body: JSON.stringify({ message: '¿Qué me recomiendas cítrico?', history: [] }),
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      message: 'Estas opciones están en nuestra carta.',
+      pathname: '/api/chat',
+      receivedMessage: '¿Qué me recomiendas cítrico?',
+      ip: '203.0.113.10',
+    });
+    expect(appFetch).toHaveBeenCalledTimes(2);
+  });
 });
