@@ -22,7 +22,124 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { esEmailAdmin } from "@/lib/auth-claims";
-import { ALL_ADMIN_PERMISSIONS } from "@/types/auth";
+import { ALL_ADMIN_PERMISSIONS, type Permission } from "@/types/auth";
+
+type PermissionGroupDefinition = {
+  id: string;
+  label: string;
+  readPermission: Permission;
+  writePermission?: Permission;
+  readText: string;
+  writeText?: string;
+};
+
+const PERMISSION_GROUPS: PermissionGroupDefinition[] = [
+  {
+    id: "pedidos",
+    label: "Pedidos y Barra",
+    readPermission: "pedidos.read",
+    writePermission: "pedidos.update",
+    readText: "Ver pedidos",
+    writeText: "Ver y actualizar estados",
+  },
+  {
+    id: "productos",
+    label: "Productos (Menú)",
+    readPermission: "productos.read",
+    writePermission: "productos.write",
+    readText: "Ver catálogo",
+    writeText: "Ver, crear y editar",
+  },
+  {
+    id: "categorias",
+    label: "Categorías de Carta",
+    readPermission: "categorias.read",
+    writePermission: "categorias.write",
+    readText: "Ver categorías",
+    writeText: "Ver y organizar",
+  },
+  {
+    id: "clientes",
+    label: "Clientes",
+    readPermission: "clientes.read",
+    readText: "Ver historial y CRM",
+  },
+  {
+    id: "inventario",
+    label: "Inventario e Insumos",
+    readPermission: "inventario.read",
+    writePermission: "inventario.write",
+    readText: "Ver existencias",
+    writeText: "Ver y ajustar stock",
+  },
+  {
+    id: "promociones",
+    label: "Promociones y Happy Hour",
+    readPermission: "promociones.read",
+    writePermission: "promociones.write",
+    readText: "Ver campañas",
+    writeText: "Ver y crear campañas",
+  },
+  {
+    id: "reportes",
+    label: "Reportes y Caja",
+    readPermission: "reportes.read",
+    readText: "Consultar ventas y cierres",
+  },
+  {
+    id: "configuracion",
+    label: "Configuración y QR",
+    readPermission: "configuracion.read",
+    writePermission: "configuracion.write",
+    readText: "Ver ajustes",
+    writeText: "Ver y editar ajustes",
+  },
+  {
+    id: "usuarios",
+    label: "Usuarios",
+    readPermission: "usuarios.read",
+    writePermission: "usuarios.manage",
+    readText: "Ver equipo",
+    writeText: "Administrar cuentas",
+  },
+  {
+    id: "roles",
+    label: "Roles",
+    readPermission: "roles.read",
+    writePermission: "roles.write",
+    readText: "Ver roles",
+    writeText: "Configurar permisos",
+  },
+  {
+    id: "auditoria",
+    label: "Auditoría",
+    readPermission: "auditoria.read",
+    readText: "Consultar historial de cambios",
+  },
+  {
+    id: "notificaciones",
+    label: "Notificaciones",
+    readPermission: "notificaciones.read",
+    readText: "Ver alertas del local",
+  },
+];
+
+function summarizePermissionsByArea(permissions: Permission[]) {
+  const permissionSet = new Set<Permission>(permissions);
+  return PERMISSION_GROUPS.flatMap((group) => {
+    const hasWrite = group.writePermission ? permissionSet.has(group.writePermission) : false;
+    const hasRead = permissionSet.has(group.readPermission);
+    if (!hasRead && !hasWrite) return [];
+    return [
+      {
+        id: group.id,
+        label: group.label,
+        summary: hasWrite && group.writeText ? group.writeText : group.readText,
+        canEdit: hasWrite,
+      },
+    ];
+  });
+}
 
 type AdminAccessCardProps = {
   compact?: boolean;
@@ -74,8 +191,12 @@ export function AdminAccessCard({
   const isOwnerEmail = diagnostic?.isOwnerEmail ?? esEmailAdmin(user.email);
   const emailVerified = diagnostic?.emailVerified ?? isVerified;
   const serverConfirmedAdmin = Boolean(diagnostic?.isAdmin);
-  const hasCustomClaim = Boolean(diagnostic?.hasCustomClaim);
   const hasServerError = sessionResult !== null && !sessionResult.ok;
+  const enabledAreas = summarizePermissionsByArea(effectivePermissions);
+  const roleLabel =
+    serverConfirmedAdmin || isAdmin || diagnostic?.accountType === "admin" || serverUser?.accountType === "admin"
+      ? "Administrador"
+      : "Equipo (Staff)";
 
   return (
     <Card
@@ -113,8 +234,8 @@ export function AdminAccessCard({
                   {serverConfirmedAdmin
                     ? isOwnerEmail
                       ? "Propietario Admin Activo"
-                      : "Admin Global Activo"
-                    : `Staff (${effectivePermissions.length} permisos)`}
+                      : "Admin Activo"
+                    : `Staff (${enabledAreas.length} áreas)`}
                 </Badge>
               ) : (
                 <Badge variant="destructive">
@@ -179,10 +300,10 @@ export function AdminAccessCard({
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Perfil en servidor
+              Rol en la tienda
             </p>
-            <p className="mt-1 text-sm font-bold capitalize text-slate-900">
-              {diagnostic?.accountType ?? serverUser?.accountType ?? (isAdmin ? "admin" : "—")}{" "}
+            <p className="mt-1 text-sm font-bold text-slate-900">
+              {roleLabel}{" "}
               <span className="text-xs font-medium text-slate-500">
                 ({diagnostic?.active === false ? "inactivo" : "activo"})
               </span>
@@ -191,46 +312,40 @@ export function AdminAccessCard({
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Custom Claim Firebase
+              Nivel de acceso
             </p>
             <p className="mt-1 flex items-center gap-1.5 text-sm font-bold text-slate-900">
               <KeyRound
-                className={`h-4 w-4 ${hasCustomClaim ? "text-emerald-600" : "text-amber-600"}`}
+                className={`h-4 w-4 ${
+                  serverConfirmedAdmin || isOwnerEmail ? "text-emerald-600" : "text-cyan-700"
+                }`}
               />
               {sessionResult === null
                 ? "Consultando..."
-                : hasCustomClaim
-                  ? "admin: true"
-                  : isOwnerEmail
-                    ? "Elevado por correo"
-                    : "Sin claim admin"}
+                : serverConfirmedAdmin || isOwnerEmail
+                  ? "Acceso total"
+                  : "Acceso por áreas"}
             </p>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Permisos efectivos
+              Áreas habilitadas
             </p>
             <p className="mt-1 text-sm font-bold text-slate-900">
-              {effectivePermissions.length} / {ALL_ADMIN_PERMISSIONS.length} módulos
+              {enabledAreas.length} / {PERMISSION_GROUPS.length} áreas
             </p>
           </div>
         </div>
 
-        {sessionResult?.ok && !hasCustomClaim && isOwnerEmail && (
-          <p className="rounded-lg border border-cyan-200 bg-cyan-50 px-3.5 py-2.5 text-xs text-cyan-950">
-            Tu acceso administrativo está activo como propietario autorizado (
-            <code className="font-semibold">{user.email}</code>). Para habilitar también consultas
-            directas protegidas por <code className="font-semibold">firestore.rules</code> con{" "}
-            <code className="font-semibold">token.admin == true</code>, ejecuta{" "}
-            <code className="font-semibold">
-              pnpm exec tsx scripts/set-admin.ts {user.email}
-            </code>
-            .
+        {sessionResult?.ok && (serverConfirmedAdmin || isOwnerEmail) && (
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-950">
+            Tu cuenta tiene <strong>acceso completo</strong> en Coctels OPS. Puedes gestionar pedidos,
+            carta, inventario, promociones, reportes y configuración sin restricciones.
           </p>
         )}
 
-        {effectivePermissions.length > 0 && (
+        {enabledAreas.length > 0 && (
           <div>
             <button
               type="button"
@@ -239,25 +354,31 @@ export function AdminAccessCard({
             >
               {showPermissions ? (
                 <>
-                  <ChevronUp className="h-3.5 w-3.5" /> Ocultar detalle de permisos
+                  <ChevronUp className="h-3.5 w-3.5" /> Ocultar detalle de áreas
                 </>
               ) : (
                 <>
-                  <ChevronDown className="h-3.5 w-3.5" /> Ver {effectivePermissions.length} permisos
-                  activos
+                  <ChevronDown className="h-3.5 w-3.5" /> Ver qué puedes hacer en el panel (
+                  {enabledAreas.length} áreas)
                 </>
               )}
             </button>
             {showPermissions && (
-              <div className="mt-2 flex flex-wrap gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                {effectivePermissions.map((perm) => (
-                  <Badge
-                    key={perm}
-                    variant="outline"
-                    className="border-slate-300 bg-white font-mono text-[11px] text-slate-700"
+              <div className="mt-2 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                {enabledAreas.map((area) => (
+                  <div
+                    key={area.id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
                   >
-                    {perm}
-                  </Badge>
+                    <span className="text-xs font-semibold text-slate-900">{area.label}</span>
+                    <span
+                      className={`text-[11px] font-medium ${
+                        area.canEdit ? "text-emerald-700" : "text-slate-600"
+                      }`}
+                    >
+                      {area.summary}
+                    </span>
+                  </div>
                 ))}
               </div>
             )}

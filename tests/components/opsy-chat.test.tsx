@@ -20,11 +20,21 @@ vi.mock("next/image", () => ({
 }));
 
 import OpsyChat from "@/components/opsy/OpsyChat";
+import { CartProvider, CART_STORAGE_KEY } from "@/context/cart-context";
+
+function renderOpsyChat() {
+  return render(
+    <CartProvider>
+      <OpsyChat />
+    </CartProvider>
+  );
+}
 
 describe("OpsyChat UI Component", () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
+    localStorage.clear();
     usePathname.mockReturnValue("/");
     // Mock scrollIntoView
     window.HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -32,25 +42,26 @@ describe("OpsyChat UI Component", () => {
 
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     global.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 
   it("renderiza el botón flotante (FAB) en rutas públicas", () => {
-    render(<OpsyChat />);
+    renderOpsyChat();
     const launcherButton = screen.getByRole("button", { name: /abrir asistente opsy bot/i });
     expect(launcherButton).toBeInTheDocument();
   });
 
   it("se oculta completamente en las rutas administrativas /admin", () => {
     usePathname.mockReturnValue("/admin/productos");
-    render(<OpsyChat />);
+    renderOpsyChat();
     const launcherButton = screen.queryByRole("button", { name: /abrir asistente opsy bot/i });
     expect(launcherButton).toBeNull();
   });
 
   it("abre el modal de chat al hacer clic en el lanzador y muestra el saludo inicial", () => {
-    render(<OpsyChat />);
+    renderOpsyChat();
     const launcherButton = screen.getByRole("button", { name: /abrir asistente opsy bot/i });
     fireEvent.click(launcherButton);
 
@@ -60,7 +71,7 @@ describe("OpsyChat UI Component", () => {
   });
 
   it("permite cerrar el chat con el botón de cerrar (X) y restaura el lanzador", () => {
-    render(<OpsyChat />);
+    renderOpsyChat();
     fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
 
     const closeButton = screen.getByRole("button", { name: /cerrar chat/i });
@@ -71,7 +82,7 @@ describe("OpsyChat UI Component", () => {
   });
 
   it("permite cerrar el chat pulsando la tecla Escape", () => {
-    render(<OpsyChat />);
+    renderOpsyChat();
     fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
@@ -79,7 +90,7 @@ describe("OpsyChat UI Component", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("envía un mensaje del usuario y renderiza la respuesta y sugerencias de Opsy", async () => {
+  it("envía un mensaje del usuario y al seleccionar una recomendación arma el carrito automáticamente", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -96,7 +107,7 @@ describe("OpsyChat UI Component", () => {
       }),
     });
 
-    render(<OpsyChat />);
+    renderOpsyChat();
     fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
 
     const input = screen.getByPlaceholderText(/pregúntale a opsy/i);
@@ -113,11 +124,36 @@ describe("OpsyChat UI Component", () => {
       expect(screen.getByText(/¡De una parce! El de maracuyá está delicioso./i)).toBeInTheDocument();
     });
 
-    // Tarjeta de recomendación de producto
+    // Tarjeta de recomendación de producto y enlace secundario a la carta
     expect(screen.getByText("Granizado de Maracuyá")).toBeInTheDocument();
     expect(screen.getByText("$15.000 COP")).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /ver/i });
-    expect(link).toHaveAttribute("href", "/menu?product=prod-maracuya");
+    const detailLink = screen.getByRole("link", { name: /ver granizado de maracuyá en la carta/i });
+    expect(detailLink).toHaveAttribute("href", "/menu?product=prod-maracuya");
+
+    // Al seleccionar el producto se agrega automáticamente al carrito
+    fireEvent.click(screen.getByRole("button", { name: /^Agregar Granizado de Maracuyá al carrito$/i }));
+
+    const miniCart = await screen.findByTestId("opsy-mini-cart");
+    expect(miniCart).toHaveTextContent("Tu pedido (1 producto)");
+    expect(miniCart).toHaveTextContent("$15.000 COP");
+    expect(screen.getByRole("link", { name: /pedir ya/i })).toHaveAttribute("href", "/checkout");
+    expect(screen.getByRole("link", { name: /carrito/i })).toHaveAttribute("href", "/cart");
+
+    // Incrementar y decrementar desde los controles rápidos de la tarjeta
+    fireEvent.click(screen.getByRole("button", { name: /sumar una unidad de granizado de maracuyá/i }));
+    expect(miniCart).toHaveTextContent("Tu pedido (2 productos)");
+    expect(miniCart).toHaveTextContent("$30.000 COP");
+
+    const saved = JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || "[]");
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({
+      productId: "prod-maracuya",
+      quantity: 2,
+      price: 15000,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /quitar una unidad de granizado de maracuyá/i }));
+    expect(miniCart).toHaveTextContent("Tu pedido (1 producto)");
   });
 
   it("permite enviar un mensaje rápidamente al hacer clic en un prompt chip", async () => {
@@ -129,7 +165,7 @@ describe("OpsyChat UI Component", () => {
       }),
     });
 
-    render(<OpsyChat />);
+    renderOpsyChat();
     fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
 
     const chip = screen.getByRole("button", { name: /¿Qué me recomiendas cítrico\?/i });
@@ -146,7 +182,7 @@ describe("OpsyChat UI Component", () => {
       status: 429,
     });
 
-    render(<OpsyChat />);
+    renderOpsyChat();
     fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
 
     const input = screen.getByPlaceholderText(/pregúntale a opsy/i);
@@ -161,7 +197,7 @@ describe("OpsyChat UI Component", () => {
   });
 
   it("reinicia la conversación al pulsar el botón de reinicio", async () => {
-    render(<OpsyChat />);
+    renderOpsyChat();
     fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
 
     const input = screen.getByPlaceholderText(/pregúntale a opsy/i);
@@ -174,7 +210,7 @@ describe("OpsyChat UI Component", () => {
     expect(screen.queryByText("Hola Opsy")).toBeNull();
   });
 
-  it("hace fallback a /api/chat cuando /api/opsy/chat devuelve 404 y normaliza products de Cloudflare Worker", async () => {
+  it("hace fallback a /api/chat cuando /api/opsy/chat devuelve 404, normaliza products y arma el carrito con múltiples tamaños", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({
@@ -214,7 +250,7 @@ describe("OpsyChat UI Component", () => {
       });
     global.fetch = fetchMock;
 
-    render(<OpsyChat />);
+    renderOpsyChat();
     fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
     fireEvent.click(screen.getByRole("button", { name: /¿Qué me recomiendas cítrico\?/i }));
 
@@ -229,9 +265,26 @@ describe("OpsyChat UI Component", () => {
     expect(screen.getByText("Granizado Margarita")).toBeInTheDocument();
     expect(screen.getByText("Desde $14.000 COP")).toBeInTheDocument();
 
-    const links = screen.getAllByRole("link", { name: /ver/i });
-    expect(links[0]).toHaveAttribute("href", "/menu?product=canva-limonadas");
-    expect(links[1]).toHaveAttribute("href", "/menu?product=granizado-margarita");
+    // Seleccionar Limonadas (presentación única) + Granizado Margarita 16 oz (tamaño específico)
+    fireEvent.click(screen.getByRole("button", { name: /^Agregar Limonadas$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Agregar Granizado Margarita 16 oz$/i }));
+
+    const miniCart = await screen.findByTestId("opsy-mini-cart");
+    expect(miniCart).toHaveTextContent("Tu pedido (2 productos)");
+    expect(miniCart).toHaveTextContent("$27.000 COP");
+
+    const saved = JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || "[]");
+    expect(saved).toHaveLength(2);
+    expect(saved[0]).toMatchObject({
+      productId: "canva-limonadas",
+      price: 9000,
+      customization: { size: "Presentación de la carta", flavors: [], addOns: [] },
+    });
+    expect(saved[1]).toMatchObject({
+      productId: "granizado-margarita",
+      price: 18000,
+      customization: { size: "16 oz", flavors: [], addOns: [] },
+    });
   });
 
   it("muestra el mensaje de error devuelto por el backend cuando falla con 503", async () => {
@@ -244,7 +297,7 @@ describe("OpsyChat UI Component", () => {
       }),
     });
 
-    render(<OpsyChat />);
+    renderOpsyChat();
     fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
 
     const input = screen.getByPlaceholderText(/pregúntale a opsy/i);

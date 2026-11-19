@@ -9,7 +9,6 @@ import {
   Martini,
   RefreshCw,
   Settings,
-  Store,
   Tag,
   UserCog,
   Users,
@@ -92,13 +91,6 @@ const QUICK_ACTIONS: Array<{
     description: "Control de acceso y staff",
     permission: "usuarios.read",
     icon: UserCog,
-  },
-  {
-    href: "/admin/negocios",
-    label: "Locales SaaS",
-    description: "Sedes multi-tenant y branding",
-    permission: "configuracion.read",
-    icon: Store,
   },
   {
     href: "/admin/configuracion",

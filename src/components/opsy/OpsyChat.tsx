@@ -4,8 +4,26 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { X, Send, RotateCcw, Sparkles, ChevronRight, ShoppingBag } from "lucide-react";
+import {
+  X,
+  Send,
+  RotateCcw,
+  Sparkles,
+  ChevronRight,
+  ShoppingBag,
+  ShoppingCart,
+  Plus,
+  Minus,
+  Check,
+  ExternalLink,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useCart, generateCartItemId } from "@/context/cart-context";
+
+export type ChatSuggestionSize = {
+  label: string;
+  priceCop: number;
+};
 
 export type ChatSuggestion = {
   id: string;
@@ -13,6 +31,8 @@ export type ChatSuggestion = {
   category: string;
   priceCop: number | null;
   hasMultipleSizes?: boolean;
+  sizes?: ChatSuggestionSize[];
+  defaultSize?: string;
   image?: string;
   href: string;
 };
@@ -36,7 +56,12 @@ type RawWorkerProduct = {
   image?: unknown;
   href?: unknown;
   sizes?: Array<{
+    id?: unknown;
+    label?: unknown;
+    name?: unknown;
+    volumeOz?: unknown;
     priceCop?: unknown;
+    price?: unknown;
   }>;
 };
 
@@ -45,6 +70,13 @@ type RawLegacySuggestion = {
   name?: unknown;
   category?: unknown;
   priceCop?: unknown;
+  defaultSize?: unknown;
+  sizes?: Array<{
+    label?: unknown;
+    name?: unknown;
+    priceCop?: unknown;
+    price?: unknown;
+  }>;
   image?: unknown;
   href?: unknown;
 };
@@ -80,6 +112,36 @@ function sanitizeImage(value: unknown): string | undefined {
   return undefined;
 }
 
+function extractValidSizes(
+  rawSizes: unknown
+): ChatSuggestionSize[] {
+  if (!Array.isArray(rawSizes)) return [];
+  const parsed: ChatSuggestionSize[] = [];
+  for (const entry of rawSizes) {
+    if (!entry || typeof entry !== "object") continue;
+    const item = entry as Record<string, unknown>;
+    const rawPrice =
+      typeof item.priceCop === "number"
+        ? item.priceCop
+        : typeof item.price === "number"
+          ? item.price
+          : null;
+    if (rawPrice === null || !Number.isFinite(rawPrice) || rawPrice < 0) continue;
+
+    const rawLabel =
+      typeof item.label === "string" && item.label.trim()
+        ? item.label.trim()
+        : typeof item.name === "string" && item.name.trim()
+          ? item.name.trim()
+          : typeof item.volumeOz === "number" && Number.isFinite(item.volumeOz)
+            ? `${item.volumeOz} oz`
+            : "Estándar";
+
+    parsed.push({ label: rawLabel, priceCop: rawPrice });
+  }
+  return parsed;
+}
+
 function normalizeOpsyResponse(data: unknown): {
   content: string;
   suggestions: ChatSuggestion[];
@@ -108,16 +170,29 @@ function normalizeOpsyResponse(data: unknown): {
       const name = typeof item.name === "string" && item.name.trim() ? item.name.trim() : "";
       if (!id || !name) continue;
 
-      const priceCop =
+      const sizes = extractValidSizes(item.sizes);
+      const uniquePrices = new Set(sizes.map((s) => s.priceCop));
+      const minSizePrice = sizes.length > 0 ? Math.min(...sizes.map((s) => s.priceCop)) : null;
+
+      const explicitPriceCop =
         typeof item.priceCop === "number" && Number.isFinite(item.priceCop) && item.priceCop >= 0
           ? item.priceCop
           : null;
+      const priceCop = explicitPriceCop ?? minSizePrice;
+
+      const defaultSize =
+        typeof item.defaultSize === "string" && item.defaultSize.trim()
+          ? item.defaultSize.trim()
+          : sizes[0]?.label ?? "Estándar";
 
       suggestions.push({
         id,
         name,
         category: typeof item.category === "string" ? item.category : "",
         priceCop,
+        hasMultipleSizes: uniquePrices.size > 1,
+        ...(sizes.length > 0 ? { sizes } : {}),
+        defaultSize,
         image: sanitizeImage(item.image),
         href: sanitizeHref(item.href, id),
       });
@@ -133,21 +208,21 @@ function normalizeOpsyResponse(data: unknown): {
       const name = typeof product.name === "string" && product.name.trim() ? product.name.trim() : "";
       if (!id || !name) continue;
 
-      const validPrices = Array.isArray(product.sizes)
-        ? product.sizes
-            .map((size) => (size && typeof size === "object" ? size.priceCop : undefined))
-            .filter((price): price is number => typeof price === "number" && Number.isFinite(price) && price >= 0)
-        : [];
-
-      const uniquePrices = new Set(validPrices);
-      const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
+      const sizes = extractValidSizes(product.sizes);
+      const uniquePrices = new Set(sizes.map((s) => s.priceCop));
+      const cheapestSize = sizes.reduce<ChatSuggestionSize | null>((best, curr) => {
+        if (!best || curr.priceCop < best.priceCop) return curr;
+        return best;
+      }, null);
 
       suggestions.push({
         id,
         name,
         category: "",
-        priceCop: minPrice,
+        priceCop: cheapestSize ? cheapestSize.priceCop : null,
         hasMultipleSizes: uniquePrices.size > 1,
+        ...(sizes.length > 0 ? { sizes } : {}),
+        defaultSize: cheapestSize?.label ?? "Estándar",
         image: sanitizeImage(product.image),
         href: sanitizeHref(product.href, id),
       });
@@ -174,15 +249,18 @@ const QUICK_PROMPTS = [
 
 export default function OpsyChat() {
   const pathname = usePathname();
+  const { items: cartItems, addItem, updateQuantity, totalItems, totalPrice } = useCart();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [justAddedKey, setJustAddedKey] = useState<string | null>(null);
 
   const launcherRef = useRef<HTMLButtonElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Ocultar Opsy Bot en las rutas administrativas
   const isAdminRoute = pathname?.startsWith("/admin");
@@ -190,6 +268,61 @@ export default function OpsyChat() {
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current) {
+        clearTimeout(feedbackTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleAddSuggestionToCart = useCallback(
+    (item: ChatSuggestion, sizeOverride?: ChatSuggestionSize) => {
+      const chosenSize = sizeOverride ?? item.sizes?.[0];
+      const sizeLabel = chosenSize?.label || item.defaultSize || "Estándar";
+      const unitPrice = chosenSize?.priceCop ?? item.priceCop;
+
+      if (unitPrice === null || !Number.isFinite(unitPrice) || unitPrice < 0) {
+        return;
+      }
+
+      addItem({
+        productId: item.id,
+        name: item.name,
+        price: unitPrice,
+        quantity: 1,
+        image: item.image || "/catalog-placeholder.svg",
+        customization: {
+          size: sizeLabel,
+          flavors: [],
+          addOns: [],
+        },
+      });
+
+      const feedbackKey = `${item.id}::${sizeLabel}`;
+      setJustAddedKey(feedbackKey);
+      if (feedbackTimerRef.current) {
+        clearTimeout(feedbackTimerRef.current);
+      }
+      feedbackTimerRef.current = setTimeout(() => {
+        setJustAddedKey((current) => (current === feedbackKey ? null : current));
+      }, 1400);
+    },
+    [addItem]
+  );
+
+  const getCartEntryForSuggestion = useCallback(
+    (productId: string, sizeLabel: string) => {
+      const cartItemId = generateCartItemId(productId, {
+        size: sizeLabel,
+        flavors: [],
+        addOns: [],
+      });
+      return cartItems.find((entry) => entry.id === cartItemId) ?? null;
+    },
+    [cartItems]
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -433,55 +566,225 @@ export default function OpsyChat() {
 
                   {/* Tarjetas de Sugerencias de Productos */}
                   {message.suggestions && message.suggestions.length > 0 && (
-                    <div className="mt-2.5 w-full max-w-[90%] space-y-2">
+                    <div className="mt-2.5 w-full max-w-[95%] space-y-2">
                       <p className="text-xs font-semibold text-purple-300 flex items-center gap-1">
                         <ShoppingBag className="w-3.5 h-3.5 text-primary" />
-                        Recomendaciones de Opsy:
+                        Recomendaciones de Opsy (toca para agregar al pedido):
                       </p>
                       <div className="grid grid-cols-1 gap-2">
-                        {message.suggestions.map((item) => (
-                          <div
-                            key={item.id}
-                            className="bg-black/60 border border-purple-500/30 hover:border-primary/60 rounded-xl p-2.5 flex items-center justify-between gap-2.5 transition-colors group"
-                          >
-                            <div className="flex items-center gap-2.5 overflow-hidden">
-                              <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-900 flex-shrink-0 border border-white/10">
-                                {item.image ? (
-                                  <Image
-                                    src={item.image}
-                                    alt={item.name}
-                                    width={40}
-                                    height={40}
-                                    className="object-cover w-full h-full"
-                                  />
+                        {message.suggestions.map((item) => {
+                          const defaultSizeLabel =
+                            item.sizes?.[0]?.label || item.defaultSize || "Estándar";
+                          const canQuickAdd = typeof item.priceCop === "number";
+                          const hasSelectableSizes =
+                            Array.isArray(item.sizes) && item.sizes.length > 1;
+                          const defaultCartEntry = getCartEntryForSuggestion(
+                            item.id,
+                            defaultSizeLabel
+                          );
+                          const totalProductQty = cartItems
+                            .filter((entry) => entry.productId === item.id)
+                            .reduce((sum, entry) => sum + entry.quantity, 0);
+                          const isDefaultJustAdded =
+                            justAddedKey === `${item.id}::${defaultSizeLabel}`;
+
+                          return (
+                            <div
+                              key={item.id}
+                              className={`bg-black/60 border rounded-xl p-2.5 transition-colors group ${
+                                totalProductQty > 0
+                                  ? "border-primary/70 bg-primary/5"
+                                  : "border-purple-500/30 hover:border-primary/60"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                {canQuickAdd ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddSuggestionToCart(item)}
+                                    aria-label={`Agregar ${item.name} al carrito`}
+                                    className="flex-1 min-w-0 flex items-center gap-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-lg"
+                                  >
+                                    <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-900 flex-shrink-0 border border-white/10">
+                                      {item.image ? (
+                                        <Image
+                                          src={item.image}
+                                          alt={item.name}
+                                          width={40}
+                                          height={40}
+                                          className="object-cover w-full h-full"
+                                        />
+                                      ) : (
+                                        <div className="w-full h-full flex items-center justify-center bg-purple-950 text-xs">
+                                          🍹
+                                        </div>
+                                      )}
+                                      {totalProductQty > 0 && (
+                                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-black flex items-center justify-center shadow">
+                                          {totalProductQty}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="overflow-hidden">
+                                      <h4 className="text-xs font-bold text-white truncate group-hover:text-primary transition-colors">
+                                        {item.name}
+                                      </h4>
+                                      <span className="text-xs text-primary font-black">
+                                        {item.hasMultipleSizes ? "Desde " : ""}$
+                                        {item.priceCop!.toLocaleString("es-CO")} COP
+                                      </span>
+                                    </div>
+                                  </button>
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-purple-950 text-xs">
-                                    🍹
+                                  <div className="flex-1 min-w-0 flex items-center gap-2.5 overflow-hidden">
+                                    <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-900 flex-shrink-0 border border-white/10">
+                                      {item.image ? (
+                                        <Image
+                                          src={item.image}
+                                          alt={item.name}
+                                          width={40}
+                                          height={40}
+                                          className="object-cover w-full h-full"
+                                        />
+                                      ) : (
+                                        <div className="w-full h-full flex items-center justify-center bg-purple-950 text-xs">
+                                          🍹
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="overflow-hidden">
+                                      <h4 className="text-xs font-bold text-white truncate">
+                                        {item.name}
+                                      </h4>
+                                      <span className="text-xs text-primary font-black">
+                                        Ver precio en carta
+                                      </span>
+                                    </div>
                                   </div>
                                 )}
-                              </div>
-                              <div className="overflow-hidden">
-                                <h4 className="text-xs font-bold text-white truncate group-hover:text-primary transition-colors">
-                                  {item.name}
-                                </h4>
-                                <span className="text-xs text-primary font-black">
-                                  {typeof item.priceCop === "number"
-                                    ? `${item.hasMultipleSizes ? "Desde " : ""}$${item.priceCop.toLocaleString("es-CO")} COP`
-                                    : "Ver precio en carta"}
-                                </span>
-                              </div>
-                            </div>
 
-                            <Link
-                              href={item.href}
-                              onClick={() => setIsOpen(false)}
-                              className="inline-flex items-center gap-1 text-xs bg-primary/20 hover:bg-primary text-primary hover:text-white px-2.5 py-1.5 rounded-lg font-semibold transition-all flex-shrink-0"
-                            >
-                              Ver
-                              <ChevronRight className="w-3 h-3" />
-                            </Link>
-                          </div>
-                        ))}
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  {canQuickAdd ? (
+                                    !hasSelectableSizes && defaultCartEntry ? (
+                                      <div className="inline-flex items-center gap-1 bg-primary/20 border border-primary/40 rounded-lg p-0.5">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            updateQuantity(
+                                              defaultCartEntry.id,
+                                              defaultCartEntry.quantity - 1
+                                            )
+                                          }
+                                          aria-label={`Quitar una unidad de ${item.name}`}
+                                          className="w-7 h-7 rounded-md flex items-center justify-center text-white hover:bg-primary/40 transition-colors"
+                                        >
+                                          <Minus className="w-3.5 h-3.5" />
+                                        </button>
+                                        <span className="min-w-[18px] text-center text-xs font-black text-white">
+                                          {defaultCartEntry.quantity}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAddSuggestionToCart(item)}
+                                          aria-label={`Sumar una unidad de ${item.name}`}
+                                          className="w-7 h-7 rounded-md flex items-center justify-center bg-primary text-white hover:bg-primary/90 transition-colors"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAddSuggestionToCart(item)}
+                                        aria-label={`Agregar ${item.name}`}
+                                        className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 min-h-[34px] rounded-lg font-semibold transition-all active:scale-95 ${
+                                          isDefaultJustAdded
+                                            ? "bg-emerald-500 text-white"
+                                            : "bg-primary hover:bg-primary/90 text-white shadow-[0_0_12px_rgba(233,30,99,0.35)]"
+                                        }`}
+                                      >
+                                        {isDefaultJustAdded ? (
+                                          <>
+                                            <Check className="w-3.5 h-3.5" />
+                                            Agregado
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Plus className="w-3.5 h-3.5" />
+                                            Agregar
+                                          </>
+                                        )}
+                                      </button>
+                                    )
+                                  ) : (
+                                    <Link
+                                      href={item.href}
+                                      onClick={() => setIsOpen(false)}
+                                      className="inline-flex items-center gap-1 text-xs bg-primary/20 hover:bg-primary text-primary hover:text-white px-2.5 py-1.5 rounded-lg font-semibold transition-all"
+                                    >
+                                      Ver
+                                      <ChevronRight className="w-3 h-3" />
+                                    </Link>
+                                  )}
+
+                                  {canQuickAdd && (
+                                    <Link
+                                      href={item.href}
+                                      onClick={() => setIsOpen(false)}
+                                      title="Ver detalle en carta"
+                                      aria-label={`Ver ${item.name} en la carta`}
+                                      className="w-7 h-7 rounded-lg inline-flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </Link>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Selector rápido de tamaños para productos con múltiples presentaciones */}
+                              {hasSelectableSizes && item.sizes && (
+                                <div className="mt-2 pt-2 border-t border-white/10 flex flex-wrap gap-1.5">
+                                  {item.sizes.map((sizeOption) => {
+                                    const sizeEntry = getCartEntryForSuggestion(
+                                      item.id,
+                                      sizeOption.label
+                                    );
+                                    const isSizeAdded =
+                                      justAddedKey === `${item.id}::${sizeOption.label}`;
+                                    return (
+                                      <button
+                                        key={`${item.id}-${sizeOption.label}`}
+                                        type="button"
+                                        onClick={() =>
+                                          handleAddSuggestionToCart(item, sizeOption)
+                                        }
+                                        aria-label={`Agregar ${item.name} ${sizeOption.label}`}
+                                        className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border transition-all active:scale-95 ${
+                                          isSizeAdded
+                                            ? "bg-emerald-500/20 border-emerald-400 text-emerald-200"
+                                            : sizeEntry
+                                              ? "bg-primary/20 border-primary text-white font-semibold"
+                                              : "bg-slate-900/90 border-purple-500/30 text-slate-200 hover:border-primary/70 hover:text-white"
+                                        }`}
+                                      >
+                                        <Plus className="w-3 h-3 text-primary" />
+                                        <span>{sizeOption.label}</span>
+                                        <span className="text-primary font-bold">
+                                          ${sizeOption.priceCop.toLocaleString("es-CO")}
+                                        </span>
+                                        {sizeEntry && (
+                                          <span className="ml-0.5 px-1 rounded bg-primary text-white text-[10px] font-black">
+                                            {sizeEntry.quantity}
+                                          </span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -525,6 +828,46 @@ export default function OpsyChat() {
                   {prompt}
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* Barra de Mini-Carrito en Vivo */}
+          {totalItems > 0 && (
+            <div
+              data-testid="opsy-mini-cart"
+              className="px-3 py-2.5 bg-gradient-to-r from-purple-950/95 via-slate-900 to-pink-950/90 border-t border-primary/40 flex items-center justify-between gap-2"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-8 h-8 rounded-lg bg-primary/20 border border-primary/40 text-primary flex items-center justify-center flex-shrink-0">
+                  <ShoppingCart className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[11px] text-purple-200 font-semibold leading-tight">
+                    Tu pedido ({totalItems} {totalItems === 1 ? "producto" : "productos"})
+                  </p>
+                  <p className="text-xs font-black text-white truncate">
+                    ${totalPrice.toLocaleString("es-CO")} COP
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <Link
+                  href="/cart"
+                  onClick={() => setIsOpen(false)}
+                  className="text-[11px] font-semibold text-purple-200 hover:text-white px-2 py-1.5 rounded-lg border border-purple-500/40 hover:bg-white/10 transition-colors"
+                >
+                  Carrito
+                </Link>
+                <Link
+                  href="/checkout"
+                  onClick={() => setIsOpen(false)}
+                  className="inline-flex items-center gap-1 text-xs font-bold bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg shadow-[0_0_14px_rgba(233,30,99,0.45)] transition-all active:scale-95"
+                >
+                  Pedir ya
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
             </div>
           )}
 

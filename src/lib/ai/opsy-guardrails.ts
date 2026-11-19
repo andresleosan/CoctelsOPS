@@ -14,14 +14,53 @@ export type OpsyChatMessage = {
   content: string;
 };
 
+export type OpsySuggestionSize = {
+  label: string;
+  priceCop: number;
+};
+
 export type OpsySuggestion = {
   id: string;
   name: string;
   category: string;
   priceCop: number;
+  defaultSize?: string;
+  sizes?: OpsySuggestionSize[];
   image?: string;
   href: string;
 };
+
+function toOpsySuggestion(product: Product): OpsySuggestion {
+  const sizes = Array.isArray(product.availableSizes)
+    ? product.availableSizes
+        .filter(
+          (size) =>
+            typeof size?.name === "string" &&
+            size.name.trim().length > 0 &&
+            typeof size?.price === "number" &&
+            Number.isFinite(size.price) &&
+            size.price >= 0
+        )
+        .map((size) => ({
+          label: size.name.trim(),
+          priceCop: size.price,
+        }))
+    : [];
+
+  const matchingDefaultSize =
+    sizes.find((size) => size.priceCop === product.price) ?? sizes[0];
+
+  return {
+    id: product.id,
+    name: product.name,
+    category: product.category,
+    priceCop: product.price,
+    defaultSize: matchingDefaultSize?.label ?? "Estándar",
+    ...(sizes.length > 0 ? { sizes } : {}),
+    image: product.image,
+    href: `/menu?product=${encodeURIComponent(product.id)}`,
+  };
+}
 
 export type OpsyChatReply = {
   reply: string;
@@ -175,17 +214,7 @@ export function extractAndValidateSuggestions(
   // Armar la lista de sugerencias válidas
   const suggestions: OpsySuggestion[] = Array.from(suggestedIds)
     .slice(0, 3)
-    .map((id) => {
-      const p = productMap.get(id)!;
-      return {
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        priceCop: p.price,
-        image: p.image,
-        href: `/menu?product=${encodeURIComponent(p.id)}`,
-      };
-    });
+    .map((id) => toOpsySuggestion(productMap.get(id)!));
 
   return {
     cleanReply,
@@ -229,14 +258,7 @@ export function getOpsyFallbackResponse(options: {
     const names = chosen.map((c) => `"${c.name}" ($${c.price.toLocaleString("es-CO")} COP)`).join(" y ");
     return {
       reply: `¡Qué más parce! Si buscas un toque cítrico que te despierte y refresque con toda, te tengo ${names || "nuestros mejores granizados"}. ¡Una chimba total para el calor!`,
-      suggestions: chosen.map((p) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        priceCop: p.price,
-        image: p.image,
-        href: `/menu?product=${encodeURIComponent(p.id)}`,
-      })),
+      suggestions: chosen.map(toOpsySuggestion),
     };
   }
 
@@ -256,14 +278,7 @@ export function getOpsyFallbackResponse(options: {
 
     return {
       reply: `¡De una, mi so! Para disfrutar tranquilo y en familia sin licor, te recomiendo ${names}. ¡Sabor puro y frutas bien frías!`,
-      suggestions: chosen.map((p) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        priceCop: p.price,
-        image: p.image,
-        href: `/menu?product=${encodeURIComponent(p.id)}`,
-      })),
+      suggestions: chosen.map(toOpsySuggestion),
     };
   }
 
@@ -285,14 +300,7 @@ export function getOpsyFallbackResponse(options: {
 
     return {
       reply: `¡Claro que sí, parce! Hacemos domicilios volando a ${zones}. El tiempo estimado es de unos ${minutes} minutos. Puedes armar tu pedido aquí en la web o escribirnos al WhatsApp ${whatsapp}.`,
-      suggestions: chosen.map((p) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        priceCop: p.price,
-        image: p.image,
-        href: `/menu?product=${encodeURIComponent(p.id)}`,
-      })),
+      suggestions: chosen.map(toOpsySuggestion),
     };
   }
 
@@ -309,14 +317,7 @@ export function getOpsyFallbackResponse(options: {
 
     return {
       reply: `¡Ave maría, parce! Aquí tienes algunos de los precios de nuestra carta:\n${priceList}\n\nPuedes ver todos los tamaños y adiciones tocando en cada producto.`,
-      suggestions: chosen.map((p) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        priceCop: p.price,
-        image: p.image,
-        href: `/menu?product=${encodeURIComponent(p.id)}`,
-      })),
+      suggestions: chosen.map(toOpsySuggestion),
     };
   }
 
@@ -327,14 +328,7 @@ export function getOpsyFallbackResponse(options: {
 
   return {
     reply: `¡Qué más pues, parce! Soy Opsy, el panda bartender de Coctels OPS 🐼✨. ¿Qué se te antoja hoy? Te sugiero probar ${names || "nuestras especialidades neón"}, ¡quedan una locura!`,
-    suggestions: chosen.map((p) => ({
-      id: p.id,
-      name: p.name,
-      category: p.category,
-      priceCop: p.price,
-      image: p.image,
-      href: `/menu?product=${encodeURIComponent(p.id)}`,
-    })),
+    suggestions: chosen.map(toOpsySuggestion),
   };
 }
 

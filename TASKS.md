@@ -184,3 +184,32 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Nivel Asignado:** `Argon (Medium)`
   - **Objetivo:** Vincular cada producto/presentación de la carta con su receta de insumos (`insumos` en ml, oz y unidades de vaso/pitillo) para descontar automáticamente las existencias de barra y calcular el costo real por cóctel cuando el pedido pasa a `preparando` o `entregado`.
   - **Archivos:** `src/types/recipes.ts`, `src/lib/firestore/recipes.ts`, `src/lib/firestore/orders.ts`, `tests/lib/recipes-depletion.test.ts`.
+
+---
+
+## Fase 10: Rentabilidad, Arqueo de Caja, Cuentas por Mesa y Compras (v1.6)
+
+- [ ] **TASK-26: Editor Visual de Recetas (Escandallo) y Dashboard de Rentabilidad por Cóctel**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Proveer una interfaz mobile-first en el panel administrativo para configurar las recetas de insumos creadas en `TASK-25` por producto y presentación, calculando el costo real, margen bruto (%) por cóctel y alertas de productos con baja rentabilidad en `/admin/reportes`.
+  - **Archivos:** `src/components/admin/RecipeEditor.tsx`, `src/app/admin/inventario/page.tsx`, `src/app/admin/reportes/page.tsx`, `src/app/api/admin/recetas/route.ts`, `tests/components/recipe-editor.test.tsx`.
+
+- [ ] **TASK-27: Apertura, Arqueo y Cierre de Caja por Turno con Gastos de Barra (`/admin/caja`)**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Implementar el flujo completo de control de caja por turno: apertura con base inicial en efectivo, conciliación automática de ingresos (Efectivo, Nequi, Daviplata, QR) desde pedidos/POS, registro de salidas menores de barra (hielo, fruta, domicilios), arqueo ciego con cálculo de sobrante/faltante y trazabilidad de auditoría por cajero.
+  - **Archivos:** `src/types/cash-register.ts`, `src/lib/firestore/cash-register.ts`, `src/app/api/admin/caja/route.ts`, `src/app/admin/caja/page.tsx`, `tests/lib/cash-register.test.ts`.
+
+- [ ] **TASK-28: Cuentas Abiertas por Mesa (Bar Tabs) con Rondas al KDS y División de Cuenta**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Permitir que mesas QR o clientes en barra acumulen múltiples rondas sobre una cuenta abierta, despachando cada ronda al KDS en tiempo real y permitiendo cerrar la cuenta con cobro mixto o división entre comensales.
+  - **Archivos:** `src/types/tabs.ts`, `src/lib/firestore/tabs.ts`, `src/app/api/admin/mesas/route.ts`, `src/app/admin/mesas/page.tsx`, `tests/lib/bar-tabs.test.ts`.
+
+- [ ] **TASK-29: Lista de Compras Automática a Proveedores desde Stock Crítico y Consumo**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Generar automáticamente la orden de reposición para insumos en semáforo "Bajo" o "Crítico" en `/admin/inventario`, estimando cantidades sugeridas y habilitando envío en 1 tap por WhatsApp al proveedor.
+  - **Archivos:** `src/lib/inventory/restock-list.ts`, `src/components/admin/RestockListCard.tsx`, `src/app/admin/inventario/page.tsx`, `tests/components/restock-list.test.tsx`.
+
+- [ ] **TASK-30: Auditoría de Seguridad, Suite E2E de Fases 8–9 y Release v1.6**
+  - **Nivel Recomendado:** `3.8 Flash (Medium)`
+  - **Objetivo:** Ampliar cobertura E2E para POS rápido, escandallo y Opsy Bot con armado de carrito, ejecutar auditoría de dependencias (`pnpm audit --prod`) y validar paridad de despliegue en Cloudflare Pages/Worker.
+  - **Archivos:** `tests/e2e/pos-and-opsy.spec.ts`, `README.md`, `package.json`.
