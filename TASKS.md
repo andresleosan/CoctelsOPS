@@ -204,7 +204,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Permitir que mesas QR o clientes en barra acumulen múltiples rondas sobre una cuenta abierta, despachando cada ronda al KDS en tiempo real y permitiendo cerrar la cuenta con cobro mixto o división entre comensales.
   - **Archivos:** `src/types/tabs.ts`, `src/lib/firestore/tabs.ts`, `src/app/api/admin/mesas/route.ts`, `src/app/admin/mesas/page.tsx`, `tests/lib/bar-tabs.test.ts`.
 
-- [ ] **TASK-29: Lista de Compras Automática a Proveedores desde Stock Crítico y Consumo**
+- [x] **TASK-29: Lista de Compras Automática a Proveedores desde Stock Crítico y Consumo**
   - **Nivel Recomendado:** `3.8 Flash (High)`
   - **Objetivo:** Generar automáticamente la orden de reposición para insumos en semáforo "Bajo" o "Crítico" en `/admin/inventario`, estimando cantidades sugeridas y habilitando envío en 1 tap por WhatsApp al proveedor.
   - **Archivos:** `src/lib/inventory/restock-list.ts`, `src/components/admin/RestockListCard.tsx`, `src/app/admin/inventario/page.tsx`, `tests/components/restock-list.test.tsx`.
