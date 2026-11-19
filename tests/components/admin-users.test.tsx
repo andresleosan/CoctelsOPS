@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUser = {
@@ -165,5 +165,82 @@ describe("UsersPage con Roles integrados y gestión de administradores", () => {
     fireEvent.click(screen.getByRole("tab", { name: /Roles y Permisos/i }));
     expect(await screen.findByRole("heading", { name: "Roles y permisos" })).toBeInTheDocument();
     expect(screen.getByText("Prepara pedidos")).toBeInTheDocument();
+  });
+
+  it("muestra plantillas rápidas y permisos horizontales legibles para crear roles", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/auth/session")) {
+        return new Response(
+          JSON.stringify({
+            user: { uid: "owner-1", accountType: "admin", active: true, permissions: [] },
+            adminAccess: { isAdmin: true, isOwnerEmail: true, emailVerified: true, active: true },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/api/admin/users")) {
+        return new Response(JSON.stringify({ users: initialUsers }), { status: 200 });
+      }
+      if (url.endsWith("/api/admin/roles") && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify({ roles: initialRoles }), { status: 200 });
+      }
+      if (url.endsWith("/api/admin/roles") && init?.method === "POST") {
+        return new Response(JSON.stringify({ id: "solo-productos" }), { status: 201 });
+      }
+      return new Response(JSON.stringify({}), { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<UsersPage />);
+    expect(await screen.findByText("Camila Barra")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Roles y Permisos/i }));
+    expect(await screen.findByRole("heading", { name: "Roles y permisos" })).toBeInTheDocument();
+
+    // Plantillas rápidas y explicaciones claras sin cadenas técnicas crudas
+    expect(screen.getByRole("button", { name: /Administrador total/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Solo lectura/i })).toBeInTheDocument();
+    const soloProductosBtn = screen.getByRole("button", { name: /Solo productos/i });
+    expect(soloProductosBtn).toBeInTheDocument();
+    expect(
+      screen.getByText("Ver la carta y crear, editar o pausar productos"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("productos.write")).not.toBeInTheDocument();
+
+    // Aplicar plantilla "Solo productos" -> selecciona 6 permisos del catálogo y rellena nombre/descripción
+    fireEvent.click(soloProductosBtn);
+    expect(screen.getByText(/Permisos por función \(6 de 20\)/i)).toBeInTheDocument();
+
+    // Ajustar módulo individual en horizontal (Pedidos -> Gestionar)
+    const pedidosGroup = screen.getByRole("group", { name: "Permiso de Pedidos" });
+    fireEvent.click(within(pedidosGroup).getByRole("button", { name: "Gestionar" }));
+    expect(screen.getByText(/Permisos por función \(8 de 20\)/i)).toBeInTheDocument();
+
+    // Guardar rol y verificar payload con permisos internos esperados
+    fireEvent.click(screen.getByRole("button", { name: "Crear rol" }));
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(
+        ([url, init]) =>
+          typeof url === "string" && url.endsWith("/api/admin/roles") && init?.method === "POST",
+      );
+      expect(postCall).toBeDefined();
+      const body = JSON.parse(String(postCall?.[1]?.body ?? "{}"));
+      expect(body.name).toBe("Solo productos");
+      expect(body.permissions).toEqual(
+        expect.arrayContaining([
+          "pedidos.read",
+          "pedidos.update",
+          "productos.read",
+          "productos.write",
+          "categorias.read",
+          "categorias.write",
+          "promociones.read",
+          "promociones.write",
+        ]),
+      );
+      expect(body.permissions).toHaveLength(8);
+    });
   });
 });
