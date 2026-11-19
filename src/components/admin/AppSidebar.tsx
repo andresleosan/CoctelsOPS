@@ -19,6 +19,7 @@ import {
   Tag,
   UserCog,
   Users,
+  UtensilsCrossed,
   Wallet,
   X,
   type LucideIcon,
@@ -41,6 +42,7 @@ type AppSidebarProps = { onNavigate?: () => void };
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/dashboard": LayoutDashboard,
   "/admin/pedidos": ClipboardList,
+  "/admin/mesas": UtensilsCrossed,
   "/admin/caja": Wallet,
   "/admin/productos": Martini,
   "/admin/categorias": FolderTree,

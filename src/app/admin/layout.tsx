@@ -19,6 +19,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const permissionByPath: Array<[string, Permission]> = [
     ["/admin/pedidos", "pedidos.read"],
+    ["/admin/mesas", "pedidos.read"],
+    ["/admin/caja", "pedidos.read"],
     ["/admin/productos", "productos.read"],
     ["/admin/categorias", "categorias.read"],
     ["/admin/clientes", "clientes.read"],

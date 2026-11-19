@@ -228,7 +228,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Implementar el flujo completo de control de caja por turno: apertura con base inicial en efectivo, conciliación automática de ingresos (Efectivo, Nequi, Daviplata, QR) desde pedidos/POS, registro de salidas menores de barra (hielo, fruta, domicilios), arqueo ciego con cálculo de sobrante/faltante y trazabilidad de auditoría por cajero.
   - **Archivos:** `src/types/cash-register.ts`, `src/lib/firestore/cash-register.ts`, `src/app/api/admin/caja/route.ts`, `src/app/admin/caja/page.tsx`, `tests/lib/cash-register.test.ts`.
 
-- [ ] **TASK-28: Cuentas Abiertas por Mesa (Bar Tabs) con Rondas al KDS y División de Cuenta**
+- [x] **TASK-28: Cuentas Abiertas por Mesa (Bar Tabs) con Rondas al KDS y División de Cuenta**
   - **Nivel Recomendado:** `Argon (Medium)`
   - **Objetivo:** Permitir que mesas QR o clientes en barra acumulen múltiples rondas sobre una cuenta abierta, despachando cada ronda al KDS en tiempo real y permitiendo cerrar la cuenta con cobro mixto o división entre comensales.
   - **Archivos:** `src/types/tabs.ts`, `src/lib/firestore/tabs.ts`, `src/app/api/admin/mesas/route.ts`, `src/app/admin/mesas/page.tsx`, `tests/lib/bar-tabs.test.ts`.

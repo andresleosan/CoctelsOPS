@@ -8,6 +8,8 @@ const labels: Record<string, string> = {
   admin: "Administración",
   dashboard: "Resumen",
   pedidos: "Pedidos",
+  mesas: "Mesas y Cuentas",
+  caja: "Caja y Turnos",
   productos: "Productos",
   categorias: "Categorías",
   clientes: "Clientes",
