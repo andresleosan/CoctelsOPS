@@ -19,6 +19,7 @@ import {
   Tag,
   UserCog,
   Users,
+  Wallet,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -40,6 +41,7 @@ type AppSidebarProps = { onNavigate?: () => void };
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/dashboard": LayoutDashboard,
   "/admin/pedidos": ClipboardList,
+  "/admin/caja": Wallet,
   "/admin/productos": Martini,
   "/admin/categorias": FolderTree,
   "/admin/clientes": Users,

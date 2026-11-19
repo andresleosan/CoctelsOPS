@@ -83,7 +83,8 @@ export type AuditInput = {
     | "configuracion"
     | "categorias"
     | "negocios"
-    | "usuarios_negocio";
+    | "usuarios_negocio"
+    | "caja";
   entityId: string;
   changes?: Record<string, unknown>;
 };

@@ -16,6 +16,7 @@ export const ADMIN_NAVIGATION: AdminNavigationItem[] = [
 ];
 
 export const ADVANCED_ADMIN_NAVIGATION: AdminNavigationItem[] = [
+  { href: "/admin/caja", label: "Caja y Turnos", permission: "pedidos.update" },
   { href: "/admin/inventario", label: "Inventario", permission: "inventario.read" },
   { href: "/admin/promociones", label: "Promociones", permission: "promociones.read" },
   { href: "/admin/reportes", label: "Reportes", permission: "reportes.read" },

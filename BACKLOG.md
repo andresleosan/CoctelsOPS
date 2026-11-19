@@ -223,7 +223,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Proveer una interfaz mobile-first en el panel administrativo para configurar las recetas de insumos creadas en `TASK-25` por producto y presentación, calculando el costo real, margen bruto (%) por cóctel y alertas de productos con baja rentabilidad en `/admin/reportes`.
   - **Archivos:** `src/components/admin/RecipeEditor.tsx`, `src/app/admin/inventario/page.tsx`, `src/app/admin/reportes/page.tsx`, `src/app/api/admin/recetas/route.ts`, `tests/components/recipe-editor.test.tsx`.
 
-- [ ] **TASK-27: Apertura, Arqueo y Cierre de Caja por Turno con Gastos de Barra (`/admin/caja`)**
+- [x] **TASK-27: Apertura, Arqueo y Cierre de Caja por Turno con Gastos de Barra (`/admin/caja`)**
   - **Nivel Recomendado:** `Argon (Medium)`
   - **Objetivo:** Implementar el flujo completo de control de caja por turno: apertura con base inicial en efectivo, conciliación automática de ingresos (Efectivo, Nequi, Daviplata, QR) desde pedidos/POS, registro de salidas menores de barra (hielo, fruta, domicilios), arqueo ciego con cálculo de sobrante/faltante y trazabilidad de auditoría por cajero.
   - **Archivos:** `src/types/cash-register.ts`, `src/lib/firestore/cash-register.ts`, `src/app/api/admin/caja/route.ts`, `src/app/admin/caja/page.tsx`, `tests/lib/cash-register.test.ts`.
