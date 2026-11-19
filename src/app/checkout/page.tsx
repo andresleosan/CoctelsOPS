@@ -10,7 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useRouter } from 'next/navigation';
 import {
+  Check,
   CheckCircle2,
+  Copy,
   CreditCard,
   Wallet,
   Truck,
@@ -18,6 +20,7 @@ import {
   UtensilsCrossed,
   GlassWater,
   Gift,
+  Landmark,
   Sparkles,
   TicketPercent,
   X,
@@ -39,6 +42,14 @@ type AppliedPromotion = {
   isHappyHour?: boolean;
 };
 
+type TransferChannel = 'nequi' | 'daviplata' | 'transferencia';
+
+const TRANSFER_CHANNELS: ReadonlyArray<{ id: TransferChannel; label: string }> = [
+  { id: 'nequi', label: 'Nequi' },
+  { id: 'daviplata', label: 'Daviplata' },
+  { id: 'transferencia', label: 'Bancolombia / Transferencia' },
+];
+
 export default function CheckoutPage() {
   const { totalPrice, items, clearCart, getCheckoutItems } = useCart();
   const { user, loading: authLoading, isVerified } = useAuth();
@@ -56,6 +67,10 @@ export default function CheckoutPage() {
     address: '',
     notes: '',
   });
+  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'transferencia'>('efectivo');
+  const [transferChannel, setTransferChannel] = useState<TransferChannel>('nequi');
+  const [transferReference, setTransferReference] = useState('');
+  const [copiedTransferNumber, setCopiedTransferNumber] = useState(false);
 
   const [promotionInput, setPromotionInput] = useState('');
   const [isValidatingPromo, setIsValidatingPromo] = useState(false);
@@ -318,6 +333,22 @@ export default function CheckoutPage() {
     : 0;
   const finalTotal = Math.max(0, subtotalAfterPromo - loyaltyDiscount);
   const estimatedPointsEarned = Math.max(0, Math.floor(finalTotal / 1000));
+  const selectedTransferChannelLabel =
+    TRANSFER_CHANNELS.find((channel) => channel.id === transferChannel)?.label ?? 'Transferencia';
+
+  const handleCopyTransferNumber = async () => {
+    const numberToCopy = configuration?.whatsappNumber?.trim();
+    if (!numberToCopy) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(numberToCopy);
+      }
+    } catch {
+      // Fallback silencioso si clipboard no está disponible
+    }
+    setCopiedTransferNumber(true);
+    setTimeout(() => setCopiedTransferNumber(false), 2200);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -330,6 +361,7 @@ export default function CheckoutPage() {
       const token = typeof user.getIdToken === 'function' ? await user.getIdToken() : '';
       idempotencyKey.current ??= crypto.randomUUID();
       const effectiveAddress = getEffectiveAddress();
+      const cleanReference = transferReference.trim();
 
       const response = await fetch('/api/pedidos', {
         method: 'POST',
@@ -346,6 +378,19 @@ export default function CheckoutPage() {
           tableNumber: serviceType === 'mesa' ? tableNumber.trim() : undefined,
           notes: formData.notes,
           items: getCheckoutItems(),
+          paymentMethod: paymentMethod === 'transferencia' ? transferChannel : 'efectivo',
+          ...(paymentMethod === 'transferencia'
+            ? {
+                paymentBreakdown: {
+                  cashAmount: 0,
+                  cashReceived: 0,
+                  changeAmount: 0,
+                  digitalAmount: finalTotal,
+                  digitalMethod: transferChannel,
+                  ...(cleanReference ? { digitalReference: cleanReference } : {}),
+                },
+              }
+            : {}),
           ...(appliedPromotion ? { promotionCode: appliedPromotion.code } : {}),
           ...(selectedReward ? { loyaltyRewardId: selectedReward.id } : {}),
         }),
@@ -734,15 +779,144 @@ export default function CheckoutPage() {
                   <CreditCard className="w-5 h-5" /> Método de Pago
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-5 md:p-6 pt-0 md:pt-0">
-                <RadioGroup defaultValue="cash" className="space-y-3">
-                  <div className="flex items-center space-x-3 border border-primary/20 p-5 rounded-2xl hover:bg-primary/5 cursor-pointer transition-colors">
-                    <RadioGroupItem value="cash" id="cash" className="border-primary text-primary" />
-                    <Label htmlFor="cash" className="flex items-center gap-3 flex-grow cursor-pointer font-bold text-sm">
-                      <Wallet className="w-6 h-6 text-primary" /> EFECTIVO CONTRA ENTREGA
-                    </Label>
-                  </div>
+              <CardContent className="p-5 md:p-6 pt-0 md:pt-0 space-y-4">
+                <RadioGroup
+                  value={paymentMethod}
+                  onValueChange={(value) => {
+                    setPaymentMethod(value === 'transferencia' ? 'transferencia' : 'efectivo');
+                    idempotencyKey.current = null;
+                  }}
+                  className="space-y-3"
+                >
+                  <label
+                    htmlFor="cash"
+                    className={`flex items-start space-x-3 border p-4 md:p-5 rounded-2xl cursor-pointer transition-colors ${
+                      paymentMethod === 'efectivo'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-white/15 bg-background/40 hover:border-primary/40 hover:bg-primary/5'
+                    }`}
+                  >
+                    <RadioGroupItem value="efectivo" id="cash" className="border-primary text-primary mt-0.5" />
+                    <div className="flex-grow space-y-0.5">
+                      <span className="flex items-center gap-2.5 font-bold text-sm text-white">
+                        <Wallet className="w-5 h-5 text-primary shrink-0" />
+                        EFECTIVO CONTRA ENTREGA
+                      </span>
+                      <p className="text-xs text-muted-foreground">
+                        Pagas al recibir tu pedido o directamente en barra.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    htmlFor="transfer"
+                    className={`flex items-start space-x-3 border p-4 md:p-5 rounded-2xl cursor-pointer transition-colors ${
+                      paymentMethod === 'transferencia'
+                        ? 'border-cyan-400 bg-cyan-950/25'
+                        : 'border-white/15 bg-background/40 hover:border-cyan-400/40 hover:bg-cyan-950/10'
+                    }`}
+                  >
+                    <RadioGroupItem value="transferencia" id="transfer" className="border-cyan-400 text-cyan-400 mt-0.5" />
+                    <div className="flex-grow space-y-0.5">
+                      <span className="flex items-center gap-2.5 font-bold text-sm text-white">
+                        <Landmark className="w-5 h-5 text-cyan-400 shrink-0" />
+                        TRANSFERENCIA (NEQUI / DAVIPLATA / BANCOLOMBIA)
+                      </span>
+                      <p className="text-xs text-muted-foreground">
+                        Transfiere fácil y comparte el comprobante por WhatsApp.
+                      </p>
+                    </div>
+                  </label>
                 </RadioGroup>
+
+                {paymentMethod === 'transferencia' && (
+                  <div className="rounded-2xl border border-cyan-500/35 bg-cyan-950/25 p-4 space-y-3 animate-in fade-in duration-200">
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                        Elige el canal de transferencia
+                      </p>
+                      <div className="flex flex-wrap gap-2" role="group" aria-label="Canal de transferencia">
+                        {TRANSFER_CHANNELS.map((channel) => {
+                          const selected = transferChannel === channel.id;
+                          return (
+                            <button
+                              key={channel.id}
+                              type="button"
+                              onClick={() => {
+                                setTransferChannel(channel.id);
+                                idempotencyKey.current = null;
+                              }}
+                              aria-pressed={selected}
+                              className={`min-h-[44px] rounded-xl border px-3.5 text-xs font-bold transition-all ${
+                                selected
+                                  ? 'border-cyan-400 bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
+                                  : 'border-white/15 bg-black/40 text-slate-200 hover:border-cyan-400/50 hover:text-white'
+                              }`}
+                            >
+                              {channel.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {configuration?.whatsappNumber && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wider text-slate-400">
+                            Número Nequi / Daviplata / WhatsApp
+                          </p>
+                          <p className="font-mono text-sm font-bold text-white">
+                            {configuration.whatsappNumber}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleCopyTransferNumber()}
+                          className="min-h-[40px] border-cyan-500/40 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20"
+                        >
+                          {copiedTransferNumber ? (
+                            <>
+                              <Check className="w-4 h-4 mr-1.5 text-emerald-400" />
+                              ¡Copiado!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4 mr-1.5" />
+                              Copiar número
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-cyan-100/90">
+                      Envía el comprobante por WhatsApp al confirmar tu pedido para agilizar la preparación.
+                    </p>
+
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor="transferReference"
+                        className="text-xs font-semibold text-slate-200"
+                      >
+                        Referencia o últimos 4 dígitos (opcional)
+                      </Label>
+                      <Input
+                        id="transferReference"
+                        maxLength={60}
+                        placeholder="Ej: Ref 4821 o comprobante Nequi"
+                        value={transferReference}
+                        onChange={(e) => {
+                          setTransferReference(e.target.value);
+                          idempotencyKey.current = null;
+                        }}
+                        className="h-11 rounded-xl border-cyan-500/30 bg-black/50 text-white placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -821,6 +995,19 @@ export default function CheckoutPage() {
                     </div>
                   </div>
                 )}
+
+                <div className="flex items-center gap-2.5 rounded-2xl border border-white/15 bg-black/20 px-4 py-3 text-xs font-bold text-white">
+                  {paymentMethod === 'transferencia' ? (
+                    <Landmark className="w-4 h-4 shrink-0 text-cyan-200" />
+                  ) : (
+                    <Wallet className="w-4 h-4 shrink-0 text-white" />
+                  )}
+                  <span>
+                    {paymentMethod === 'transferencia'
+                      ? `Pago: Transferencia · ${selectedTransferChannelLabel}`
+                      : 'Pago: Efectivo contra entrega'}
+                  </span>
+                </div>
 
                 <Button
                   type="submit"

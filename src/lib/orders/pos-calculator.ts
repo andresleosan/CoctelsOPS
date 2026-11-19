@@ -12,6 +12,7 @@ import type {
 export const COP_BILL_DENOMINATIONS = [10_000, 20_000, 50_000, 100_000] as const;
 
 export const POS_DIGITAL_CHANNEL_LABELS: Record<PosDigitalChannel, string> = {
+  transferencia: "Transferencia",
   nequi: "Nequi",
   daviplata: "Daviplata",
   qr: "Código QR",
@@ -19,6 +20,7 @@ export const POS_DIGITAL_CHANNEL_LABELS: Record<PosDigitalChannel, string> = {
 
 export const POS_PAYMENT_METHOD_LABELS: Record<PosPaymentMethod, string> = {
   efectivo: "Efectivo",
+  transferencia: "Transferencia",
   nequi: "Nequi",
   daviplata: "Daviplata",
   qr: "Código QR",
@@ -249,7 +251,10 @@ export function calculatePosPayment(input: PosPaymentInput): PosPaymentCalculati
 
   if (total === 0) {
     const digitalMethod =
-      input.method === "nequi" || input.method === "daviplata" || input.method === "qr"
+      input.method === "transferencia" ||
+      input.method === "nequi" ||
+      input.method === "daviplata" ||
+      input.method === "qr"
         ? input.method
         : input.method === "mixto"
           ? input.digitalMethod ?? "nequi"
@@ -310,7 +315,12 @@ export function calculatePosPayment(input: PosPaymentInput): PosPaymentCalculati
     };
   }
 
-  if (input.method === "nequi" || input.method === "daviplata" || input.method === "qr") {
+  if (
+    input.method === "transferencia" ||
+    input.method === "nequi" ||
+    input.method === "daviplata" ||
+    input.method === "qr"
+  ) {
     const breakdown: OrderPaymentBreakdown = {
       cashAmount: 0,
       cashReceived: 0,

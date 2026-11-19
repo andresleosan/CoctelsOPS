@@ -17,6 +17,7 @@ export type ServiceType = (typeof SERVICE_TYPES)[number];
 
 export const POS_PAYMENT_METHODS = [
   "efectivo",
+  "transferencia",
   "nequi",
   "daviplata",
   "qr",
@@ -24,7 +25,7 @@ export const POS_PAYMENT_METHODS = [
 ] as const;
 export type PosPaymentMethod = (typeof POS_PAYMENT_METHODS)[number];
 
-export const POS_DIGITAL_CHANNELS = ["nequi", "daviplata", "qr"] as const;
+export const POS_DIGITAL_CHANNELS = ["transferencia", "nequi", "daviplata", "qr"] as const;
 export type PosDigitalChannel = (typeof POS_DIGITAL_CHANNELS)[number];
 
 export type OrderPaymentBreakdown = {

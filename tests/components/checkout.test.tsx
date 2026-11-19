@@ -260,4 +260,56 @@ describe("Checkout delivery estimate and coupon redemption", () => {
       expect(screen.getAllByText(`-$${(15000).toLocaleString()}`)).toHaveLength(2);
     });
   });
+
+  it("permite seleccionar pago por transferencia, elegir canal, ingresar referencia y enviarlo a /api/pedidos", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/configuration")) {
+        return { ok: true, status: 200, json: async () => ({ configuration }) } as Response;
+      }
+      if (url.includes("/api/pedidos")) {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ order: { id: "pedido-transfer-1" } }),
+        } as Response;
+      }
+      return { ok: false, status: 404 } as Response;
+    });
+
+    render(<CheckoutPage />);
+
+    fireEvent.click(screen.getByText(/TRANSFERENCIA \(NEQUI \/ DAVIPLATA \/ BANCOLOMBIA\)/i));
+
+    expect(await screen.findByText(/Elige el canal de transferencia/i)).toBeInTheDocument();
+    expect(screen.getByText("573245550000")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Daviplata" }));
+    fireEvent.change(screen.getByLabelText(/Referencia o últimos 4 dígitos/i), {
+      target: { value: "Ref 9912" },
+    });
+
+    expect(screen.getByText(/Pago: Transferencia · Daviplata/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Nombre Completo/i), { target: { value: "Carlos Ruiz" } });
+    fireEvent.change(screen.getByLabelText(/Teléfono de Contacto/i), { target: { value: "3001112233" } });
+    fireEvent.change(screen.getByLabelText(/Dirección Exacta/i), { target: { value: "Calle 50 # 10-20" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /CONFIRMAR PEDIDO/i }));
+
+    await waitFor(() => {
+      const orderCall = fetchSpy.mock.calls.find(([url]) => String(url).includes("/api/pedidos"));
+      expect(orderCall).toBeDefined();
+      const body = JSON.parse(String(orderCall?.[1]?.body ?? "{}"));
+      expect(body.paymentMethod).toBe("daviplata");
+      expect(body.paymentBreakdown).toEqual({
+        cashAmount: 0,
+        cashReceived: 0,
+        changeAmount: 0,
+        digitalAmount: 30000,
+        digitalMethod: "daviplata",
+        digitalReference: "Ref 9912",
+      });
+    });
+  });
 });

@@ -1,19 +1,48 @@
 import { z } from "zod";
 
-import { requirePermission } from "@/lib/auth/permissions";
-import { toAuthorizationResponse } from "@/lib/auth/verify-request";
-import { getUserProfile, updateUser } from "@/lib/firestore/users";
+import { isGlobalAdmin, requirePermission } from "@/lib/auth/permissions";
+import { AuthorizationError, toAuthorizationResponse } from "@/lib/auth/verify-request";
+import {
+  AdminUserValidationError,
+  UserNotFoundError,
+  getUserProfile,
+  setUserAdminStatus,
+  updateUser,
+} from "@/lib/firestore/users";
 
-const updateSchema = z.object({
-  active: z.boolean().optional(),
-  roleIds: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
-}).strict().refine((data) => data.active !== undefined || data.roleIds !== undefined, "No hay cambios para aplicar");
+const updateSchema = z
+  .object({
+    active: z.boolean().optional(),
+    roleIds: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+    accountType: z.enum(["admin", "staff", "customer"]).optional(),
+  })
+  .strict()
+  .refine(
+    (data) =>
+      data.active !== undefined ||
+      data.roleIds !== undefined ||
+      data.accountType !== undefined,
+    "No hay cambios para aplicar",
+  );
 
 type Context = { params: Promise<{ uid: string }> };
 
 function errorResponse(error: unknown): Response {
-  if (error instanceof z.ZodError) return Response.json({ error: "Los datos del usuario no son válidos" }, { status: 422 });
-  if (error instanceof Error && error.message === "Los roles seleccionados no existen") return Response.json({ error: error.message }, { status: 422 });
+  if (error instanceof SyntaxError) {
+    return Response.json({ error: "El cuerpo JSON no es válido" }, { status: 422 });
+  }
+  if (error instanceof z.ZodError) {
+    return Response.json({ error: "Los datos del usuario no son válidos" }, { status: 422 });
+  }
+  if (error instanceof AdminUserValidationError) {
+    return Response.json({ error: error.message }, { status: 422 });
+  }
+  if (error instanceof UserNotFoundError) {
+    return Response.json({ error: error.message }, { status: 404 });
+  }
+  if (error instanceof Error && error.message === "Los roles seleccionados no existen") {
+    return Response.json({ error: error.message }, { status: 422 });
+  }
   return toAuthorizationResponse(error);
 }
 
@@ -33,7 +62,30 @@ export async function PATCH(request: Request, context: Context): Promise<Respons
     const actor = await requirePermission(request as never, "usuarios.manage");
     const { uid } = await context.params;
     const input = updateSchema.parse(await request.json());
-    await updateUser(uid, input, actor.uid);
+
+    if (input.accountType !== undefined) {
+      if (!isGlobalAdmin(actor)) {
+        throw new AuthorizationError(403, "Solo un administrador puede cambiar el nivel administrativo");
+      }
+      await setUserAdminStatus(
+        uid,
+        input.accountType === "admin",
+        actor.uid,
+        input.accountType === "customer" ? "customer" : "staff",
+      );
+    }
+
+    if (input.active !== undefined || input.roleIds !== undefined) {
+      await updateUser(
+        uid,
+        {
+          ...(input.active !== undefined ? { active: input.active } : {}),
+          ...(input.roleIds !== undefined ? { roleIds: input.roleIds } : {}),
+        },
+        actor.uid,
+      );
+    }
+
     const user = await getUserProfile(uid);
     return Response.json({ user });
   } catch (error) {

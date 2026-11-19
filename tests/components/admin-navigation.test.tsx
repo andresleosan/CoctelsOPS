@@ -23,8 +23,8 @@ describe("admin navigation permissions", () => {
       "/admin/categorias",
       "/admin/clientes",
       "/admin/usuarios",
-      "/admin/roles",
     ]);
+    expect(links).not.toContain("/admin/roles");
   });
 
   it("blocks customers even if a malformed permission reaches the client", () => {

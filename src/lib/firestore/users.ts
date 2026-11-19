@@ -2,10 +2,28 @@ import "server-only";
 
 import { esEmailAdmin } from "@/lib/auth-claims";
 import { AuthorizationError } from "@/lib/auth/verify-request";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction, createAuditEntry } from "@/lib/firestore/audit";
 import { profileUpdateSchema, type ProfileUpdateInput } from "@/lib/validation/account";
 import type { AccountType, AuthProfile, UserProfile } from "@/types/auth";
+
+export class AdminUserValidationError extends Error {
+  readonly status = 422;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "AdminUserValidationError";
+  }
+}
+
+export class UserNotFoundError extends Error {
+  readonly status = 404;
+
+  constructor(message = "Usuario no encontrado") {
+    super(message);
+    this.name = "UserNotFoundError";
+  }
+}
 
 const accountTypes = new Set<AccountType>(["customer", "staff", "admin"]);
 
@@ -81,7 +99,23 @@ export async function updateUser(uid: string, input: { active?: boolean; roleIds
   const ref = db.collection("users").doc(uid);
   await db.runTransaction(async (transaction) => {
     const existing = await transaction.get(ref);
-    if (!existing.exists) throw new Error("Usuario no encontrado");
+    if (!existing.exists) throw new UserNotFoundError("Usuario no encontrado");
+    const current = toProfile(uid, (existing.data() ?? {}) as Record<string, unknown>);
+    if (input.active === false) {
+      if (esEmailAdmin(current.email)) {
+        throw new AuthorizationError(409, "No puedes desactivar al propietario principal");
+      }
+      if (current.accountType === "admin") {
+        const usersCollection = db.collection("users");
+        if (typeof usersCollection.where === "function") {
+          const adminsSnap = await transaction.get(usersCollection.where("accountType", "==", "admin"));
+          const activeAdmins = adminsSnap.docs.filter((doc) => doc.data()?.active !== false);
+          if (activeAdmins.length <= 1 && activeAdmins.some((doc) => doc.id === uid)) {
+            throw new AuthorizationError(409, "Debe permanecer al menos un administrador activo en el sistema");
+          }
+        }
+      }
+    }
     transaction.update(ref, updates);
     writeAuditInTransaction(transaction, {
       actorUid,
@@ -91,6 +125,170 @@ export async function updateUser(uid: string, input: { active?: boolean; roleIds
       changes: input,
     });
   });
+}
+
+export async function setUserAdminStatus(
+  uid: string,
+  makeAdmin: boolean,
+  actorUid: string,
+  nextNonAdminType: "staff" | "customer" = "staff",
+): Promise<UserProfile> {
+  if (uid === actorUid) {
+    throw new AuthorizationError(409, "No puedes modificar tu propio nivel administrativo");
+  }
+
+  const db = getAdminDb();
+  const ref = db.collection("users").doc(uid);
+  let updatedProfile: UserProfile | undefined;
+
+  await db.runTransaction(async (transaction) => {
+    const existing = await transaction.get(ref);
+    if (!existing.exists) throw new UserNotFoundError("Usuario no encontrado");
+
+    const current = toProfile(uid, (existing.data() ?? {}) as Record<string, unknown>);
+    if (!makeAdmin) {
+      if (esEmailAdmin(current.email)) {
+        throw new AuthorizationError(409, "No puedes revocar al propietario principal");
+      }
+      if (current.accountType === "admin") {
+        const usersCollection = db.collection("users");
+        if (typeof usersCollection.where === "function") {
+          const adminsSnap = await transaction.get(usersCollection.where("accountType", "==", "admin"));
+          const activeAdmins = adminsSnap.docs.filter((doc) => doc.data()?.active !== false);
+          if (activeAdmins.length <= 1 && activeAdmins.some((doc) => doc.id === uid)) {
+            throw new AuthorizationError(409, "Debe permanecer al menos un administrador activo en el sistema");
+          }
+        }
+      }
+    }
+
+    const nextAccountType: AccountType = makeAdmin ? "admin" : nextNonAdminType;
+    const withoutAdmin = current.roleIds.filter((roleId) => roleId !== "admin");
+    const nextRoleIds = makeAdmin
+      ? ["admin"]
+      : withoutAdmin.length > 0
+        ? withoutAdmin
+        : nextNonAdminType === "customer"
+          ? ["customer"]
+          : [];
+
+    const updates: Partial<UserProfile> = {
+      accountType: nextAccountType,
+      roleIds: nextRoleIds,
+      ...(makeAdmin ? { active: true } : {}),
+    };
+
+    transaction.update(ref, updates);
+    writeAuditInTransaction(transaction, {
+      actorUid,
+      action: "update",
+      module: "usuarios",
+      entityId: uid,
+      changes: { accountType: nextAccountType, roleIds: nextRoleIds, admin: makeAdmin },
+    });
+
+    updatedProfile = { ...current, ...updates };
+  });
+
+  if (!updatedProfile) {
+    throw new Error("No fue posible actualizar el nivel administrativo");
+  }
+
+  const auth = getAdminAuth();
+  const authUser = await auth.getUser(uid);
+  const existingClaims = (authUser.customClaims ?? {}) as Record<string, unknown>;
+  await auth.setCustomUserClaims(uid, { ...existingClaims, admin: makeAdmin });
+
+  return updatedProfile;
+}
+
+function isAuthUserNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate.code === "auth/user-not-found") return true;
+  if (typeof candidate.message === "string") {
+    return (
+      candidate.message.includes("user-not-found") ||
+      candidate.message.includes("no user record")
+    );
+  }
+  return false;
+}
+
+export async function addAdministratorByEmail(
+  input: { email: string; displayName?: string; password?: string },
+  actorUid: string,
+): Promise<{ user: UserProfile; createdAuthUser: boolean }> {
+  const email = input.email.trim().toLowerCase();
+  if (!email) {
+    throw new AdminUserValidationError("El correo electrónico es obligatorio");
+  }
+
+  const auth = getAdminAuth();
+  let authUser: Awaited<ReturnType<typeof auth.getUserByEmail>>;
+  let createdAuthUser = false;
+
+  try {
+    authUser = await auth.getUserByEmail(email);
+  } catch (lookupError) {
+    if (!isAuthUserNotFoundError(lookupError)) {
+      throw lookupError;
+    }
+
+    const cleanPassword = input.password?.trim() ?? "";
+    if (cleanPassword.length < 8) {
+      throw new AdminUserValidationError(
+        "Ese correo aún no tiene cuenta. Ingresa una contraseña temporal (mín. 8 caracteres) para crearla.",
+      );
+    }
+
+    const cleanDisplayName = input.displayName?.trim();
+    authUser = await auth.createUser({
+      email,
+      password: cleanPassword,
+      ...(cleanDisplayName ? { displayName: cleanDisplayName } : {}),
+      emailVerified: true,
+    });
+    createdAuthUser = true;
+  }
+
+  const existingClaims = (authUser.customClaims ?? {}) as Record<string, unknown>;
+  await auth.setCustomUserClaims(authUser.uid, { ...existingClaims, admin: true });
+
+  const db = getAdminDb();
+  const ref = db.collection("users").doc(authUser.uid);
+  const existingSnap = await ref.get();
+  const existingProfile = existingSnap.exists
+    ? toProfile(authUser.uid, (existingSnap.data() ?? {}) as Record<string, unknown>)
+    : null;
+
+  const now = new Date().toISOString();
+  const cleanName = input.displayName?.trim();
+  const profile: UserProfile = {
+    uid: authUser.uid,
+    email,
+    displayName: cleanName || existingProfile?.displayName || authUser.displayName || null,
+    photoURL: existingProfile?.photoURL ?? authUser.photoURL ?? null,
+    telefono: existingProfile?.telefono ?? null,
+    addresses: existingProfile?.addresses ?? [],
+    active: true,
+    accountType: "admin",
+    roleIds: ["admin"],
+    permissions: [],
+    createdAt: existingProfile?.createdAt ?? now,
+    lastLoginAt: existingProfile?.lastLoginAt ?? now,
+  };
+
+  await ref.set(profile, { merge: true });
+  await createAuditEntry({
+    actorUid,
+    action: createdAuthUser ? "create" : "update",
+    module: "usuarios",
+    entityId: authUser.uid,
+    changes: { accountType: "admin", email, createdAuthUser },
+  });
+
+  return { user: profile, createdAuthUser };
 }
 
 export async function auditUserMutation(actorUid: string, uid: string, changes: Record<string, unknown>): Promise<void> {

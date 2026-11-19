@@ -12,8 +12,7 @@ export const ADMIN_NAVIGATION: AdminNavigationItem[] = [
   { href: "/admin/productos", label: "Productos (Menú)", permission: "productos.read" },
   { href: "/admin/categorias", label: "Categorías de Carta", permission: "categorias.read" },
   { href: "/admin/clientes", label: "Clientes", permission: "clientes.read" },
-  { href: "/admin/usuarios", label: "Usuarios", permission: "usuarios.read" },
-  { href: "/admin/roles", label: "Roles", permission: "roles.read" },
+  { href: "/admin/usuarios", label: "Usuarios y Roles", permission: "usuarios.read" },
 ];
 
 export const ADVANCED_ADMIN_NAVIGATION: AdminNavigationItem[] = [

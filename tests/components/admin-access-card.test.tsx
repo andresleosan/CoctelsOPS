@@ -61,16 +61,13 @@ describe("AdminAccessCard", () => {
 
     expect(await screen.findByText("Propietario Admin Activo")).toBeInTheDocument();
     expect(screen.getAllByText("andres.san1404@gmail.com").length).toBeGreaterThan(0);
-    expect(screen.getByText("12 / 12 áreas")).toBeInTheDocument();
+    expect(screen.getByText("Verificado")).toBeInTheDocument();
     expect(screen.getByText("Acceso total")).toBeInTheDocument();
+    expect(screen.queryByText(/Ocultar detalle de áreas/i)).toBeNull();
+    expect(screen.queryByText(/Ver qué puedes hacer en el panel/i)).toBeNull();
+    expect(screen.queryByText(/Áreas habilitadas/i)).toBeNull();
     expect(screen.queryByText(/firestore\.rules/i)).toBeNull();
     expect(screen.queryByText(/scripts\/set-admin\.ts/i)).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /Ver qué puedes hacer en el panel \(12 áreas\)/i }));
-    expect(screen.getByText("Productos (Menú)")).toBeInTheDocument();
-    expect(screen.getByText("Ver, crear y editar")).toBeInTheDocument();
-    expect(screen.getByText("Configuración y QR")).toBeInTheDocument();
-    expect(screen.queryByText("productos.write")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Revalidar permisos/i }));
     await waitFor(() => expect(refreshClaims).toHaveBeenCalledTimes(1));

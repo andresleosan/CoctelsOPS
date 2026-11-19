@@ -44,7 +44,6 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/categorias": FolderTree,
   "/admin/clientes": Users,
   "/admin/usuarios": UserCog,
-  "/admin/roles": ShieldCheck,
   "/admin/inventario": Boxes,
   "/admin/promociones": Tag,
   "/admin/reportes": BarChart3,

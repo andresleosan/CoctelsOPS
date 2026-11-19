@@ -1,7 +1,14 @@
+/* eslint-disable @next/next/no-img-element */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockUser = { getIdToken: vi.fn().mockResolvedValue("fake-token") };
+
+vi.mock("next/image", () => ({
+  default: (props: { alt?: string; src?: string; onError?: () => void }) => (
+    <img alt={props.alt ?? ""} src={props.src ?? ""} onError={props.onError} />
+  ),
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -239,5 +246,63 @@ describe("ProductsPage (Panel Staff Menú)", () => {
         }),
       );
     });
+  });
+
+  it("muestra vista previa de imagen por producto y pagina por sectores de 1 a 5", async () => {
+    const manyProducts = Array.from({ length: 7 }, (_, index) => ({
+      id: `prod-${index + 1}`,
+      name: `Granizado #${index + 1}`,
+      description: "Delicioso granizado.",
+      price: 15000,
+      image: index === 0 ? "/granizados/Fresa.png" : "",
+      category: "granizado" as const,
+      availableSizes: [{ name: "16 oz", price: 15000 }],
+      availableFlavors: ["Fresa"],
+      availableAddOns: [],
+      stock: 5,
+      active: true,
+      featured: false,
+    }));
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ products: manyProducts }),
+      }),
+    );
+
+    render(<ProductsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Granizado #1")).toBeInTheDocument();
+    });
+
+    // Vista previa real y placeholder
+    expect(screen.getByAltText("Vista previa de Granizado #1")).toHaveAttribute(
+      "src",
+      "/granizados/Fresa.png",
+    );
+    expect(screen.getByAltText("Vista previa de Granizado #2")).toHaveAttribute(
+      "src",
+      "/catalog-placeholder.svg",
+    );
+
+    // Sector 1: muestra 1..5 y no 6..7
+    expect(screen.getByText("Granizado #5")).toBeInTheDocument();
+    expect(screen.queryByText("Granizado #6")).toBeNull();
+    expect(screen.getByText(/Sector 1 de 2/i)).toBeInTheDocument();
+
+    // Ir al sector 2
+    fireEvent.click(screen.getByRole("button", { name: "Sector 2" }));
+    expect(screen.getByText("Granizado #6")).toBeInTheDocument();
+    expect(screen.getByText("Granizado #7")).toBeInTheDocument();
+    expect(screen.queryByText("Granizado #1")).toBeNull();
+
+    // Buscar reinicia al sector 1
+    fireEvent.change(screen.getByPlaceholderText(/Buscar por nombre o categoría/i), {
+      target: { value: "Granizado #1" },
+    });
+    expect(screen.getByText("Granizado #1")).toBeInTheDocument();
   });
 });
