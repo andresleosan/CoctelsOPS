@@ -218,4 +218,97 @@ describe('cloudflare-pages-build', () => {
     });
     expect(appFetch).toHaveBeenCalledTimes(2);
   });
+
+  it('mantiene paridad Cloudflare Pages/Worker para rutas y APIs de Fases 8-10 (POS, insumos, recetas, caja, mesas, Opsy)', async () => {
+    const rootDir = createFixtureRoot();
+
+    for (const apiDir of [
+      ['admin', 'insumos'],
+      ['admin', 'recetas'],
+      ['admin', 'caja'],
+      ['admin', 'mesas'],
+    ]) {
+      const targetDir = path.join(rootDir, '.next', 'server', 'app', 'api', ...apiDir);
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.writeFileSync(path.join(targetDir, 'route.js'), 'module.exports = {};');
+    }
+
+    fs.mkdirSync(path.join(rootDir, '.next', 'server', 'app', 'admin'), { recursive: true });
+    for (const adminPage of ['inventario', 'pedidos', 'caja']) {
+      fs.writeFileSync(
+        path.join(rootDir, '.next', 'server', 'app', 'admin', `${adminPage}.html`),
+        `<html><body>Admin ${adminPage}</body></html>`,
+      );
+    }
+
+    fs.writeFileSync(path.join(rootDir, 'public', 'sw.js'), 'self.addEventListener("fetch", () => {});');
+
+    buildCloudflarePages({ rootDir, log: () => {} });
+
+    expect(fs.existsSync(path.join(rootDir, 'out', 'api'))).toBe(false);
+    expect(fs.existsSync(path.join(rootDir, 'out', 'sw.js'))).toBe(true);
+    expect(fs.existsSync(path.join(rootDir, 'out', 'admin', 'inventario', 'index.html'))).toBe(true);
+    expect(fs.existsSync(path.join(rootDir, 'out', 'admin', 'pedidos', 'index.html'))).toBe(true);
+    expect(fs.existsSync(path.join(rootDir, 'out', 'admin', 'caja', 'index.html'))).toBe(true);
+
+    const worker = await loadGeneratedWorker(rootDir);
+    const assetsFetch = vi.fn(async (req: Request) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/admin/caja' || pathname === '/sw.js') {
+        return new Response('asset-ok', { status: 200 });
+      }
+      return new Response('Not Found', { status: 404 });
+    });
+    const appFetch = vi.fn(async (req: Request) => {
+      const { pathname } = new URL(req.url);
+      return Response.json({ routedToApp: true, method: req.method, pathname }, { status: 200 });
+    });
+    const env = { ASSETS: { fetch: assetsFetch }, APP: { fetch: appFetch } };
+
+    const apiRequests: Array<{ path: string; method: string }> = [
+      { path: '/api/admin/insumos', method: 'GET' },
+      { path: '/api/admin/insumos/sup-1/movimiento', method: 'POST' },
+      { path: '/api/admin/recetas', method: 'GET' },
+      { path: '/api/admin/recetas', method: 'POST' },
+      { path: '/api/admin/caja', method: 'GET' },
+      { path: '/api/admin/caja', method: 'POST' },
+      { path: '/api/admin/mesas', method: 'GET' },
+      { path: '/api/admin/mesas', method: 'POST' },
+      { path: '/api/pedidos', method: 'POST' },
+      { path: '/api/pedidos/ord-1', method: 'PATCH' },
+      { path: '/api/opsy/chat', method: 'POST' },
+    ];
+
+    for (const item of apiRequests) {
+      const res = await worker.fetch(
+        new Request(`https://coctelsops.pages.dev${item.path}`, {
+          method: item.method,
+          ...(item.method === 'GET' ? {} : { body: JSON.stringify({ test: true }) }),
+        }),
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        routedToApp: true,
+        method: item.method,
+        pathname: item.path,
+      });
+    }
+
+    expect(assetsFetch).not.toHaveBeenCalled();
+
+    const staticCaja = await worker.fetch(new Request('https://coctelsops.pages.dev/admin/caja', { method: 'GET' }), env);
+    expect(staticCaja.status).toBe(200);
+    expect(await staticCaja.text()).toBe('asset-ok');
+
+    for (const dynamicRoute of ['/admin/mesas', '/repartidor/ord-1']) {
+      const dynamicRes = await worker.fetch(new Request(`https://coctelsops.pages.dev${dynamicRoute}`, { method: 'GET' }), env);
+      expect(dynamicRes.status).toBe(200);
+      expect(await dynamicRes.json()).toEqual({
+        routedToApp: true,
+        method: 'GET',
+        pathname: dynamicRoute,
+      });
+    }
+  });
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requirePermission } from "@/lib/auth/permissions";
+import { requireNegocioAccess, requirePermission } from "@/lib/auth/permissions";
 import { toAuthorizationResponse } from "@/lib/auth/verify-request";
 import {
   getSupplyById,
@@ -10,6 +10,9 @@ import {
 import { updateSupplySchema } from "@/lib/validation/supplies";
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof SyntaxError) {
+    return Response.json({ error: "Cuerpo JSON inválido" }, { status: 422 });
+  }
   if (error instanceof z.ZodError) {
     return Response.json(
       { error: error.issues[0]?.message ?? "Datos inválidos" },
@@ -27,12 +30,13 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ): Promise<Response> {
   try {
-    await requirePermission(request as never, "inventario.read");
+    const actor = await requirePermission(request as never, "inventario.read");
     const { id } = await context.params;
     const supply = await getSupplyById(id);
     if (!supply) {
       return Response.json({ error: "Insumo no encontrado" }, { status: 404 });
     }
+    requireNegocioAccess(actor, supply.negocioId);
     return Response.json({ supply });
   } catch (error) {
     return errorResponse(error);
@@ -46,6 +50,12 @@ export async function PATCH(
   try {
     const actor = await requirePermission(request as never, "inventario.write");
     const { id } = await context.params;
+    const existing = await getSupplyById(id);
+    if (!existing) {
+      return Response.json({ error: "Insumo no encontrado" }, { status: 404 });
+    }
+    requireNegocioAccess(actor, existing.negocioId);
+
     const json = await request.json();
     const patch = updateSupplySchema.parse(json);
 

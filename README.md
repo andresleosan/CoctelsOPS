@@ -155,29 +155,34 @@ No ejecutes esos comandos contra producción sin completar esas condiciones. La 
 pnpm test
 pnpm typecheck
 pnpm lint
+pnpm run test:security
+pnpm audit --prod --audit-level high
 pnpm build
+pnpm run build:cloudflare
 pnpm test:firestore-rules
 pnpm test:e2e:local
 ```
 
 Los tests de Vitest excluyen `tests/e2e/**`. `pnpm test:e2e` sigue siendo la suite externa y requiere una aplicación levantada, navegadores instalados y variables de prueba; `pnpm test:e2e:local` es la vía reproducible contra emuladores locales y no necesita proyecto remoto. No uses credenciales reales en archivos de test ni reportes.
 
-La limpieza de datos temporales solo funciona contra emuladores locales: el runner define `E2E_CLEANUP=true`, `E2E_CLEANUP_CONFIRM=DELETE_E2E_DATA` y hosts loopback dinámicos. El hook exige ambos hosts, rechaza cualquier host que no sea `localhost` o `127.0.0.1` y falla cerrado antes de borrar si falta alguna variable. Elimina únicamente los pedidos y usuarios generados en la ejecución emulada. Sin hosts loopback y confirmación explícita no borra nada; no puede apuntar a producción ni a un proyecto Firebase remoto.
+La limpieza de datos temporales solo funciona contra emuladores locales: el runner define `E2E_CLEANUP=true`, `E2E_CLEANUP_CONFIRM=DELETE_E2E_DATA` y hosts loopback dinámicos. El hook exige ambos hosts, rechaza cualquier host que no sea `localhost` o `127.0.0.1` y falla cerrado antes de borrar si falta alguna variable. Elimina únicamente los pedidos, insumos, recetas, movimientos y usuarios generados en la ejecución emulada. Sin hosts loopback y confirmación explícita no borra nada; no puede apuntar a producción ni a un proyecto Firebase remoto.
 
 El reporte de release con resultados, riesgos y limitaciones está en `docs/superpowers/reports/2026-08-04-auth-clientes-admin.md`.
 
 ## Rutas principales
 
-- Tienda: `/menu`.
-- Login y registro: `/login`, `/registro`.
-- Cuenta e historial: `/cuenta`, `/cuenta/perfil`, `/cuenta/pedidos`.
-- Checkout autenticado: `/checkout`.
+- Tienda: `/menu` y storefront multi-tenant `/m/[slug]`.
+- Login y registro: `/login`, `/registro`, `/recuperar-acceso`, `/verificar-email`.
+- Cuenta e historial: `/cuenta`, `/cuenta/perfil`, `/cuenta/pedidos`, `/cuenta/pedidos/[id]`.
+- Carrito y checkout autenticado: `/cart`, `/checkout`, `/order-status/[id]`.
+- Reparto móvil: `/repartidor/[pedidoId]`.
 - Panel operativo: `/admin/login` y `/admin/dashboard`.
-- Storefront Público Multi-Tenant por Local: `/m/[slug]`.
-- Carrito de compras mobile-first: `/cart`.
-- Gestión de Menú Staff en Tiempo Real: `/admin/productos`, `/admin/productos/nueva`, `/admin/productos/[id]`.
+- Operación de barra (KDS + POS rápido): `/admin/pedidos`, `/admin/pedidos/[id]`, `/admin/mesas`, `/admin/caja`.
+- Gestión de menú y catálogo: `/admin/productos`, `/admin/productos/nueva`, `/admin/productos/[id]`, `/admin/categorias`.
+- Inventario, compras a proveedores y escandallo: `/admin/inventario`.
+- Crecimiento, CRM, reportes de rentabilidad y cierre de caja: `/admin/promociones`, `/admin/clientes`, `/admin/reportes`.
+- Administración, seguridad y configuración QR: `/admin/usuarios`, `/admin/roles`, `/admin/auditoria`, `/admin/notificaciones`, `/admin/configuracion`.
 - Asistente inteligente Opsy Bot: `/api/opsy/chat`.
-- Auditoría, inventario y roles: `/admin/auditoria`, `/admin/inventario`, `/admin/roles`.
 
 ---
 
@@ -188,4 +193,18 @@ Esta versión marca el paso de prototipo a plataforma SaaS comercializable para 
 1. **Fase 1 (Experiencia Móvil y Carrito):** Carrito blindado con persistencia `coctels_ops_cart`, migración automática de datos heredados, cartas reales de Canva en COP sin multiplicadores artificiales, landing page con hero compacto (~65vh) y catálogo continuo `/menu` con barra sticky de categorías y scroll espía.
 2. **Fase 2 (SaaS Multi-Tenant y Staff Móvil):** Aislamiento de comercios por `negocioId` en Firestore y Cloudflare R2, storefront por comercio `/m/[slug]`, panel staff para celular en la barra con switch 1-tap de stock y carga móvil de fotos directa a R2 con validación por magic bytes.
 3. **Fase 3 (Asistente Opsy Bot):** Asistente conversacional antioqueño en servidor (DeepSeek) con guardrails de seguridad, rate limiting y adición 1-tap al carrito.
-4. **Fase 4 (Calidad y Verificación Integral):** Suite de pruebas unitarias/integración (70 suites, 418+ tests pasando al 100%), Playwright E2E automatizado para flujos de cliente, staff y pedidos, comprobación estricta de tipos (`tsc --noEmit`), cero advertencias de ESLint y compilación de producción validada en Next.js 16.
+4. **Fase 4 (Calidad y Verificación Integral):** Suite de pruebas unitarias/integración, Playwright E2E automatizado para flujos de cliente, staff y pedidos, comprobación estricta de tipos (`tsc --noEmit`), cero advertencias de ESLint y compilación de producción validada en Next.js 16.
+
+## 🚀 Notas de Lanzamiento (v1.6.0)
+
+Evolución operativa y financiera completa (Fases 5–10), auditoría de seguridad y paridad Cloudflare Pages/Worker:
+
+1. **Estación de Barra en Tiempo Real (Fases 5–6):** Tablero KDS con semáforo SLA y alerta sonora, pedidos en mesa por código QR (`?mesa=X`), redención de cupones validada en servidor, re-pedido en 1 tap, valoraciones 5 estrellas (CSAT), programa de fidelización Puntos Coctels, notificaciones Web Push e impresión térmica de comandas (58mm/80mm).
+2. **Crecimiento y CRM (Fase 7):** Promociones programadas Happy Hour y combos automáticos, además de segmentación CRM con reactivación por WhatsApp en 1 tap.
+3. **Logística, POS Rápido y Resiliencia Offline (Fases 8–9):** Control de insumos y stock crítico de barra, panel móvil para repartidor, modo offline PWA con IndexedDB/Background Sync, Terminal POS rápido en barra con vueltas y cobro mixto, y descuento automático de insumos por escandallo al preparar comandas.
+4. **Rentabilidad, Arqueo, Mesas y Compras (Fase 10):** Editor visual de recetas (escandallo) y rentabilidad por cóctel en `/admin/reportes`, apertura/arqueo ciego/cierre de caja por turno (`/admin/caja`), cuentas abiertas por mesa con rondas al KDS y división de cuenta (`/admin/mesas`), y lista automática de compras a proveedores por WhatsApp (`/admin/inventario`).
+5. **Auditoría de Seguridad, E2E y Paridad Cloudflare (`TASK-30`):**
+   - Endurecimiento multi-tenant (`negocioId`) en `/api/admin/insumos`, `/api/admin/insumos/[id]`, `/api/admin/insumos/[id]/movimiento` y `GET /api/admin/negocios/[id]`.
+   - Auditoría de dependencias (`pnpm audit --prod`) y validación de parches reproducibles (`zod@3.25.28`, `@opentelemetry/core` 1.25.1/1.30.1 y `@opentelemetry/propagator-jaeger`) mediante `pnpm run test:security`.
+   - Cobertura E2E ampliada en `tests/e2e/pos-and-opsy.spec.ts` para Terminal POS rápido, escandallo con descuento automático y Opsy Bot con armado de carrito.
+   - Paridad de empaquetado Cloudflare Pages/Worker verificada (`pnpm run build:cloudflare`) excluyendo `out/api` y delegando `/api/*` y métodos mutables al Worker `APP`.

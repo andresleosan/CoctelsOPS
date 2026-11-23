@@ -148,4 +148,17 @@ describe("SuppliesManager Component", () => {
     expect(screen.getByText("Tipo de Movimiento")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirmar" })).toBeInTheDocument();
   });
+
+  it("carga automáticamente los insumos desde /api/admin/insumos cuando no recibe initialSupplies", async () => {
+    render(<SuppliesManager />);
+
+    expect(await screen.findByText("Ron Medellín 3 Años 750ml")).toBeInTheDocument();
+    expect(screen.getByText("Pulpa Maracuyá 1kg")).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/admin/insumos",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer test-token" },
+      })
+    );
+  });
 });

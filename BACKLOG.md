@@ -238,7 +238,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Generar automáticamente la orden de reposición para insumos en semáforo "Bajo" o "Crítico" en `/admin/inventario`, estimando cantidades sugeridas y habilitando envío en 1 tap por WhatsApp al proveedor.
   - **Archivos:** `src/lib/inventory/restock-list.ts`, `src/components/admin/RestockListCard.tsx`, `src/app/admin/inventario/page.tsx`, `tests/components/restock-list.test.tsx`.
 
-- [ ] **TASK-30: Auditoría de Seguridad, Suite E2E de Fases 8–9 y Release v1.6**
+- [x] **TASK-30: Auditoría de Seguridad, Suite E2E de Fases 8–9 y Release v1.6**
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
   - **Objetivo:** Ampliar cobertura E2E para POS rápido, escandallo y Opsy Bot con armado de carrito, ejecutar auditoría de dependencias (`pnpm audit --prod`) y validar paridad de despliegue en Cloudflare Pages/Worker.
   - **Archivos:** `tests/e2e/pos-and-opsy.spec.ts`, `README.md`, `package.json`.

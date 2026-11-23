@@ -272,6 +272,10 @@ describe("Aislamiento Multi-Tenant Coctels OPS (TASK-06)", () => {
 
       const usuariosNegocioSection = rules.split("match /usuarios_negocio/{membershipId} {")[1].split("}")[0];
       expect(usuariosNegocioSection).toContain("allow write: if false;");
+
+      // Las colecciones operativas (insumos, recetas, caja, mesas) quedan bloqueadas en cliente por el catch-all final
+      const catchAllSection = rules.split("match /{document=**} {")[1].split("}")[0];
+      expect(catchAllSection).toContain("allow read, write: if false;");
     });
   });
 });

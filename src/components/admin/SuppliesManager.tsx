@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, DollarSign, Filter, Package, Plus, RefreshCw, Search, XCircle } from "lucide-react";
-import React, { useId, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -96,6 +96,8 @@ export function SuppliesManager({
     supplier: "",
   });
   const [savingNew, setSavingNew] = useState(false);
+  const hasInitialSupplies = initialSupplies.length > 0;
+  const didAutoFetchUidRef = useRef<string | null>(null);
 
   async function fetchSupplies() {
     if (!user) return;
@@ -116,6 +118,15 @@ export function SuppliesManager({
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!user || hasInitialSupplies) return;
+    const userKey = (user as { uid?: string }).uid ?? "authenticated";
+    if (didAutoFetchUidRef.current === userKey) return;
+    didAutoFetchUidRef.current = userKey;
+    void fetchSupplies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, hasInitialSupplies]);
 
   // Filter supplies based on category, status, and search query
   const filteredSupplies = supplies.filter((item) => {

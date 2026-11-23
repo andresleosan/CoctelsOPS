@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requirePermission } from "@/lib/auth/permissions";
+import { requireNegocioAccess, requirePermission } from "@/lib/auth/permissions";
 import { toAuthorizationResponse } from "@/lib/auth/verify-request";
 import {
   getSupplyById,
@@ -10,6 +10,9 @@ import {
 import { recordSupplyMovementSchema } from "@/lib/validation/supplies";
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof SyntaxError) {
+    return Response.json({ error: "Cuerpo JSON inválido" }, { status: 422 });
+  }
   if (error instanceof z.ZodError) {
     return Response.json(
       { error: error.issues[0]?.message ?? "Movimiento inválido" },
@@ -29,6 +32,12 @@ export async function POST(
   try {
     const actor = await requirePermission(request as never, "inventario.write");
     const { id } = await context.params;
+    const existingSupply = await getSupplyById(id);
+    if (!existingSupply) {
+      return Response.json({ error: "Insumo no encontrado" }, { status: 404 });
+    }
+    requireNegocioAccess(actor, existingSupply.negocioId);
+
     const json = await request.json();
     const input = recordSupplyMovementSchema.parse(json);
 

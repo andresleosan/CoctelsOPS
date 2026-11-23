@@ -1,18 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requirePermission, listSupplies, createSupply, recordSupplyMovement, getSupplyById } = vi.hoisted(() => ({
+const {
+  requirePermission,
+  listSupplies,
+  createSupply,
+  recordSupplyMovement,
+  getSupplyById,
+  updateSupply,
+} = vi.hoisted(() => ({
   requirePermission: vi.fn(),
   listSupplies: vi.fn(),
   createSupply: vi.fn(),
   recordSupplyMovement: vi.fn(),
   getSupplyById: vi.fn(),
+  updateSupply: vi.fn(),
 }));
 
-vi.mock("@/lib/auth/permissions", () => ({ requirePermission }));
-vi.mock("@/lib/auth/verify-request", () => ({
-  toAuthorizationResponse: (error: Error & { status?: number }) =>
-    Response.json({ error: error.message }, { status: error.status ?? 500 }),
-}));
+vi.mock("@/lib/auth/permissions", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/permissions")>();
+  return {
+    ...actual,
+    requirePermission,
+  };
+});
+vi.mock("@/lib/auth/verify-request", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/verify-request")>();
+  return {
+    ...actual,
+    toAuthorizationResponse: (error: Error & { status?: number }) =>
+      Response.json({ error: error.message }, { status: error.status ?? 500 }),
+  };
+});
 vi.mock("@/lib/firestore/supplies", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/firestore/supplies")>();
   return {
@@ -21,10 +39,12 @@ vi.mock("@/lib/firestore/supplies", async (importOriginal) => {
     createSupply,
     recordSupplyMovement,
     getSupplyById,
+    updateSupply,
   };
 });
 
 import { GET, POST } from "@/app/api/admin/insumos/route";
+import { GET as GET_SUPPLY, PATCH as PATCH_SUPPLY } from "@/app/api/admin/insumos/[id]/route";
 import { POST as POST_MOVEMENT } from "@/app/api/admin/insumos/[id]/movimiento/route";
 
 describe("/api/admin/insumos", () => {
@@ -33,7 +53,13 @@ describe("/api/admin/insumos", () => {
     requirePermission.mockResolvedValue({
       uid: "admin-1",
       email: "admin@coctels.com",
-      profile: { accountType: "admin" },
+      token: { uid: "admin-1", admin: true },
+      profile: {
+        uid: "admin-1",
+        email: "admin@coctels.com",
+        active: true,
+        accountType: "admin",
+      },
     });
     listSupplies.mockResolvedValue([
       {
@@ -129,11 +155,19 @@ describe("/api/admin/insumos", () => {
       resultingStock: 10,
       reason: "Compra semanal",
     });
-    getSupplyById.mockResolvedValue({
-      id: "ron-1",
-      name: "Ron Medellín 750ml",
-      currentStock: 10,
-    });
+    getSupplyById
+      .mockResolvedValueOnce({
+        id: "ron-1",
+        negocioId: "coctels-ops",
+        name: "Ron Medellín 750ml",
+        currentStock: 5,
+      })
+      .mockResolvedValueOnce({
+        id: "ron-1",
+        negocioId: "coctels-ops",
+        name: "Ron Medellín 750ml",
+        currentStock: 10,
+      });
 
     const res = await POST_MOVEMENT(
       new Request("http://localhost/api/admin/insumos/ron-1/movimiento", {
@@ -158,5 +192,111 @@ describe("/api/admin/insumos", () => {
         actorUid: "admin-1",
       })
     );
+  });
+
+  describe("aislamiento multi-tenant (negocioId)", () => {
+    const staffLocalA = {
+      uid: "staff-a",
+      token: { uid: "staff-a", admin: false },
+      profile: {
+        uid: "staff-a",
+        email: "staff@locala.com",
+        active: true,
+        accountType: "staff",
+        negocioId: "local-a",
+      },
+    };
+
+    beforeEach(() => {
+      requirePermission.mockResolvedValue(staffLocalA);
+    });
+
+    it("rechaza con 403 consultar insumos de otro negocio", async () => {
+      const res = await GET(new Request("http://localhost/api/admin/insumos?negocioId=local-b"));
+      expect(res.status).toBe(403);
+      expect(listSupplies).not.toHaveBeenCalled();
+    });
+
+    it("rechaza con 403 crear un insumo en otro negocio", async () => {
+      const res = await POST(
+        new Request("http://localhost/api/admin/insumos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            negocioId: "local-b",
+            name: "Ron Ajeno",
+            category: "licor",
+            unit: "botella",
+            currentStock: 3,
+            minStock: 1,
+          }),
+        })
+      );
+      expect(res.status).toBe(403);
+      expect(createSupply).not.toHaveBeenCalled();
+    });
+
+    it("rechaza con 403 consultar o actualizar un insumo de otro negocio", async () => {
+      getSupplyById.mockResolvedValue({
+        id: "sup-b",
+        negocioId: "local-b",
+        name: "Pulpa Lulo Ajena",
+      });
+
+      const getRes = await GET_SUPPLY(
+        new Request("http://localhost/api/admin/insumos/sup-b"),
+        { params: Promise.resolve({ id: "sup-b" }) }
+      );
+      expect(getRes.status).toBe(403);
+
+      const patchRes = await PATCH_SUPPLY(
+        new Request("http://localhost/api/admin/insumos/sup-b", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ minStock: 10 }),
+        }),
+        { params: Promise.resolve({ id: "sup-b" }) }
+      );
+      expect(patchRes.status).toBe(403);
+      expect(updateSupply).not.toHaveBeenCalled();
+    });
+
+    it("rechaza con 403 registrar movimiento sobre un insumo ajeno y 404 si no existe", async () => {
+      getSupplyById.mockResolvedValueOnce({
+        id: "sup-b",
+        negocioId: "local-b",
+        name: "Pulpa Lulo Ajena",
+      });
+
+      const forbiddenRes = await POST_MOVEMENT(
+        new Request("http://localhost/api/admin/insumos/sup-b/movimiento", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "entrada",
+            quantity: 2,
+            reason: "Intento cross-tenant",
+          }),
+        }),
+        { params: Promise.resolve({ id: "sup-b" }) }
+      );
+      expect(forbiddenRes.status).toBe(403);
+      expect(recordSupplyMovement).not.toHaveBeenCalled();
+
+      getSupplyById.mockResolvedValueOnce(null);
+      const notFoundRes = await POST_MOVEMENT(
+        new Request("http://localhost/api/admin/insumos/missing/movimiento", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "entrada",
+            quantity: 2,
+            reason: "Insumo inexistente",
+          }),
+        }),
+        { params: Promise.resolve({ id: "missing" }) }
+      );
+      expect(notFoundRes.status).toBe(404);
+    });
   });
 });

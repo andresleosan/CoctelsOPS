@@ -9,11 +9,13 @@ import { loadLocalE2EState, shouldUseLocalE2EState } from "./local-state";
 export type E2ECleanupState = {
   orderIds: string[];
   productIds: string[];
+  supplyIds: string[];
+  recipeIds: string[];
   registrationEmails: string[];
 };
 
 export function newE2ECleanupState(): E2ECleanupState {
-  return { orderIds: [], productIds: [], registrationEmails: [] };
+  return { orderIds: [], productIds: [], supplyIds: [], recipeIds: [], registrationEmails: [] };
 }
 
 export function getE2EEnvironment() {
@@ -121,7 +123,11 @@ export async function mockWhatsApp(context: BrowserContext): Promise<void> {
 export async function cleanupE2EArtifacts(state: E2ECleanupState): Promise<void> {
   if (
     process.env.E2E_CLEANUP !== "true" ||
-    (state.orderIds.length === 0 && state.productIds.length === 0 && state.registrationEmails.length === 0)
+    (state.orderIds.length === 0 &&
+      state.productIds.length === 0 &&
+      state.supplyIds.length === 0 &&
+      state.recipeIds.length === 0 &&
+      state.registrationEmails.length === 0)
   ) {
     return;
   }
@@ -145,19 +151,47 @@ export async function cleanupE2EArtifacts(state: E2ECleanupState): Promise<void>
   if (state.orderIds.length > 0) {
     await Promise.all(state.orderIds.map((orderId) => db.collection("pedidos").doc(orderId).delete()));
     for (const orderId of state.orderIds) {
-      const [notifications, audits] = await Promise.all([
+      const [notifications, audits, movements] = await Promise.all([
         db.collection("notificaciones").where("orderId", "==", orderId).get(),
         db.collection("auditoria").where("module", "==", "pedidos").where("entityId", "==", orderId).get(),
+        db.collection("inventario_movimientos").where("orderId", "==", orderId).get(),
       ]);
       const batch = db.batch();
       notifications.docs.forEach((doc) => batch.delete(doc.ref));
       audits.docs.forEach((doc) => batch.delete(doc.ref));
-      if (notifications.size > 0 || audits.size > 0) await batch.commit();
+      movements.docs.forEach((doc) => batch.delete(doc.ref));
+      if (notifications.size > 0 || audits.size > 0 || movements.size > 0) await batch.commit();
     }
   }
 
   if (state.productIds.length > 0) {
     await Promise.all(state.productIds.map((productId) => db.collection("productos").doc(productId).delete()));
+  }
+
+  if (state.recipeIds.length > 0) {
+    await Promise.all(state.recipeIds.map((recipeId) => db.collection("recetas").doc(recipeId).delete()));
+    for (const recipeId of state.recipeIds) {
+      const audits = await db.collection("auditoria").where("entityId", "==", recipeId).get();
+      if (audits.size > 0) {
+        const batch = db.batch();
+        audits.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
+    }
+  }
+
+  if (state.supplyIds.length > 0) {
+    await Promise.all(state.supplyIds.map((supplyId) => db.collection("insumos").doc(supplyId).delete()));
+    for (const supplyId of state.supplyIds) {
+      const [movements, audits] = await Promise.all([
+        db.collection("inventario_movimientos").where("supplyId", "==", supplyId).get(),
+        db.collection("auditoria").where("entityId", "==", supplyId).get(),
+      ]);
+      const batch = db.batch();
+      movements.docs.forEach((doc) => batch.delete(doc.ref));
+      audits.docs.forEach((doc) => batch.delete(doc.ref));
+      if (movements.size > 0 || audits.size > 0) await batch.commit();
+    }
   }
 
   for (const email of state.registrationEmails) {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requirePermission } from "@/lib/auth/permissions";
+import { requireNegocioAccess, requirePermission } from "@/lib/auth/permissions";
 import { toAuthorizationResponse } from "@/lib/auth/verify-request";
 import { getNegocioById, updateNegocio } from "@/lib/firestore/tenant";
 import { negocioPatchSchema } from "@/lib/validation/tenant";
@@ -8,6 +8,9 @@ import { negocioPatchSchema } from "@/lib/validation/tenant";
 type Context = { params: Promise<{ id: string }> };
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof SyntaxError) {
+    return Response.json({ error: "Cuerpo JSON inválido" }, { status: 422 });
+  }
   if (error instanceof z.ZodError) {
     return Response.json({ error: error.issues[0]?.message ?? "Datos inválidos" }, { status: 422 });
   }
@@ -16,8 +19,9 @@ function errorResponse(error: unknown): Response {
 
 export async function GET(request: Request, context: Context): Promise<Response> {
   try {
-    await requirePermission(request as never, "configuracion.read");
+    const caller = await requirePermission(request as never, "configuracion.read");
     const { id } = await context.params;
+    requireNegocioAccess(caller, id);
     const negocio = await getNegocioById(id);
     if (!negocio) {
       return Response.json({ error: "Negocio no encontrado" }, { status: 404 });

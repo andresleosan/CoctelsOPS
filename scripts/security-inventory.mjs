@@ -4,10 +4,20 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export function installedPackages(names) {
-  assert(process.env.npm_execpath, 'Run through pnpm run test:security');
-  const result = spawnSync(process.execPath, [process.env.npm_execpath, 'list', ...names, '--depth', 'Infinity', '--json'], {
-    cwd: process.cwd(), encoding: 'utf8', timeout: 60000, maxBuffer: 32 * 1024 * 1024,
-  });
+  const execPath = process.env.npm_execpath;
+  assert(execPath, 'Run through pnpm run test:security');
+  const listArgs = ['list', ...names, '--depth', 'Infinity', '--json'];
+  const spawnOptions = {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    timeout: 60000,
+    maxBuffer: 32 * 1024 * 1024,
+  };
+  const result = /\.(?:c|m)?js$/i.test(execPath)
+    ? spawnSync(process.execPath, [execPath, ...listArgs], spawnOptions)
+    : process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(execPath)
+      ? spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', execPath, ...listArgs], spawnOptions)
+      : spawnSync(execPath, listArgs, spawnOptions);
   assert.equal(result.status, 0, `Installed dependency inventory failed: ${result.stderr}`);
   const found = new Map();
   function collect(node) {
