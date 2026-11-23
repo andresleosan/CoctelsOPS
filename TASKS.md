@@ -213,3 +213,37 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
   - **Objetivo:** Ampliar cobertura E2E para POS rápido, escandallo y Opsy Bot con armado de carrito, ejecutar auditoría de dependencias (`pnpm audit --prod`) y validar paridad de despliegue en Cloudflare Pages/Worker.
   - **Archivos:** `tests/e2e/pos-and-opsy.spec.ts`, `README.md`, `package.json`.
+
+---
+
+## Fase 11: Autopedido QR en Vivo, Verificación de Pagos, Multi-Tenant v1.7 y Logística Avanzada (v1.7)
+
+- [ ] **TASK-31: Autopedido QR en Mesa sin Fricción + Cuenta en Vivo del Cliente**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Conectar `/m/[slug]?mesa=X` y `/menu?mesa=X` con las cuentas abiertas por mesa (`cuentas_mesa`) permitiendo a clientes en mesa agregar rondas sin bloqueo de verificación de email, consultar su cuenta acumulada en vivo y solicitar la cuenta o división en 1 tap.
+  - **Archivos:** `src/types/tabs.ts`, `src/lib/firestore/tabs.ts`, `src/app/api/mesas/[mesaId]/route.ts`, `src/components/orders/LiveTableTabSheet.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `tests/components/live-table-tab.test.tsx`.
+
+- [ ] **TASK-32: Comprobante de Transferencia (Nequi / Daviplata / Bancolombia) con Subida a R2 y Verificación 1-Tap en Caja y KDS**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Permitir al cliente adjuntar la captura del comprobante de transferencia en `/checkout` (validada por magic bytes en Cloudflare R2) y habilitar estados de verificación de pago (`pendiente_verificacion`, `verificado`, `rechazado`) con aprobación en 1 tap desde `/admin/pedidos` (KDS) y `/admin/caja`.
+  - **Archivos:** `src/types/orders.ts`, `src/app/api/pedidos/[id]/comprobante/route.ts`, `src/app/checkout/page.tsx`, `src/components/admin/OrderKdsBoard.tsx`, `src/app/admin/caja/page.tsx`, `tests/api/order-payment-proof.test.ts`, `tests/components/order-payment-proof.test.tsx`.
+
+- [ ] **TASK-33: Paridad Multi-Tenant Integral en Módulos v1.4–v1.6, Reglas Firestore y Accesos Operativos en Dashboard**
+  - **Nivel Recomendado:** `Argon (High)`
+  - **Objetivo:** Garantizar aislamiento estricto por `negocioId` en `insumos`, `recetas`, `turnos_caja` y `cuentas_mesa`, actualizar `firestore.rules` (delegando al subagente `firestore-rules-author`), e incorporar accesos directos y KPIs en vivo de Caja (`/admin/caja`) y Mesas (`/admin/mesas`) en `/admin/dashboard`.
+  - **Archivos:** `src/lib/firestore/supplies.ts`, `src/lib/firestore/recipes.ts`, `src/lib/firestore/cash-register.ts`, `src/lib/firestore/tabs.ts`, `src/app/admin/dashboard/page.tsx`, `firestore.rules`, `tests/security/tenant-isolation-v17.test.ts`.
+
+- [ ] **TASK-34: Zonas de Cobertura con Tarifas Dinámicas de Domicilio y Tablero Multi-Pedido del Repartidor (`/repartidor`)**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Configurar zonas/barrios de entrega con costo y tiempo estimado dinámico en `/admin/configuracion` y `/checkout`, permitir asignar domiciliarios desde el KDS y crear el tablero consolidado `/repartidor` con la cola de entregas activas.
+  - **Archivos:** `src/types/operations.ts`, `src/lib/orders/delivery-zones.ts`, `src/app/admin/configuracion/page.tsx`, `src/app/checkout/page.tsx`, `src/app/repartidor/page.tsx`, `tests/components/delivery-zones.test.tsx`.
+
+- [ ] **TASK-35: Pasarela de Pago Online (Wompi / Bold) con Webhook Firmado HMAC y Liquidación de Propinas de Staff en Cierre de Caja**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Soportar confirmación automática de pagos digitales mediante webhook firmado HMAC en servidor y agregar el registro/distribución de propinas y comisiones de staff (bartenders, meseros y domiciliarios) en el arqueo y cierre de turno de `/admin/caja` y `/admin/reportes`.
+  - **Archivos:** `src/app/api/webhooks/payments/route.ts`, `src/lib/payments/webhook-signature.ts`, `src/types/cash-register.ts`, `src/lib/cash-register/calculator.ts`, `src/app/admin/caja/page.tsx`, `tests/lib/payments-and-tips.test.ts`.
+
+- [ ] **TASK-36: Suite E2E de Fase 11, Auditoría de Seguridad y Release v1.7.0**
+  - **Nivel Recomendado:** `3.8 Flash (Medium)`
+  - **Objetivo:** Validar con Playwright E2E y gates completos los flujos de autopedido en mesa, comprobantes de transferencia, multi-tenancy y reparto por zonas, actualizando changelog y versión `1.7.0`.
+  - **Archivos:** `tests/e2e/table-tab-and-payments.spec.ts`, `README.md`, `package.json`.
