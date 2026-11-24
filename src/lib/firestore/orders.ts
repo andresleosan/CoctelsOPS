@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { hasPermission } from "@/lib/auth/permissions";
+import { hasPermission, requireNegocioAccess } from "@/lib/auth/permissions";
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import { getProductById, productFromData } from "@/lib/firestore/products";
 import { getAdminDb } from "@/lib/firebase-admin";
@@ -16,6 +16,10 @@ import { calculatePromotion, getPromotionByCode, toPromotion } from "@/lib/fires
 import { prepareOrderSupplyDepletion } from "@/lib/firestore/recipes";
 import { toCustomerOrder } from "@/lib/orders/customer-order";
 import {
+  getEffectivePaymentVerificationStatus,
+  isDigitalTransferMethod,
+} from "@/lib/orders/payment-verification";
+import {
   assertOrderOwnership,
   assertValidTransition,
   calculateOrder,
@@ -23,24 +27,31 @@ import {
   OrderValidationError,
   statusUpdateSchema,
   orderRatingSchema,
+  verifyOrderPaymentSchema,
 } from "@/lib/validation/orders";
 import type { VerifiedUser } from "@/types/auth";
 import type { OrderEscandalloSummary } from "@/types/recipes";
 import { DEFAULT_TENANT_ID } from "@/types/tenant";
 import {
+  PAYMENT_VERIFICATION_STATUSES,
   POS_DIGITAL_CHANNELS,
   POS_PAYMENT_METHODS,
   type CreateOrderInput,
   type CustomerOrder,
   type Order,
   type OrderPaymentBreakdown,
+  type OrderPaymentProof,
+  type OrderPaymentVerification,
   type OrderRating,
   type OrderRatingInput,
   type OrderStatus,
   type OrderStatusHistoryEntry,
+  type PaymentProofContentType,
+  type PaymentVerificationStatus,
   type PosDigitalChannel,
   type PosPaymentMethod,
   type StatusUpdate,
+  type VerifyOrderPaymentInput,
 } from "@/types/orders";
 
 export class OrderNotFoundError extends Error {
@@ -76,6 +87,53 @@ function isPosPaymentMethod(value: unknown): value is PosPaymentMethod {
 
 function isPosDigitalChannel(value: unknown): value is PosDigitalChannel {
   return typeof value === "string" && (POS_DIGITAL_CHANNELS as readonly string[]).includes(value);
+}
+
+function isPaymentVerificationStatus(value: unknown): value is PaymentVerificationStatus {
+  return (
+    typeof value === "string" &&
+    (PAYMENT_VERIFICATION_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+function isProofContentType(value: unknown): value is PaymentProofContentType {
+  return value === "image/jpeg" || value === "image/png" || value === "image/webp";
+}
+
+function parsePaymentProof(raw: unknown): OrderPaymentProof | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.url !== "string" || !candidate.url.trim()) return undefined;
+  return {
+    url: candidate.url,
+    key: typeof candidate.key === "string" ? candidate.key : "",
+    contentType: isProofContentType(candidate.contentType) ? candidate.contentType : "image/jpeg",
+    uploadedAt: typeof candidate.uploadedAt === "string" ? candidate.uploadedAt : "",
+    uploadedByUid: typeof candidate.uploadedByUid === "string" ? candidate.uploadedByUid : "",
+    ...(isPosDigitalChannel(candidate.channel) ? { channel: candidate.channel } : {}),
+    ...(typeof candidate.reference === "string" && candidate.reference.trim()
+      ? { reference: candidate.reference.trim() }
+      : {}),
+  };
+}
+
+function parsePaymentVerification(raw: unknown): OrderPaymentVerification | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  if (!isPaymentVerificationStatus(candidate.status)) return undefined;
+  return {
+    status: candidate.status,
+    updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : "",
+    ...(typeof candidate.updatedByUid === "string" && candidate.updatedByUid
+      ? { updatedByUid: candidate.updatedByUid }
+      : {}),
+    ...(typeof candidate.updatedByName === "string" && candidate.updatedByName
+      ? { updatedByName: candidate.updatedByName }
+      : {}),
+    ...(typeof candidate.reason === "string" && candidate.reason.trim()
+      ? { reason: candidate.reason.trim() }
+      : {}),
+  };
 }
 
 function parsePaymentBreakdown(raw: unknown): OrderPaymentBreakdown | undefined {
@@ -180,6 +238,15 @@ function toOrder(id: string, data: Record<string, unknown>): Order {
       : {}),
     ...(parsePaymentBreakdown(data.paymentBreakdown)
       ? { paymentBreakdown: parsePaymentBreakdown(data.paymentBreakdown) }
+      : {}),
+    ...(isPaymentVerificationStatus(data.paymentVerificationStatus)
+      ? { paymentVerificationStatus: data.paymentVerificationStatus }
+      : {}),
+    ...(parsePaymentProof(data.paymentProof)
+      ? { paymentProof: parsePaymentProof(data.paymentProof) }
+      : {}),
+    ...(parsePaymentVerification(data.paymentVerification)
+      ? { paymentVerification: parsePaymentVerification(data.paymentVerification) }
       : {}),
     ...(data.rating && typeof data.rating === "object" && typeof (data.rating as Record<string, unknown>).stars === "number"
       ? {
@@ -299,6 +366,9 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
       : {}),
     ...(validated.paymentMethod ? { paymentMethod: validated.paymentMethod } : {}),
     ...(sanitizedPaymentBreakdown ? { paymentBreakdown: sanitizedPaymentBreakdown } : {}),
+    ...(isDigitalTransferMethod(validated.paymentMethod)
+      ? { paymentVerificationStatus: "pendiente_verificacion" as const }
+      : {}),
     ...(idempotencyKey ? { idempotencyKey, requestFingerprint: orderFingerprint(validated) } : {}),
   };
   const db = getAdminDb();
@@ -550,4 +620,254 @@ export async function rateCustomerOrder(
 
   if (!savedRating) throw new Error("No fue posible guardar la calificación");
   return savedRating;
+}
+
+function actorDisplayName(user: VerifiedUser): string {
+  return (
+    user.profile?.displayName?.trim() ||
+    user.token?.name?.trim() ||
+    user.profile?.email?.trim() ||
+    user.uid
+  );
+}
+
+function assertPaymentProofUploadAllowed(user: VerifiedUser, order: Order): { isStaff: boolean } {
+  const isOwner = user.uid === order.clienteUid;
+  const isStaff = Boolean(user.profile && hasPermission(user.profile, "pedidos.update"));
+  if (!isOwner && !isStaff) {
+    throw new AuthorizationError(403, "No tienes permiso para adjuntar comprobante a este pedido");
+  }
+  if (isStaff && !isOwner && order.negocioId && user.profile) {
+    requireNegocioAccess(user, order.negocioId);
+  }
+  if (order.status === "cancelado") {
+    throw new OrderValidationError("No se puede adjuntar comprobante a un pedido cancelado");
+  }
+  const currentVerificationStatus = getEffectivePaymentVerificationStatus(order);
+  if (!isStaff && currentVerificationStatus === "verificado") {
+    throw new OrderValidationError("El pago de este pedido ya fue verificado");
+  }
+  return { isStaff };
+}
+
+export async function getOrderForPaymentProofUpload(
+  user: VerifiedUser,
+  id: string,
+): Promise<Order> {
+  const cleanId = id?.trim();
+  if (!cleanId) throw new OrderNotFoundError();
+  const snapshot = await ordersCollection().doc(cleanId).get();
+  if (!snapshot.exists) throw new OrderNotFoundError();
+  const order = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+  assertPaymentProofUploadAllowed(user, order);
+  return order;
+}
+
+export async function attachOrderPaymentProof(
+  user: VerifiedUser,
+  id: string,
+  input: {
+    url: string;
+    key: string;
+    contentType: PaymentProofContentType;
+    channel?: PosDigitalChannel;
+    reference?: string;
+  },
+): Promise<{ order: Order; previousProofKey?: string }> {
+  const cleanId = id?.trim();
+  if (!cleanId) throw new OrderNotFoundError();
+  const db = getAdminDb();
+  const reference = db.collection("pedidos").doc(cleanId);
+  const notificationReference = db.collection("notificaciones").doc();
+
+  let updatedOrder: Order | undefined;
+  let previousProofKey: string | undefined;
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new OrderNotFoundError();
+    const current = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+    assertPaymentProofUploadAllowed(user, current);
+
+    previousProofKey = current.paymentProof?.key?.trim() || undefined;
+    const now = new Date().toISOString();
+    const cleanReference = input.reference?.trim() || undefined;
+    const resolvedChannel =
+      input.channel ??
+      (isDigitalTransferMethod(current.paymentMethod)
+        ? current.paymentMethod
+        : current.paymentBreakdown?.digitalMethod);
+
+    const paymentProof: OrderPaymentProof = {
+      url: input.url,
+      key: input.key,
+      contentType: input.contentType,
+      uploadedAt: now,
+      uploadedByUid: user.uid,
+      ...(resolvedChannel ? { channel: resolvedChannel } : {}),
+      ...(cleanReference ? { reference: cleanReference } : {}),
+    };
+
+    const paymentVerification: OrderPaymentVerification = {
+      status: "pendiente_verificacion",
+      updatedAt: now,
+      updatedByUid: user.uid,
+    };
+
+    const audit = { ...current.audit, updatedByUid: user.uid, updatedAt: now };
+
+    let nextPaymentMethod = current.paymentMethod;
+    let nextPaymentBreakdown = current.paymentBreakdown;
+
+    if (!isDigitalTransferMethod(current.paymentMethod) && current.paymentMethod !== "mixto") {
+      const targetChannel: PosDigitalChannel = resolvedChannel ?? "transferencia";
+      nextPaymentMethod = targetChannel;
+      const existingRef = cleanReference ?? current.paymentBreakdown?.digitalReference;
+      nextPaymentBreakdown = {
+        cashAmount: 0,
+        cashReceived: 0,
+        changeAmount: 0,
+        digitalAmount: current.paymentBreakdown?.digitalAmount || current.total,
+        digitalMethod: targetChannel,
+        ...(existingRef ? { digitalReference: existingRef } : {}),
+      };
+    } else if (isDigitalTransferMethod(current.paymentMethod) && (input.channel || cleanReference)) {
+      const targetChannel = input.channel ?? current.paymentMethod;
+      nextPaymentMethod = targetChannel;
+      const existingRef = cleanReference ?? current.paymentBreakdown?.digitalReference;
+      nextPaymentBreakdown = {
+        cashAmount: current.paymentBreakdown?.cashAmount ?? 0,
+        cashReceived: current.paymentBreakdown?.cashReceived ?? 0,
+        changeAmount: current.paymentBreakdown?.changeAmount ?? 0,
+        digitalAmount: current.paymentBreakdown?.digitalAmount ?? current.total,
+        digitalMethod: targetChannel,
+        ...(existingRef ? { digitalReference: existingRef } : {}),
+      };
+    } else if (current.paymentMethod === "mixto" && current.paymentBreakdown && cleanReference) {
+      nextPaymentBreakdown = {
+        ...current.paymentBreakdown,
+        digitalReference: cleanReference,
+      };
+    }
+
+    const update = {
+      paymentProof,
+      paymentVerificationStatus: "pendiente_verificacion" as const,
+      paymentVerification,
+      updatedAt: now,
+      audit,
+      ...(nextPaymentMethod ? { paymentMethod: nextPaymentMethod } : {}),
+      ...(nextPaymentBreakdown ? { paymentBreakdown: nextPaymentBreakdown } : {}),
+    };
+
+    transaction.update(reference, update);
+    transaction.create(notificationReference, {
+      audience: "admin",
+      title: "Comprobante recibido",
+      message: `Se adjuntó comprobante de pago para el pedido #${cleanId.slice(0, 8)}.`,
+      orderId: cleanId,
+      read: false,
+      createdAt: now,
+    });
+    writeAuditInTransaction(transaction, {
+      actorUid: user.uid,
+      action: "upload_payment_proof",
+      module: "pedidos",
+      entityId: cleanId,
+      changes: {
+        paymentVerificationStatus: "pendiente_verificacion",
+        ...(resolvedChannel ? { channel: resolvedChannel } : {}),
+        ...(cleanReference ? { reference: cleanReference } : {}),
+      },
+    });
+
+    updatedOrder = {
+      ...current,
+      ...update,
+    };
+  });
+
+  if (!updatedOrder) throw new Error("No fue posible registrar el comprobante");
+  return { order: updatedOrder, previousProofKey };
+}
+
+export async function updateOrderPaymentVerification(
+  user: VerifiedUser,
+  id: string,
+  input: VerifyOrderPaymentInput,
+): Promise<Order> {
+  requireOrderPermission(user, "pedidos.update");
+  const cleanId = id?.trim();
+  if (!cleanId) throw new OrderNotFoundError();
+  const validated = verifyOrderPaymentSchema.parse(input);
+  const db = getAdminDb();
+  const reference = db.collection("pedidos").doc(cleanId);
+  const notificationReference = db.collection("notificaciones").doc();
+  let updated: Order | undefined;
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new OrderNotFoundError();
+    const current = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+    if (current.negocioId && user.profile) {
+      requireNegocioAccess(user, current.negocioId);
+    }
+    if (current.status === "cancelado" && validated.status === "verificado") {
+      throw new OrderValidationError("No se puede aprobar el pago de un pedido cancelado");
+    }
+
+    const now = new Date().toISOString();
+    const actorName = actorDisplayName(user);
+    const paymentVerification: OrderPaymentVerification = {
+      status: validated.status,
+      updatedAt: now,
+      updatedByUid: user.uid,
+      updatedByName: actorName,
+      ...(validated.reason ? { reason: validated.reason } : {}),
+    };
+    const audit = { ...current.audit, updatedByUid: user.uid, updatedAt: now };
+
+    const update = {
+      paymentVerificationStatus: validated.status,
+      paymentVerification,
+      updatedAt: now,
+      audit,
+    };
+
+    transaction.update(reference, update);
+    const notificationMessage =
+      validated.status === "verificado"
+        ? `Tu pago del pedido #${cleanId.slice(0, 8)} fue verificado.`
+        : validated.status === "rechazado"
+          ? `Tu comprobante del pedido #${cleanId.slice(0, 8)} fue rechazado${validated.reason ? `: ${validated.reason}` : "."}`
+          : `El pago de tu pedido #${cleanId.slice(0, 8)} quedó pendiente de verificación.`;
+
+    transaction.create(notificationReference, {
+      uid: current.clienteUid,
+      orderId: cleanId,
+      audience: "customer",
+      title: "Estado de pago actualizado",
+      message: notificationMessage,
+      read: false,
+      createdAt: now,
+    });
+    writeAuditInTransaction(transaction, {
+      actorUid: user.uid,
+      action: "verify_payment",
+      module: "pedidos",
+      entityId: cleanId,
+      changes: {
+        paymentVerificationStatus: validated.status,
+        ...(validated.reason ? { reason: validated.reason } : {}),
+      },
+    });
+
+    updated = {
+      ...current,
+      ...update,
+    };
+  });
+
+  if (!updated) throw new Error("No fue posible actualizar la verificación del pago");
+  return updated;
 }

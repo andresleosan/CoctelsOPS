@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
+import { PaymentProofVerificationControls } from "@/components/admin/PaymentProofVerificationControls";
 import { PermissionGate } from "@/components/admin/PermissionGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,13 +33,16 @@ import {
   CASH_EXPENSE_CATEGORIES,
   type CashExpenseCategory,
   type CashShift,
+  type CashTransferVerificationItem,
   type PaymentChannelTotals,
 } from "@/types/cash-register";
+import type { PaymentVerificationStatus } from "@/types/orders";
 
 type CashDashboardResponse = {
   activeShift: CashShift | null;
   liveSales: PaymentChannelTotals | null;
   history: CashShift[];
+  transferOrders?: CashTransferVerificationItem[];
   error?: string;
 };
 
@@ -85,6 +89,9 @@ export default function CashRegisterPage() {
   const [activeShift, setActiveShift] = useState<CashShift | null>(null);
   const [liveSales, setLiveSales] = useState<PaymentChannelTotals | null>(null);
   const [history, setHistory] = useState<CashShift[]>([]);
+  const [transferOrders, setTransferOrders] = useState<CashTransferVerificationItem[]>([]);
+  const [transferFilter, setTransferFilter] = useState<"pendientes" | "todos">("pendientes");
+  const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
   const [lastClosedShift, setLastClosedShift] = useState<CashShift | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -126,6 +133,7 @@ export default function CashRegisterPage() {
       setActiveShift(body.activeShift ?? null);
       setLiveSales(body.liveSales ?? null);
       setHistory(body.history ?? []);
+      setTransferOrders(body.transferOrders ?? []);
     } catch (loadError) {
       setError(
         loadError instanceof Error ? loadError.message : "No se pudo cargar el módulo de caja.",
@@ -280,6 +288,63 @@ export default function CashRegisterPage() {
   }
 
   const totalExpenses = activeShift ? sumCashExpenses(activeShift.expenses) : 0;
+  const pendingTransferCount = transferOrders.filter(
+    (item) => item.paymentVerificationStatus === "pendiente_verificacion",
+  ).length;
+  const visibleTransferOrders =
+    transferFilter === "pendientes"
+      ? transferOrders.filter(
+          (item) => item.paymentVerificationStatus === "pendiente_verificacion",
+        )
+      : transferOrders;
+
+  async function handleVerifyPayment(
+    orderId: string,
+    status: PaymentVerificationStatus,
+    reason?: string,
+  ) {
+    if (!user) return;
+    setVerifyingOrderId(orderId);
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/pedidos/${encodeURIComponent(orderId)}/comprobante`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${await user.getIdToken()}`,
+          },
+          body: JSON.stringify({
+            status,
+            ...(reason ? { reason } : {}),
+          }),
+        },
+      );
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "No se pudo actualizar el estado del comprobante");
+      }
+      setSuccessMessage(
+        status === "verificado"
+          ? `Pago del pedido #${orderId} aprobado.`
+          : status === "rechazado"
+            ? `Comprobante del pedido #${orderId} rechazado.`
+            : `Estado del comprobante #${orderId} actualizado.`,
+      );
+      await loadDashboard();
+    } catch (verifyError) {
+      setError(
+        verifyError instanceof Error
+          ? verifyError.message
+          : "Error al verificar el comprobante.",
+      );
+    } finally {
+      setVerifyingOrderId(null);
+    }
+  }
 
   return (
     <AdminGuard>
@@ -846,6 +911,112 @@ export default function CashRegisterPage() {
             </div>
           </div>
         )}
+
+        {/* Transfer Proof Verifications */}
+        <Card
+          data-testid="cash-transfer-verifications-card"
+          className="border-slate-200 bg-white shadow-sm"
+        >
+          <CardHeader>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <CardTitle className="flex items-center gap-2 text-lg text-slate-900">
+                    <Smartphone className="h-5 w-5 text-[#E5196E]" aria-hidden="true" />
+                    Verificación de Transferencias
+                  </CardTitle>
+                  {pendingTransferCount > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="border-amber-300 bg-amber-50 text-amber-950 font-semibold"
+                    >
+                      {pendingTransferCount}{" "}
+                      {pendingTransferCount === 1 ? "pendiente" : "pendientes"}
+                    </Badge>
+                  )}
+                </div>
+                <CardDescription className="text-slate-600">
+                  Aprueba o rechaza comprobantes de Nequi, Daviplata o Bancolombia en 1 toque.
+                </CardDescription>
+              </div>
+
+              <div
+                className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1"
+                role="group"
+                aria-label="Filtrar transferencias por estado"
+              >
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={transferFilter === "pendientes" ? "default" : "ghost"}
+                  onClick={() => setTransferFilter("pendientes")}
+                  className="min-h-10 text-xs font-semibold"
+                >
+                  Pendientes ({pendingTransferCount})
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={transferFilter === "todos" ? "default" : "ghost"}
+                  onClick={() => setTransferFilter("todos")}
+                  className="min-h-10 text-xs font-semibold"
+                >
+                  Todos ({transferOrders.length})
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {visibleTransferOrders.length === 0 ? (
+              <p className="py-6 text-center text-sm text-slate-500">
+                {transferFilter === "pendientes"
+                  ? "No hay transferencias pendientes por verificar."
+                  : "Aún no hay pedidos con transferencia registrados."}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {visibleTransferOrders.map((item) => (
+                  <div
+                    key={item.orderId}
+                    data-testid={`cash-transfer-row-${item.orderId}`}
+                    className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-bold text-slate-950">
+                          {item.customerName}{" "}
+                          <span className="font-mono text-xs font-medium text-slate-500">
+                            #{item.orderId}
+                          </span>
+                        </p>
+                        <p className="text-xs text-slate-600">
+                          {item.phone} · {formatDateTime(item.createdAt)} · Pedido{" "}
+                          <span className="capitalize font-medium">
+                            {item.status.replace("_", " ")}
+                          </span>
+                        </p>
+                      </div>
+                      <span className="text-base font-extrabold text-slate-950">
+                        {formatCop(item.total)}
+                      </span>
+                    </div>
+
+                    <PaymentProofVerificationControls
+                      orderId={item.orderId}
+                      paymentVerificationStatus={item.paymentVerificationStatus}
+                      paymentProof={item.paymentProof}
+                      paymentVerification={item.paymentVerification}
+                      digitalChannel={item.digitalChannel}
+                      digitalReference={item.digitalReference}
+                      isVerifying={verifyingOrderId === item.orderId}
+                      onVerifyPayment={handleVerifyPayment}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Closed Shifts History */}
         <Card className="border-slate-200 bg-white">

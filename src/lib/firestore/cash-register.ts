@@ -9,6 +9,7 @@ import {
 } from "@/lib/cash-register/calculator";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
+import { getEffectivePaymentVerificationStatus } from "@/lib/orders/payment-verification";
 import type { VerifiedUser } from "@/types/auth";
 import type {
   AddCashExpenseInput,
@@ -16,11 +17,21 @@ import type {
   CashExpenseCategory,
   CashRegisterStatus,
   CashShift,
+  CashTransferVerificationItem,
   CloseCashShiftInput,
   OpenCashShiftInput,
   PaymentChannelTotals,
 } from "@/types/cash-register";
-import type { Order, OrderPaymentBreakdown, PosDigitalChannel, PosPaymentMethod } from "@/types/orders";
+import {
+  PAYMENT_VERIFICATION_STATUSES,
+  type Order,
+  type OrderPaymentBreakdown,
+  type OrderPaymentProof,
+  type OrderPaymentVerification,
+  type PaymentVerificationStatus,
+  type PosDigitalChannel,
+  type PosPaymentMethod,
+} from "@/types/orders";
 import { DEFAULT_TENANT_ID } from "@/types/tenant";
 
 export { calculateCashReconciliation, calculateOrderPaymentChannels };
@@ -59,6 +70,47 @@ function isPosPaymentMethod(value: unknown): value is PosPaymentMethod {
 
 function isPosDigitalChannel(value: unknown): value is PosDigitalChannel {
   return value === "transferencia" || value === "nequi" || value === "daviplata" || value === "qr";
+}
+
+function isPaymentVerificationStatus(value: unknown): value is PaymentVerificationStatus {
+  return (
+    typeof value === "string" &&
+    (PAYMENT_VERIFICATION_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+function parseCustomerProof(
+  raw: unknown,
+): Pick<OrderPaymentProof, "url" | "uploadedAt" | "channel" | "reference"> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.url !== "string" || !candidate.url.trim()) return undefined;
+  return {
+    url: candidate.url,
+    uploadedAt: typeof candidate.uploadedAt === "string" ? candidate.uploadedAt : "",
+    ...(isPosDigitalChannel(candidate.channel) ? { channel: candidate.channel } : {}),
+    ...(typeof candidate.reference === "string" && candidate.reference.trim()
+      ? { reference: candidate.reference.trim() }
+      : {}),
+  };
+}
+
+function parseVerificationSummary(
+  raw: unknown,
+): Pick<OrderPaymentVerification, "status" | "updatedAt" | "updatedByName" | "reason"> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  if (!isPaymentVerificationStatus(candidate.status)) return undefined;
+  return {
+    status: candidate.status,
+    updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : "",
+    ...(typeof candidate.updatedByName === "string" && candidate.updatedByName
+      ? { updatedByName: candidate.updatedByName }
+      : {}),
+    ...(typeof candidate.reason === "string" && candidate.reason.trim()
+      ? { reason: candidate.reason.trim() }
+      : {}),
+  };
 }
 
 function parsePaymentBreakdown(raw: unknown): OrderPaymentBreakdown | undefined {
@@ -180,6 +232,83 @@ async function fetchOrdersForShiftWindow(
   return calculateOrderPaymentChannels(orders, openedAt, closedAt);
 }
 
+const VERIFICATION_SORT_PRIORITY: Record<PaymentVerificationStatus, number> = {
+  pendiente_verificacion: 0,
+  rechazado: 1,
+  verificado: 2,
+};
+
+export async function fetchTransferVerificationOrders(
+  negocioId: string = DEFAULT_TENANT_ID,
+): Promise<CashTransferVerificationItem[]> {
+  const snapshot = await getAdminDb()
+    .collection("pedidos")
+    .orderBy("createdAt", "desc")
+    .limit(50)
+    .get();
+
+  const items: CashTransferVerificationItem[] = [];
+
+  for (const doc of snapshot.docs) {
+    const data = (doc.data() ?? {}) as Record<string, unknown>;
+    const orderNegocioId =
+      typeof data.negocioId === "string" && data.negocioId.trim()
+        ? data.negocioId.trim()
+        : DEFAULT_TENANT_ID;
+    if (orderNegocioId !== negocioId) continue;
+
+    const status = (typeof data.status === "string" ? data.status : "pendiente") as Order["status"];
+    if (status === "cancelado") continue;
+
+    const paymentMethod = isPosPaymentMethod(data.paymentMethod) ? data.paymentMethod : undefined;
+    const paymentBreakdown = parsePaymentBreakdown(data.paymentBreakdown);
+    const paymentProof = parseCustomerProof(data.paymentProof);
+    const paymentVerification = parseVerificationSummary(data.paymentVerification);
+    const explicitStatus = isPaymentVerificationStatus(data.paymentVerificationStatus)
+      ? data.paymentVerificationStatus
+      : undefined;
+
+    const effectiveStatus = getEffectivePaymentVerificationStatus({
+      paymentVerificationStatus: explicitStatus,
+      paymentVerification,
+      paymentProof,
+    });
+    if (!effectiveStatus) continue;
+
+    const digitalChannel =
+      paymentProof?.channel ??
+      paymentBreakdown?.digitalMethod ??
+      (isPosDigitalChannel(paymentMethod) ? paymentMethod : undefined);
+    const digitalReference = paymentProof?.reference ?? paymentBreakdown?.digitalReference;
+
+    items.push({
+      orderId: doc.id,
+      customerName: typeof data.customerName === "string" ? data.customerName : "Cliente",
+      phone: typeof data.phone === "string" ? data.phone : "",
+      total: typeof data.total === "number" ? data.total : 0,
+      status,
+      createdAt: typeof data.createdAt === "string" ? data.createdAt : "",
+      ...(paymentMethod ? { paymentMethod } : {}),
+      ...(digitalChannel ? { digitalChannel } : {}),
+      ...(digitalReference ? { digitalReference } : {}),
+      paymentVerificationStatus: effectiveStatus,
+      ...(paymentProof ? { paymentProof } : {}),
+      ...(paymentVerification ? { paymentVerification } : {}),
+    });
+  }
+
+  return items.sort((a, b) => {
+    const priorityDiff =
+      VERIFICATION_SORT_PRIORITY[a.paymentVerificationStatus] -
+      VERIFICATION_SORT_PRIORITY[b.paymentVerificationStatus];
+    if (priorityDiff !== 0) return priorityDiff;
+    if (a.paymentVerificationStatus === "pendiente_verificacion") {
+      return a.createdAt.localeCompare(b.createdAt);
+    }
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+}
+
 export async function listCashShifts(
   negocioId: string = DEFAULT_TENANT_ID,
   limit = 20,
@@ -202,8 +331,12 @@ export async function getCashDashboardState(negocioId: string = DEFAULT_TENANT_I
   activeShift: CashShift | null;
   liveSales: PaymentChannelTotals | null;
   history: CashShift[];
+  transferOrders: CashTransferVerificationItem[];
 }> {
-  const shifts = await listCashShifts(negocioId, 25);
+  const [shifts, transferOrders] = await Promise.all([
+    listCashShifts(negocioId, 25),
+    fetchTransferVerificationOrders(negocioId),
+  ]);
   const activeShift = shifts.find((shift) => shift.status === "abierta") ?? null;
   const history = shifts.filter((shift) => shift.status === "cerrada").slice(0, 15);
 
@@ -215,6 +348,7 @@ export async function getCashDashboardState(negocioId: string = DEFAULT_TENANT_I
     activeShift,
     liveSales,
     history,
+    transferOrders,
   };
 }
 

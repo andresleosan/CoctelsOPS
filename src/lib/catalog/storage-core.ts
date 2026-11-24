@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import {
   assertCatalogProductId,
+  assertPaymentProofOrderId,
   assertSafeImageFilename,
+  assertSafeTenantSegment,
   validateProductImageBytes,
 } from "@/lib/catalog/image-validation";
 import type { CatalogImageStore } from "@/lib/catalog/r2-store-core";
@@ -19,6 +22,35 @@ export function catalogImageKey(productId: string, filename: string, negocioId?:
   return `catalog/products/${productId}/${randomUUID()}-${cleanFilename}`;
 }
 
+function sanitizeProofFilename(filename: string): string {
+  assertSafeImageFilename(filename);
+  const normalized = filename.replaceAll("\\", "/");
+  const base = path.posix.basename(normalized);
+  const rawExt = path.posix.extname(base);
+  const ext = rawExt.toLowerCase();
+  const rawStem = path.posix.basename(base, rawExt);
+  const cleanStem =
+    rawStem
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "comprobante";
+
+  return `${cleanStem}${ext}`;
+}
+
+export function paymentProofImageKey(orderId: string, filename: string, negocioId?: string): string {
+  assertPaymentProofOrderId(orderId);
+  const safeFile = sanitizeProofFilename(filename);
+
+  if (negocioId && negocioId !== "coctels-ops") {
+    assertSafeTenantSegment(negocioId);
+    return `tenants/${negocioId}/payment-proofs/${orderId}/${randomUUID()}-${safeFile}`;
+  }
+
+  return `orders/payment-proofs/${orderId}/${randomUUID()}-${safeFile}`;
+}
+
 export async function uploadCatalogImageBytes(
   input: { bytes: Uint8Array; filename: string; contentType: string },
   productId: string,
@@ -27,6 +59,24 @@ export async function uploadCatalogImageBytes(
 ): Promise<{ key: string; url: string }> {
   validateProductImageBytes(input);
   const key = catalogImageKey(productId, input.filename, options?.negocioId);
+
+  await store.put({
+    key,
+    bytes: input.bytes,
+    contentType: input.contentType,
+  });
+
+  return { key, url: store.publicUrl(key) };
+}
+
+export async function uploadPaymentProofImageBytes(
+  input: { bytes: Uint8Array; filename: string; contentType: string },
+  orderId: string,
+  store: CatalogImageStore,
+  options?: { negocioId?: string },
+): Promise<{ key: string; url: string }> {
+  validateProductImageBytes(input);
+  const key = paymentProofImageKey(orderId, input.filename, options?.negocioId);
 
   await store.put({
     key,

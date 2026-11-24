@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { useCart } from '@/context/cart-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,12 +24,15 @@ import {
   Landmark,
   Sparkles,
   TicketPercent,
+  Trash2,
+  Upload,
   X,
   Flame,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { getCheckoutErrorMessage } from '@/lib/checkout/messages';
+import { validateClientProofFile } from '@/lib/orders/payment-verification';
 import { LOYALTY_REWARDS, type LoyaltyRewardId, type LoyaltySummary } from '@/types/loyalty';
 import type { StoreConfiguration } from '@/types/operations';
 import type { ServiceType } from '@/types/orders';
@@ -71,6 +75,10 @@ export default function CheckoutPage() {
   const [transferChannel, setTransferChannel] = useState<TransferChannel>('nequi');
   const [transferReference, setTransferReference] = useState('');
   const [copiedTransferNumber, setCopiedTransferNumber] = useState(false);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [paymentProofPreview, setPaymentProofPreview] = useState<string | null>(null);
+  const [paymentProofError, setPaymentProofError] = useState('');
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
 
   const [promotionInput, setPromotionInput] = useState('');
   const [isValidatingPromo, setIsValidatingPromo] = useState(false);
@@ -225,6 +233,19 @@ export default function CheckoutPage() {
     };
   }, [user, isVerified, appliedPromotion, getCheckoutItems, totalPrice]);
 
+  useEffect(() => {
+    return () => {
+      if (
+        paymentProofPreview &&
+        paymentProofPreview.startsWith('blob:') &&
+        typeof URL !== 'undefined' &&
+        typeof URL.revokeObjectURL === 'function'
+      ) {
+        URL.revokeObjectURL(paymentProofPreview);
+      }
+    };
+  }, [paymentProofPreview]);
+
   if (authLoading || !user || !isVerified) {
     return (
       <div className="container mx-auto flex min-h-[50vh] items-center justify-center px-4 text-muted-foreground">
@@ -350,6 +371,32 @@ export default function CheckoutPage() {
     setTimeout(() => setCopiedTransferNumber(false), 2200);
   };
 
+  const handleProofFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0] ?? null;
+    if (!selectedFile) return;
+
+    const validationError = validateClientProofFile(selectedFile);
+    if (validationError) {
+      setPaymentProofError(validationError);
+      event.target.value = '';
+      return;
+    }
+
+    setPaymentProofError('');
+    setPaymentProofFile(selectedFile);
+    const previewUrl =
+      typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function'
+        ? URL.createObjectURL(selectedFile)
+        : null;
+    setPaymentProofPreview(previewUrl);
+  };
+
+  const handleRemoveProofFile = () => {
+    setPaymentProofFile(null);
+    setPaymentProofPreview(null);
+    setPaymentProofError('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -407,6 +454,37 @@ export default function CheckoutPage() {
           }
         } catch {
           // ignore
+        }
+
+        if (paymentMethod === 'transferencia' && paymentProofFile) {
+          setIsUploadingProof(true);
+          try {
+            const proofForm = new FormData();
+            proofForm.append('comprobante', paymentProofFile);
+            proofForm.append('channel', transferChannel);
+            if (cleanReference) {
+              proofForm.append('reference', cleanReference);
+            }
+            const uploadResponse = await fetch(
+              `/api/pedidos/${encodeURIComponent(data.order.id)}/comprobante`,
+              {
+                method: 'POST',
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                body: proofForm,
+              },
+            );
+            if (!uploadResponse.ok) {
+              clearCart();
+              router.push(`/order-status/${data.order.id}?proofUploadError=1`);
+              return;
+            }
+          } catch {
+            clearCart();
+            router.push(`/order-status/${data.order.id}?proofUploadError=1`);
+            return;
+          } finally {
+            setIsUploadingProof(false);
+          }
         }
 
         clearCart();
@@ -915,6 +993,72 @@ export default function CheckoutPage() {
                         className="h-11 rounded-xl border-cyan-500/30 bg-black/50 text-white placeholder:text-slate-400"
                       />
                     </div>
+
+                    <div className="space-y-2 pt-1">
+                      <p className="text-xs font-semibold text-slate-200">
+                        Captura de comprobante (opcional · JPG, PNG o WebP hasta 5 MB)
+                      </p>
+                      <input
+                        id="paymentProofFile"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={handleProofFileChange}
+                        className="sr-only"
+                      />
+                      <label
+                        htmlFor="paymentProofFile"
+                        className="flex min-h-[48px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-cyan-400/50 bg-black/40 px-4 py-3 text-xs font-bold text-cyan-200 transition-colors hover:border-cyan-300 hover:bg-cyan-500/10"
+                      >
+                        <Upload className="w-4 h-4 shrink-0 text-cyan-400" />
+                        <span>
+                          {paymentProofFile
+                            ? 'Cambiar comprobante de transferencia'
+                            : 'Adjuntar comprobante de transferencia (opcional)'}
+                        </span>
+                      </label>
+
+                      {paymentProofError && (
+                        <p role="alert" className="text-xs font-bold text-rose-400">
+                          {paymentProofError}
+                        </p>
+                      )}
+
+                      {paymentProofFile && (
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-cyan-500/30 bg-black/50 p-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            {paymentProofPreview && (
+                              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-cyan-500/30 bg-black/60">
+                                <Image
+                                  src={paymentProofPreview}
+                                  alt="Vista previa del comprobante de transferencia"
+                                  width={56}
+                                  height={56}
+                                  unoptimized
+                                  className="h-full w-full object-cover"
+                                />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-bold text-white">
+                                {paymentProofFile.name}
+                              </p>
+                              <p className="text-[11px] text-cyan-300">
+                                {(paymentProofFile.size / 1024).toFixed(0)} KB · Listo para verificación
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleRemoveProofFile}
+                            className="min-h-[44px] shrink-0 text-rose-300 hover:bg-rose-500/10 hover:text-rose-200"
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" /> Quitar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </CardContent>
@@ -1004,7 +1148,7 @@ export default function CheckoutPage() {
                   )}
                   <span>
                     {paymentMethod === 'transferencia'
-                      ? `Pago: Transferencia · ${selectedTransferChannelLabel}`
+                      ? `Pago: Transferencia · ${selectedTransferChannelLabel}${paymentProofFile ? ' (con comprobante)' : ''}`
                       : 'Pago: Efectivo contra entrega'}
                   </span>
                 </div>
@@ -1013,9 +1157,13 @@ export default function CheckoutPage() {
                   type="submit"
                   size="lg"
                   className="w-full bg-white text-primary hover:bg-white/90 font-black py-7 md:py-10 text-xl md:text-2xl rounded-full shadow-2xl transition-all active:scale-95"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isUploadingProof}
                 >
-                  {isSubmitting ? 'PROCESANDO...' : 'CONFIRMAR PEDIDO'}
+                  {isUploadingProof
+                    ? 'SUBIENDO COMPROBANTE...'
+                    : isSubmitting
+                      ? 'PROCESANDO...'
+                      : 'CONFIRMAR PEDIDO'}
                 </Button>
                 {submitError && (
                   <p role="alert" className="text-center text-sm font-bold text-white">

@@ -2,7 +2,14 @@ import { z } from "zod";
 
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import type { Product } from "@/types/catalog";
-import { POS_DIGITAL_CHANNELS, POS_PAYMENT_METHODS, type CreateOrderInput, type OrderItem, type OrderStatus } from "@/types/orders";
+import {
+  PAYMENT_VERIFICATION_STATUSES,
+  POS_DIGITAL_CHANNELS,
+  POS_PAYMENT_METHODS,
+  type CreateOrderInput,
+  type OrderItem,
+  type OrderStatus,
+} from "@/types/orders";
 
 export class OrderValidationError extends Error {
   readonly status = 422;
@@ -55,6 +62,26 @@ export const orderRatingSchema = z.object({
   stars: z.number().int().min(1, "La calificación debe ser de al menos 1 estrella").max(5, "La calificación no puede exceder 5 estrellas"),
   tags: z.array(z.string().trim().min(1).max(50)).max(10).optional().default([]),
   comment: z.string().trim().max(500, "El comentario no puede superar los 500 caracteres").optional(),
+});
+
+export const verifyOrderPaymentSchema = z.object({
+  status: z.enum(PAYMENT_VERIFICATION_STATUSES),
+  reason: z
+    .string()
+    .trim()
+    .max(240, "El motivo no puede superar 240 caracteres")
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
+});
+
+export const paymentProofMetadataSchema = z.object({
+  channel: z.enum(POS_DIGITAL_CHANNELS).optional(),
+  reference: z
+    .string()
+    .trim()
+    .max(80, "La referencia no puede superar 80 caracteres")
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
 });
 
 export const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {

@@ -1,3 +1,12 @@
+import type {
+  OrderPaymentProof,
+  OrderPaymentVerification,
+  OrderStatus,
+  PaymentVerificationStatus,
+  PosDigitalChannel,
+  PosPaymentMethod,
+} from "@/types/orders";
+
 export const CASH_REGISTER_STATUSES = ["abierta", "cerrada"] as const;
 export type CashRegisterStatus = (typeof CASH_REGISTER_STATUSES)[number];
 
@@ -88,4 +97,22 @@ export type CloseCashShiftInput = {
   shiftId: string;
   countBreakdown: CashCountBreakdown;
   closingNotes?: string;
+};
+
+export type CashTransferVerificationItem = {
+  orderId: string;
+  customerName: string;
+  phone: string;
+  total: number;
+  status: OrderStatus;
+  createdAt: string;
+  paymentMethod?: PosPaymentMethod;
+  digitalChannel?: PosDigitalChannel;
+  digitalReference?: string;
+  paymentVerificationStatus: PaymentVerificationStatus;
+  paymentProof?: Pick<OrderPaymentProof, "url" | "uploadedAt" | "channel" | "reference">;
+  paymentVerification?: Pick<
+    OrderPaymentVerification,
+    "status" | "updatedAt" | "updatedByName" | "reason"
+  >;
 };

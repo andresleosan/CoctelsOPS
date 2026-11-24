@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import { OrderKdsBoard } from "@/components/admin/OrderKdsBoard";
 import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
+import { PaymentProofVerificationControls } from "@/components/admin/PaymentProofVerificationControls";
 import { PermissionGate } from "@/components/admin/PermissionGate";
 import {
   QuickBarPosModal,
@@ -48,13 +49,19 @@ import {
   syncOfflineQueue,
 } from "@/lib/offline/sync";
 import { detectNewPendingOrderIds, getOrderSlaStatus } from "@/lib/orders/kds-sla";
+import { getEffectivePaymentVerificationStatus } from "@/lib/orders/payment-verification";
 import {
   formatPosPaymentSummary,
   type PosOrderPreview,
 } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
 import type { Product } from "@/types/catalog";
-import type { CreateOrderInput, Order, OrderStatus } from "@/types/orders";
+import type {
+  CreateOrderInput,
+  Order,
+  OrderStatus,
+  PaymentVerificationStatus,
+} from "@/types/orders";
 
 class ApiResponseError extends Error {
   constructor(message: string) {
@@ -109,6 +116,7 @@ export default function AdminOrdersPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [isOnline, setIsOnline] = useState(true);
@@ -389,6 +397,64 @@ export default function AdminOrdersPage() {
     [orders],
   );
 
+  const pendingPaymentCount = useMemo(
+    () =>
+      orders.filter(
+        (order) =>
+          order.status !== "cancelado" &&
+          getEffectivePaymentVerificationStatus(order) === "pendiente_verificacion",
+      ).length,
+    [orders],
+  );
+
+  async function verifyOrderPayment(
+    order: Order,
+    nextStatus: PaymentVerificationStatus,
+    reason?: string,
+  ) {
+    if (!user) return;
+    setActionError("");
+    setVerifyingOrderId(order.id);
+    try {
+      const response = await fetch(
+        `/api/pedidos/${encodeURIComponent(order.id)}/comprobante`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${await user.getIdToken()}`,
+          },
+          body: JSON.stringify({
+            status: nextStatus,
+            ...(reason ? { reason } : {}),
+          }),
+        },
+      );
+      const body = (await response.json().catch(() => ({}))) as {
+        order?: Order;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new ApiResponseError(
+          body.error ?? "No se pudo actualizar la verificación del pago.",
+        );
+      }
+      const nextOrders = orders.map((item) =>
+        item.id === order.id && body.order ? body.order : item,
+      );
+      setOrders(nextOrders);
+      await cacheOrdersSnapshot(nextOrders);
+    } catch (verifyError) {
+      setActionError(
+        verifyError instanceof Error
+          ? verifyError.message
+          : "No se pudo actualizar la verificación del pago.",
+      );
+    } finally {
+      setVerifyingOrderId(null);
+    }
+  }
+
   async function updateStatus(order: Order, skipConfirm = false) {
     const action = getOrderAction(order.status);
     if (!action || !user) return;
@@ -469,6 +535,14 @@ export default function AdminOrdersPage() {
               <Badge variant="outline" className="border-cyan-300 bg-cyan-50 text-cyan-950">
                 {activeBarCount} activos en barra
               </Badge>
+              {pendingPaymentCount > 0 && (
+                <Badge
+                  variant="outline"
+                  className="border-amber-300 bg-amber-50 text-amber-950 font-semibold"
+                >
+                  {pendingPaymentCount} {pendingPaymentCount === 1 ? "pago" : "pagos"} por verificar
+                </Badge>
+              )}
               {!isOnline && (
                 <Badge
                   variant="outline"
@@ -643,7 +717,9 @@ export default function AdminOrdersPage() {
           <OrderKdsBoard
             orders={filteredOrders}
             updatingOrderId={updatingOrderId}
+            verifyingOrderId={verifyingOrderId}
             onAdvanceOrder={updateStatus}
+            onVerifyPayment={verifyOrderPayment}
           />
         ) : (
           <div className="space-y-3">
@@ -689,6 +765,19 @@ export default function AdminOrdersPage() {
                         ))}
                       </div>
                       <p className="text-sm text-slate-600">{order.address}</p>
+                      <PaymentProofVerificationControls
+                        compact
+                        orderId={order.id}
+                        paymentVerificationStatus={order.paymentVerificationStatus}
+                        paymentProof={order.paymentProof}
+                        paymentVerification={order.paymentVerification}
+                        digitalChannel={order.paymentBreakdown?.digitalMethod}
+                        digitalReference={order.paymentBreakdown?.digitalReference}
+                        isVerifying={verifyingOrderId === order.id}
+                        onVerifyPayment={(_orderId, nextStatus, reason) =>
+                          verifyOrderPayment(order, nextStatus, reason)
+                        }
+                      />
                     </div>
                     <div className="flex items-center justify-between gap-3 lg:justify-end">
                       <span className="font-bold text-slate-900">

@@ -1,15 +1,23 @@
 "use client";
 
 import { use, useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { CheckCircle2, Package, MapPin, Clock, Home, MessageSquare } from 'lucide-react';
+import { CheckCircle2, Package, MapPin, Clock, Home, MessageSquare, Landmark, Upload, ExternalLink } from 'lucide-react';
 import { RepeatOrderButton } from '@/components/account/RepeatOrderButton';
 import { OrderRatingCard } from '@/components/orders/OrderRatingCard';
 import { PushSubscriptionBanner } from '@/components/notifications/PushSubscriptionBanner';
 import { playOrderNotificationSound, triggerLocalNotification } from '@/lib/notifications/web-push';
+import {
+  PAYMENT_VERIFICATION_META,
+  getEffectivePaymentVerificationStatus,
+  isDigitalTransferMethod,
+  validateClientProofFile,
+} from '@/lib/orders/payment-verification';
 import { useAuth } from '@/hooks/use-auth';
 import { buildWhatsAppMessage } from '@/lib/orders/whatsapp-message';
 import type { Order, OrderStatus } from '@/types/orders';
@@ -35,7 +43,23 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [configuration, setConfiguration] = useState<StoreConfiguration | null>(null);
+  const [proofUploadErrorBanner, setProofUploadErrorBanner] = useState(false);
+  const [uploadingProof, setUploadingProof] = useState(false);
+  const [proofFeedback, setProofFeedback] = useState('');
+  const [proofError, setProofError] = useState('');
   const previousStatusRef = useRef<OrderStatus | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('proofUploadError') === '1') {
+        setProofUploadErrorBanner(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     if (authLoading) return;
@@ -133,6 +157,65 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
   const currentIndex = statusSteps.findIndex((step) => step.status === order.status);
   const businessPhone = configuration?.whatsappNumber || '';
   const statusMessage = configuration?.messages.orderStatus.replace('{status}', statusLabel(order.status));
+  const verificationStatus = getEffectivePaymentVerificationStatus(order);
+  const showTransferPaymentCard =
+    isDigitalTransferMethod(order.paymentMethod) ||
+    Boolean(order.paymentProof) ||
+    verificationStatus !== null;
+  const activeVerificationStatus = verificationStatus ?? 'pendiente_verificacion';
+  const verificationMeta = PAYMENT_VERIFICATION_META[activeVerificationStatus];
+  const canUploadProof =
+    order.status !== 'cancelado' && activeVerificationStatus !== 'verificado';
+
+  const handleUploadProof = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (!file || !user || !order) return;
+
+    const validationError = validateClientProofFile(file);
+    if (validationError) {
+      setProofError(validationError);
+      setProofFeedback('');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadingProof(true);
+    setProofError('');
+    setProofFeedback('');
+    try {
+      const token = await user.getIdToken();
+      const formData = new FormData();
+      formData.append('comprobante', file);
+      if (isDigitalTransferMethod(order.paymentMethod)) {
+        formData.append('channel', order.paymentMethod);
+      }
+      if (order.paymentBreakdown?.digitalReference) {
+        formData.append('reference', order.paymentBreakdown.digitalReference);
+      }
+      const response = await fetch(`/api/pedidos/${encodeURIComponent(order.id)}/comprobante`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        order?: Order;
+        error?: string;
+      };
+      if (!response.ok || !data.order) {
+        throw new Error(data.error ?? 'No pudimos subir tu comprobante.');
+      }
+      setOrder(data.order);
+      setProofUploadErrorBanner(false);
+      setProofFeedback('¡Comprobante recibido! Nuestro equipo lo verificará en breve.');
+    } catch (uploadError) {
+      setProofError(
+        uploadError instanceof Error ? uploadError.message : 'Error de conexión al subir el comprobante.',
+      );
+    } finally {
+      setUploadingProof(false);
+      event.target.value = '';
+    }
+  };
 
   return (
     <div className="container mx-auto px-4 py-16">
@@ -171,6 +254,97 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
             </div>
           </CardContent>
         </Card>
+
+        {showTransferPaymentCard && (
+          <Card className="overflow-hidden border border-slate-200 bg-white text-left shadow-lg">
+            <CardContent className="space-y-4 p-6">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="flex items-center gap-2 text-base font-bold text-slate-900">
+                  <Landmark className="h-5 w-5 text-cyan-700" /> Estado de Pago por Transferencia
+                </h3>
+                <Badge variant="outline" className={verificationMeta.adminBadgeClass}>
+                  {verificationMeta.label}
+                </Badge>
+              </div>
+
+              {proofUploadErrorBanner && (
+                <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-semibold text-amber-950">
+                  Tu pedido fue creado, pero la captura del comprobante no alcanzó a subirse. Puedes adjuntarla aquí ahora.
+                </div>
+              )}
+
+              {activeVerificationStatus === 'rechazado' && order.paymentVerification?.reason && (
+                <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs font-semibold text-rose-900">
+                  Motivo: {order.paymentVerification.reason}
+                </div>
+              )}
+
+              {order.paymentProof?.url && (
+                <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                    <Image
+                      src={order.paymentProof.url}
+                      alt="Comprobante de transferencia adjunto"
+                      width={96}
+                      height={96}
+                      unoptimized
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-xs font-bold text-slate-900">Comprobante cargado</p>
+                    {order.paymentProof.reference && (
+                      <p className="text-xs text-slate-600">Ref: {order.paymentProof.reference}</p>
+                    )}
+                    <a
+                      href={order.paymentProof.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-h-[36px] items-center gap-1 text-xs font-semibold text-cyan-700 hover:underline"
+                    >
+                      Ver captura <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {proofFeedback && (
+                <p role="status" className="text-xs font-semibold text-emerald-700">
+                  {proofFeedback}
+                </p>
+              )}
+              {proofError && (
+                <p role="alert" className="text-xs font-semibold text-rose-700">
+                  {proofError}
+                </p>
+              )}
+
+              {canUploadProof && (
+                <div>
+                  <input
+                    id="orderStatusProofInput"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={uploadingProof}
+                    onChange={(e) => void handleUploadProof(e)}
+                    className="sr-only"
+                  />
+                  <label
+                    htmlFor="orderStatusProofInput"
+                    className="inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-cyan-600 bg-cyan-50 px-4 py-2.5 text-sm font-bold text-cyan-950 transition-colors hover:bg-cyan-100"
+                  >
+                    <Upload className="h-4 w-4 text-cyan-700" />
+                    {uploadingProof
+                      ? 'Subiendo comprobante...'
+                      : order.paymentProof?.url
+                        ? 'Reemplazar comprobante de pago'
+                        : 'Adjuntar comprobante de pago'}
+                  </label>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {order.status === 'entregado' && (
           <OrderRatingCard

@@ -28,6 +28,48 @@ export type PosPaymentMethod = (typeof POS_PAYMENT_METHODS)[number];
 export const POS_DIGITAL_CHANNELS = ["transferencia", "nequi", "daviplata", "qr"] as const;
 export type PosDigitalChannel = (typeof POS_DIGITAL_CHANNELS)[number];
 
+export const PAYMENT_VERIFICATION_STATUSES = [
+  "pendiente_verificacion",
+  "verificado",
+  "rechazado",
+] as const;
+export type PaymentVerificationStatus = (typeof PAYMENT_VERIFICATION_STATUSES)[number];
+
+export type PaymentProofContentType = "image/jpeg" | "image/png" | "image/webp";
+
+export type OrderPaymentProof = {
+  url: string;
+  key: string;
+  contentType: PaymentProofContentType;
+  uploadedAt: string;
+  uploadedByUid: string;
+  channel?: PosDigitalChannel;
+  reference?: string;
+};
+
+export type OrderPaymentVerification = {
+  status: PaymentVerificationStatus;
+  updatedAt: string;
+  updatedByUid?: string;
+  updatedByName?: string;
+  reason?: string;
+};
+
+export type VerifyOrderPaymentInput = {
+  status: PaymentVerificationStatus;
+  reason?: string;
+};
+
+export type CustomerOrderPaymentProof = Pick<
+  OrderPaymentProof,
+  "url" | "uploadedAt" | "channel" | "reference"
+>;
+
+export type CustomerOrderPaymentVerification = Pick<
+  OrderPaymentVerification,
+  "status" | "updatedAt" | "reason"
+>;
+
 export type OrderPaymentBreakdown = {
   cashAmount: number;
   cashReceived: number;
@@ -128,6 +170,9 @@ export type Order = {
   loyaltyDiscount?: number;
   paymentMethod?: PosPaymentMethod;
   paymentBreakdown?: OrderPaymentBreakdown;
+  paymentVerificationStatus?: PaymentVerificationStatus;
+  paymentProof?: OrderPaymentProof;
+  paymentVerification?: OrderPaymentVerification;
   rating?: OrderRating;
   negocioId?: string;
   suppliesDepletedAt?: string;
@@ -141,8 +186,17 @@ export type CustomerStatusHistoryEntry = Pick<OrderStatusHistoryEntry, "status" 
 
 export type CustomerOrder = Omit<
   Order,
-  "audit" | "clienteUid" | "statusHistory" | "escandallo" | "suppliesDepletedAt" | "suppliesDepletedOnStatus"
+  | "audit"
+  | "clienteUid"
+  | "statusHistory"
+  | "escandallo"
+  | "suppliesDepletedAt"
+  | "suppliesDepletedOnStatus"
+  | "paymentProof"
+  | "paymentVerification"
 > & {
   statusHistory: CustomerStatusHistoryEntry[];
   rating?: OrderRating;
+  paymentProof?: CustomerOrderPaymentProof;
+  paymentVerification?: CustomerOrderPaymentVerification;
 };

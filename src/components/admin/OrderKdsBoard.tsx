@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, Clock, Flame, MapPin, MessageSquareWarning, Phone, Printer, Sparkles } from "lucide-react";
 
 import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
+import { PaymentProofVerificationControls } from "@/components/admin/PaymentProofVerificationControls";
 import { PermissionGate } from "@/components/admin/PermissionGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,13 +18,19 @@ import {
 } from "@/lib/orders/kds-sla";
 import { formatPosPaymentSummary } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
-import type { Order } from "@/types/orders";
+import type { Order, PaymentVerificationStatus } from "@/types/orders";
 
 export type OrderKdsBoardProps = {
   orders: Order[];
   nowMs?: number;
   updatingOrderId?: string | null;
+  verifyingOrderId?: string | null;
   onAdvanceOrder: (order: Order, skipConfirm?: boolean) => void | Promise<void>;
+  onVerifyPayment?: (
+    order: Order,
+    status: PaymentVerificationStatus,
+    reason?: string,
+  ) => void | Promise<void>;
   onPrintOrder?: (order: Order) => void;
 };
 
@@ -45,7 +52,9 @@ export function OrderKdsBoard({
   orders,
   nowMs = Date.now(),
   updatingOrderId = null,
+  verifyingOrderId = null,
   onAdvanceOrder,
+  onVerifyPayment,
   onPrintOrder,
 }: OrderKdsBoardProps) {
   const [activePrintOrder, setActivePrintOrder] = useState<Order | null>(null);
@@ -196,6 +205,23 @@ export function OrderKdsBoard({
                           </div>
                         )}
                       </div>
+
+                      <PaymentProofVerificationControls
+                        compact
+                        orderId={order.id}
+                        paymentVerificationStatus={order.paymentVerificationStatus}
+                        paymentProof={order.paymentProof}
+                        paymentVerification={order.paymentVerification}
+                        digitalChannel={order.paymentBreakdown?.digitalMethod}
+                        digitalReference={order.paymentBreakdown?.digitalReference}
+                        isVerifying={verifyingOrderId === order.id}
+                        onVerifyPayment={
+                          onVerifyPayment
+                            ? (_orderId, nextStatus, reason) =>
+                                onVerifyPayment(order, nextStatus, reason)
+                            : undefined
+                        }
+                      />
 
                       <div className="flex items-center justify-between border-t border-slate-100 pt-2">
                         <span className="text-sm font-extrabold text-slate-950">

@@ -24,6 +24,18 @@ export function assertCatalogProductId(productId: string): void {
   if (!/^[a-z0-9-]+$/.test(productId)) throw new CatalogImageError("El identificador del producto no es válido");
 }
 
+export function assertPaymentProofOrderId(orderId: string): void {
+  if (!/^[A-Za-z0-9_-]{3,128}$/.test(orderId)) {
+    throw new CatalogImageError("El identificador del pedido no es válido");
+  }
+}
+
+export function assertSafeTenantSegment(negocioId: string): void {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(negocioId)) {
+    throw new CatalogImageError("El identificador del negocio no es válido");
+  }
+}
+
 export function assertSafeImageFilename(filename: string): void {
   if (!filename || filename.startsWith("/") || filename.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(filename)) {
     throw new CatalogImageError("El nombre de archivo no es una ruta relativa segura");

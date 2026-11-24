@@ -8,16 +8,18 @@ import { useEffect, useState } from "react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
+import { PaymentProofVerificationControls } from "@/components/admin/PaymentProofVerificationControls";
 import { PermissionGate } from "@/components/admin/PermissionGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { getOrderSlaStatus } from "@/lib/orders/kds-sla";
+import { formatPosPaymentSummary } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
 import { buildWhatsAppMessage } from "@/lib/orders/whatsapp-message";
 import type { StoreConfiguration } from "@/types/operations";
-import type { Order } from "@/types/orders";
+import type { Order, PaymentVerificationStatus } from "@/types/orders";
 
 export default function AdminOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -26,6 +28,7 @@ export default function AdminOrderDetailPage() {
   const [businessPhone, setBusinessPhone] = useState("");
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [error, setError] = useState("");
 
@@ -94,6 +97,48 @@ export default function AdminOrderDetailPage() {
       );
     } finally {
       setUpdating(false);
+    }
+  }
+
+  async function handleVerifyPayment(
+    _orderId: string,
+    nextStatus: PaymentVerificationStatus,
+    reason?: string,
+  ) {
+    if (!order || !user) return;
+    setVerifyingPayment(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/pedidos/${encodeURIComponent(order.id)}/comprobante`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${await user.getIdToken()}`,
+          },
+          body: JSON.stringify({
+            status: nextStatus,
+            ...(reason ? { reason } : {}),
+          }),
+        },
+      );
+      const body = (await response.json().catch(() => ({}))) as {
+        order?: Order;
+        error?: string;
+      };
+      if (!response.ok || !body.order) {
+        throw new Error(body.error ?? "No se pudo verificar el comprobante.");
+      }
+      setOrder(body.order);
+    } catch (verifyError) {
+      setError(
+        verifyError instanceof Error
+          ? verifyError.message
+          : "No se pudo verificar el comprobante.",
+      );
+    } finally {
+      setVerifyingPayment(false);
     }
   }
 
@@ -237,6 +282,22 @@ export default function AdminOrderDetailPage() {
                         <strong>Notas:</strong> {order.notes}
                       </p>
                     )}
+                    {order.paymentMethod && (
+                      <p>
+                        <strong>Pago:</strong>{" "}
+                        {formatPosPaymentSummary(order.paymentMethod, order.paymentBreakdown)}
+                      </p>
+                    )}
+                    <PaymentProofVerificationControls
+                      orderId={order.id}
+                      paymentVerificationStatus={order.paymentVerificationStatus}
+                      paymentProof={order.paymentProof}
+                      paymentVerification={order.paymentVerification}
+                      digitalChannel={order.paymentBreakdown?.digitalMethod}
+                      digitalReference={order.paymentBreakdown?.digitalReference}
+                      isVerifying={verifyingPayment}
+                      onVerifyPayment={handleVerifyPayment}
+                    />
                   </CardContent>
                 </Card>
               </div>
