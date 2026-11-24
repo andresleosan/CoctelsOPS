@@ -1,5 +1,6 @@
 import { sanitizeCopAmount } from "@/lib/orders/pos-calculator";
-import type { BarTabPaymentInput, BarTabRound } from "@/types/tabs";
+import type { OrderStatus } from "@/types/orders";
+import type { BarTab, BarTabPaymentInput, BarTabRound, PublicTableTab } from "@/types/tabs";
 
 export type BarTabTotalsSummary = {
   roundsCount: number;
@@ -21,6 +22,80 @@ export type BarTabPaymentValidation = {
  */
 export function normalizeTableNumber(raw: string): string {
   return raw.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Determina si el identificador corresponde al modo de retiro en barra (pickup) y no a una mesa física.
+ */
+export function isPickupTableIdentifier(raw: string): boolean {
+  const normalized = normalizeTableNumber(raw).toLowerCase();
+  return normalized === "barra" || normalized === "recoger en barra";
+}
+
+/**
+ * Estandariza el identificador visible de mesa (ej. "4" -> "Mesa 4", "mesa  4" -> "Mesa 4").
+ */
+export function canonicalizeTableNumber(raw: string): string {
+  const clean = normalizeTableNumber(raw);
+  if (!clean) return "";
+
+  if (/^\d+[a-z]?$/i.test(clean)) {
+    return `Mesa ${clean}`;
+  }
+
+  const mesaMatch = clean.match(/^mesa\s+(.+)$/i);
+  if (mesaMatch && mesaMatch[1]?.trim()) {
+    return `Mesa ${mesaMatch[1].trim()}`;
+  }
+
+  return clean;
+}
+
+/**
+ * Clave normalizada para emparejar mesas abiertas independientemente de mayúsculas o prefijo "Mesa".
+ */
+export function getTableLookupKey(raw: string): string {
+  return canonicalizeTableNumber(raw).toLowerCase();
+}
+
+/**
+ * Proyecta una cuenta de mesa a su representación pública segura para el cliente en mesa,
+ * excluyendo identificadores internos de staff, pagos registrados y notas internas de cierre.
+ */
+export function toPublicTableTab(
+  tab: BarTab,
+  orderStatuses?: ReadonlyMap<string, OrderStatus>,
+): PublicTableTab {
+  const totals = calculateBarTabTotals(tab.rounds);
+  const rounds = tab.rounds.map((round) => {
+    const orderStatus = round.orderId ? orderStatuses?.get(round.orderId) : undefined;
+    return {
+      roundNumber: round.roundNumber,
+      orderId: round.orderId,
+      ...(orderStatus ? { orderStatus } : {}),
+      items: round.items,
+      subtotal: round.subtotal,
+      ...(round.notes ? { notes: round.notes } : {}),
+      createdAt: round.createdAt,
+      ...(round.source ? { source: round.source } : {}),
+    };
+  });
+
+  return {
+    id: tab.id,
+    negocioId: tab.negocioId,
+    tableNumber: tab.tableNumber,
+    ...(tab.customerName ? { customerName: tab.customerName } : {}),
+    guestCount: tab.guestCount,
+    status: tab.status,
+    rounds,
+    itemsCount: totals.itemsCount,
+    subtotal: tab.subtotal,
+    total: tab.total,
+    ...(tab.billRequest ? { billRequest: tab.billRequest } : {}),
+    openedAt: tab.openedAt,
+    updatedAt: tab.updatedAt,
+  };
 }
 
 /**

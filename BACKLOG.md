@@ -247,10 +247,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
 
 ## Fase 11: Autopedido QR en Vivo, Verificación de Pagos, Multi-Tenant v1.7 y Logística Avanzada (v1.7)
 
-- [ ] **TASK-31: Autopedido QR en Mesa sin Fricción + Cuenta en Vivo del Cliente**
-  - **Nivel Recomendado:** `Argon (Medium)`
-  - **Objetivo:** Conectar `/m/[slug]?mesa=X` y `/menu?mesa=X` con las cuentas abiertas por mesa (`cuentas_mesa`) permitiendo a clientes en mesa agregar rondas sin bloqueo de verificación de email, consultar su cuenta acumulada en vivo y solicitar la cuenta o división en 1 tap.
-  - **Archivos:** `src/types/tabs.ts`, `src/lib/firestore/tabs.ts`, `src/app/api/mesas/[mesaId]/route.ts`, `src/components/orders/LiveTableTabSheet.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `tests/components/live-table-tab.test.tsx`.
+- [x] **TASK-31: Autopedido QR en Mesa sin Fricción + Cuenta en Vivo del Cliente**
+  - **Nivel Asignado:** `Argon (Medium)`
+  - **Objetivo:** Conectar `/m/[slug]?mesa=X`, `/menu?mesa=X` y `/cart` con las cuentas abiertas por mesa (`cuentas_mesas`) permitiendo a clientes en mesa agregar rondas sin bloqueo de verificación de email, consultar su cuenta acumulada en vivo y solicitar la cuenta o división en 1 tap.
+  - **Archivos:** `src/types/tabs.ts`, `src/lib/firestore/tabs.ts`, `src/app/api/mesas/[mesaId]/route.ts`, `src/components/orders/LiveTableTabSheet.tsx`, `src/components/products/TableServiceBanner.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `src/app/cart/page.tsx`, `tests/api/public-table-tab.test.ts`, `tests/components/live-table-tab.test.tsx`, `tests/components/cart-page.test.tsx`.
 
 - [ ] **TASK-32: Comprobante de Transferencia (Nequi / Daviplata / Bancolombia) con Subida a R2 y Verificación 1-Tap en Caja y KDS**
   - **Nivel Recomendado:** `Argon (Medium)`

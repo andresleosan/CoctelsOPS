@@ -324,13 +324,26 @@ export function BarTabsBoard() {
   }
 
   function openCloseDialog(tab: BarTab) {
-    const guests = Math.max(2, tab.guestCount || 2);
+    const requestedSplit = tab.billRequest?.splitMode;
+    const requestedGuests = tab.billRequest?.guestCount;
+    const guests = Math.max(2, requestedGuests || tab.guestCount || 2);
+    const preferredSingle: SingleMethod =
+      tab.billRequest?.preferredMethod && tab.billRequest.preferredMethod !== "mixto"
+        ? tab.billRequest.preferredMethod
+        : "efectivo";
+    const initialMode: BarTabSplitMode =
+      requestedSplit === "equal"
+        ? "equal"
+        : tab.billRequest?.preferredMethod === "mixto"
+        ? "custom"
+        : requestedSplit ?? "single";
+
     setCloseTab(tab);
-    setSplitMode("single");
+    setSplitMode(initialMode);
     setSplitGuests(guests);
-    setSingleMethod("efectivo");
+    setSingleMethod(preferredSingle);
     setSingleReference("");
-    setEqualMethods(Array.from({ length: guests }, () => "efectivo"));
+    setEqualMethods(Array.from({ length: guests }, () => preferredSingle));
     setCustomPayments([
       { label: "Pago 1 (Efectivo)", method: "efectivo", amount: Math.floor(tab.total / 2) },
       { label: "Pago 2 (Nequi)", method: "nequi", amount: tab.total - Math.floor(tab.total / 2) },
@@ -641,6 +654,30 @@ export function BarTabsBoard() {
                 </CardHeader>
 
                 <CardContent className="space-y-4">
+                  {tab.billRequest ? (
+                    <div
+                      role="status"
+                      className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-950"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-1 font-bold">
+                        <span>Cuenta solicitada por cliente</span>
+                        <span>{formatTimeShort(tab.billRequest.requestedAt)}</span>
+                      </div>
+                      <p className="mt-1">
+                        {tab.billRequest.splitMode === "equal"
+                          ? `Dividida entre ${tab.billRequest.guestCount} personas (${formatCop(
+                              tab.billRequest.perPersonAmount ??
+                                calculateEqualSplitShares(tab.total, tab.billRequest.guestCount)[0] ??
+                                0,
+                            )} c/u)`
+                          : `Pago único (${formatCop(tab.total)})`}
+                        {tab.billRequest.preferredMethod
+                          ? ` · Medio preferido: ${POS_PAYMENT_METHOD_LABELS[tab.billRequest.preferredMethod]}`
+                          : ""}
+                      </p>
+                    </div>
+                  ) : null}
+
                   {/* Rondas */}
                   {tab.rounds.length === 0 ? (
                     <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-xs text-slate-500">
@@ -657,6 +694,11 @@ export function BarTabsBoard() {
                             <span className="inline-flex items-center gap-1.5">
                               <Layers className="h-3.5 w-3.5 text-cyan-700" />
                               Ronda #{round.roundNumber} · {formatTimeShort(round.createdAt)}
+                              {round.source === "cliente_qr" ? (
+                                <Badge className="border-cyan-300 bg-cyan-50 text-cyan-900">
+                                  QR Mesa
+                                </Badge>
+                              ) : null}
                             </span>
                             <div className="flex items-center gap-2">
                               <span>{formatCop(round.subtotal)}</span>

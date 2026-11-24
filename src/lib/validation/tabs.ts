@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { POS_PAYMENT_METHODS } from "@/types/orders";
 import { BAR_TAB_SPLIT_MODES } from "@/types/tabs";
 
 const SINGLE_PAYMENT_METHODS = ["efectivo", "transferencia", "nequi", "daviplata", "qr"] as const;
@@ -13,6 +14,48 @@ const roundItemSchema = z.object({
     addOns: z.array(z.string().trim().min(1)).max(20),
   }),
 });
+
+const publicRoundItemSchema = z.object({
+  productId: z.string().trim().min(1, "Producto requerido"),
+  quantity: z.number().int().min(1, "Cantidad mínima 1").max(20, "Máximo 20 unidades por línea"),
+  customization: z.object({
+    size: z.string().trim().min(1, "El tamaño es obligatorio").max(50),
+    flavors: z.array(z.string().trim().min(1)).max(20),
+    addOns: z.array(z.string().trim().min(1)).max(20),
+  }),
+});
+
+export const publicTableIdSchema = z
+  .string()
+  .trim()
+  .min(1, "Identificador de mesa obligatorio")
+  .max(40, "Identificador de mesa demasiado largo")
+  .regex(/^[\p{L}\p{N}\s#-]+$/u, "Identificador de mesa inválido");
+
+export const publicAddTableRoundSchema = z.object({
+  action: z.literal("add_round"),
+  negocioId: z.string().trim().min(1).max(120).optional(),
+  slug: z.string().trim().min(1).max(120).optional(),
+  items: z.array(publicRoundItemSchema).min(1, "Agrega al menos un producto a la ronda").max(30),
+  customerName: z.string().trim().max(80).optional(),
+  guestCount: z.number().int().min(1).max(20).optional(),
+  notes: z.string().trim().max(240).optional(),
+});
+
+export const publicRequestBillSchema = z.object({
+  action: z.literal("request_bill"),
+  negocioId: z.string().trim().min(1).max(120).optional(),
+  slug: z.string().trim().min(1).max(120).optional(),
+  splitMode: z.enum(["single", "equal"]).default("single"),
+  guestCount: z.number().int().min(1).max(20).default(1),
+  preferredMethod: z.enum(POS_PAYMENT_METHODS).optional(),
+  notes: z.string().trim().max(240).optional(),
+});
+
+export const publicTableActionSchema = z.discriminatedUnion("action", [
+  publicAddTableRoundSchema,
+  publicRequestBillSchema,
+]);
 
 export const openBarTabSchema = z.object({
   action: z.literal("open"),

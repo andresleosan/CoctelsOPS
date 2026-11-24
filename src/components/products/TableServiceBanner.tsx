@@ -6,12 +6,25 @@ import { Button } from "@/components/ui/button";
 
 export const SERVICE_MESA_STORAGE_KEY = "coctels_ops_service_mesa";
 export const SERVICE_TYPE_STORAGE_KEY = "coctels_ops_service_type";
+export const SERVICE_NEGOCIO_ID_STORAGE_KEY = "coctels_ops_service_negocio_id";
+export const SERVICE_TENANT_SLUG_STORAGE_KEY = "coctels_ops_service_tenant_slug";
+export const SERVICE_STORE_NAME_STORAGE_KEY = "coctels_ops_service_store_name";
+export const TABLE_SERVICE_CHANGE_EVENT = "coctels-ops:table-service-change";
+export const OPEN_LIVE_TABLE_TAB_EVENT = "coctels-ops:open-live-table-tab";
 
 export type TableServiceBannerProps = {
   initialMesa?: string;
+  negocioId?: string;
+  tenantSlug?: string;
+  storeName?: string;
 };
 
-export default function TableServiceBanner({ initialMesa }: TableServiceBannerProps) {
+export default function TableServiceBanner({
+  initialMesa,
+  negocioId,
+  tenantSlug,
+  storeName,
+}: TableServiceBannerProps) {
   const [service, setService] = useState<{
     type: "mesa" | "pickup";
     label: string;
@@ -42,17 +55,46 @@ export default function TableServiceBanner({ initialMesa }: TableServiceBannerPr
       try {
         window.sessionStorage.setItem(SERVICE_MESA_STORAGE_KEY, label);
         window.sessionStorage.setItem(SERVICE_TYPE_STORAGE_KEY, type);
+
+        if (negocioId !== undefined) {
+          const cleanNegocioId = negocioId.trim();
+          if (cleanNegocioId) {
+            window.sessionStorage.setItem(SERVICE_NEGOCIO_ID_STORAGE_KEY, cleanNegocioId);
+          } else {
+            window.sessionStorage.removeItem(SERVICE_NEGOCIO_ID_STORAGE_KEY);
+          }
+
+          const cleanStoreName = storeName?.trim();
+          if (cleanStoreName) {
+            window.sessionStorage.setItem(SERVICE_STORE_NAME_STORAGE_KEY, cleanStoreName);
+          } else {
+            window.sessionStorage.removeItem(SERVICE_STORE_NAME_STORAGE_KEY);
+          }
+
+          const cleanTenantSlug = tenantSlug?.trim();
+          if (cleanTenantSlug) {
+            window.sessionStorage.setItem(SERVICE_TENANT_SLUG_STORAGE_KEY, cleanTenantSlug);
+          } else {
+            window.sessionStorage.removeItem(SERVICE_TENANT_SLUG_STORAGE_KEY);
+          }
+        }
+
+        window.dispatchEvent(new Event(TABLE_SERVICE_CHANGE_EVENT));
       } catch {
         // En navegadores con almacenamiento privado restringido
       }
     }
-  }, [initialMesa]);
+  }, [initialMesa, negocioId, storeName, tenantSlug]);
 
   const handleClear = () => {
     setService(null);
     try {
       window.sessionStorage.removeItem(SERVICE_MESA_STORAGE_KEY);
       window.sessionStorage.removeItem(SERVICE_TYPE_STORAGE_KEY);
+      window.sessionStorage.removeItem(SERVICE_NEGOCIO_ID_STORAGE_KEY);
+      window.sessionStorage.removeItem(SERVICE_TENANT_SLUG_STORAGE_KEY);
+      window.sessionStorage.removeItem(SERVICE_STORE_NAME_STORAGE_KEY);
+      window.dispatchEvent(new Event(TABLE_SERVICE_CHANGE_EVENT));
     } catch {
       // ignore
     }

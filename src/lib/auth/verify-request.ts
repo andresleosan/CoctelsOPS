@@ -1,7 +1,5 @@
 import "server-only";
 
-import type { NextRequest } from "next/server";
-
 import { esTokenAdminVerificado } from "@/lib/auth-claims";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import type { TokenClaims, UserProfile, VerifiedUser } from "@/types/auth";
@@ -16,7 +14,7 @@ export class AuthorizationError extends Error {
   }
 }
 
-function getBearerToken(request: NextRequest): string {
+function getBearerToken(request: Request): string {
   const value = request.headers.get("authorization");
   const match = value?.match(/^Bearer\s+([^\s]+)$/i);
 
@@ -27,7 +25,7 @@ function getBearerToken(request: NextRequest): string {
   return match[1];
 }
 
-export async function verifyToken(request: NextRequest): Promise<TokenClaims> {
+export async function verifyToken(request: Request): Promise<TokenClaims> {
   const token = getBearerToken(request);
 
   try {
@@ -38,7 +36,7 @@ export async function verifyToken(request: NextRequest): Promise<TokenClaims> {
   }
 }
 
-export async function verifyRequest(request: NextRequest): Promise<VerifiedUser> {
+export async function verifyRequest(request: Request): Promise<VerifiedUser> {
   const token = await verifyToken(request);
   const snapshot = await getAdminDb().collection("users").doc(token.uid).get();
   const isOwnerAdmin = esTokenAdminVerificado(token);
@@ -88,7 +86,7 @@ export async function verifyRequest(request: NextRequest): Promise<VerifiedUser>
 }
 
 /** Use this boundary for operations that require a verified email, such as purchases. */
-export async function requireVerifiedEmail(request: NextRequest): Promise<VerifiedUser> {
+export async function requireVerifiedEmail(request: Request): Promise<VerifiedUser> {
   const verified = await verifyRequest(request);
 
   if (verified.token.email_verified !== true) {

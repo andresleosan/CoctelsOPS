@@ -1,6 +1,7 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
 import { requireNegocioAccess } from "@/lib/auth/permissions";
 import { getAdminDb } from "@/lib/firebase-admin";
@@ -8,26 +9,46 @@ import { writeAuditInTransaction } from "@/lib/firestore/audit";
 import { productFromData } from "@/lib/firestore/products";
 import {
   calculateBarTabTotals,
+  calculateEqualSplitShares,
+  canonicalizeTableNumber,
+  getTableLookupKey,
+  isPickupTableIdentifier,
   normalizeTableNumber,
+  toPublicTableTab,
   validateBarTabPayments,
 } from "@/lib/tabs/calculator";
 import { calculateOrder } from "@/lib/validation/orders";
 import type { VerifiedUser } from "@/types/auth";
-import type { OrderItem } from "@/types/orders";
+import {
+  ORDER_STATUSES,
+  POS_PAYMENT_METHODS,
+  type OrderItem,
+  type OrderStatus,
+  type PosPaymentMethod,
+} from "@/types/orders";
 import type {
   AddBarTabRoundInput,
   BarTab,
+  BarTabBillRequest,
   BarTabPaymentSplit,
   BarTabRound,
+  BarTabRoundSource,
   BarTabSplitMode,
   BarTabStatus,
   CancelBarTabInput,
   CloseBarTabInput,
   OpenBarTabInput,
+  PublicAddTableRoundInput,
+  PublicRequestBillInput,
+  PublicTableTab,
+  PublicTableTabRound,
 } from "@/types/tabs";
 import { DEFAULT_TENANT_ID } from "@/types/tenant";
 
 const COLLECTION = "cuentas_mesas";
+const TABLE_RATE_LIMIT_COLLECTION = "table_rate_limits";
+export const TABLE_RATE_LIMIT_MAX_REQUESTS = 20;
+export const TABLE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 
 export class BarTabError extends Error {
   readonly status: number;
@@ -71,6 +92,12 @@ function parseRounds(raw: unknown): BarTabRound[] {
     const subtotal = typeof item.subtotal === "number" ? item.subtotal : 0;
     const createdAt = typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString();
     const createdByUid = typeof item.createdByUid === "string" ? item.createdByUid : "";
+    const source: BarTabRoundSource | undefined =
+      item.source === "staff" || item.source === "cliente_qr" ? item.source : undefined;
+    const idempotencyKey =
+      typeof item.idempotencyKey === "string" && item.idempotencyKey.trim()
+        ? item.idempotencyKey.trim()
+        : undefined;
 
     rounds.push({
       roundNumber,
@@ -83,10 +110,48 @@ function parseRounds(raw: unknown): BarTabRound[] {
       ...(typeof item.createdByName === "string" && item.createdByName.trim()
         ? { createdByName: item.createdByName.trim() }
         : {}),
+      ...(source ? { source } : {}),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
     });
   }
 
   return rounds;
+}
+
+function parseBillRequest(raw: unknown): BarTabBillRequest | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.requestedAt !== "string" || !candidate.requestedAt.trim()) {
+    return undefined;
+  }
+
+  const splitMode = candidate.splitMode === "equal" ? "equal" : "single";
+  const guestCount =
+    typeof candidate.guestCount === "number" && Number.isFinite(candidate.guestCount) && candidate.guestCount > 0
+      ? Math.round(candidate.guestCount)
+      : 1;
+  const perPersonAmount =
+    typeof candidate.perPersonAmount === "number" &&
+    Number.isFinite(candidate.perPersonAmount) &&
+    candidate.perPersonAmount >= 0
+      ? Math.round(candidate.perPersonAmount)
+      : undefined;
+  const preferredMethod =
+    typeof candidate.preferredMethod === "string" &&
+    (POS_PAYMENT_METHODS as readonly string[]).includes(candidate.preferredMethod)
+      ? (candidate.preferredMethod as PosPaymentMethod)
+      : undefined;
+
+  return {
+    requestedAt: candidate.requestedAt,
+    splitMode,
+    guestCount,
+    ...(perPersonAmount !== undefined ? { perPersonAmount } : {}),
+    ...(preferredMethod ? { preferredMethod } : {}),
+    ...(typeof candidate.notes === "string" && candidate.notes.trim()
+      ? { notes: candidate.notes.trim() }
+      : {}),
+  };
 }
 
 function parsePayments(raw: unknown): BarTabPaymentSplit[] | undefined {
@@ -125,6 +190,7 @@ function parsePayments(raw: unknown): BarTabPaymentSplit[] | undefined {
 function toBarTab(id: string, data: Record<string, unknown>): BarTab {
   const rounds = parseRounds(data.rounds);
   const totals = calculateBarTabTotals(rounds);
+  const billRequest = parseBillRequest(data.billRequest);
 
   return {
     id,
@@ -143,6 +209,7 @@ function toBarTab(id: string, data: Record<string, unknown>): BarTab {
     total: typeof data.total === "number" ? data.total : totals.total,
     ...(parseSplitMode(data.splitMode) ? { splitMode: parseSplitMode(data.splitMode) } : {}),
     ...(parsePayments(data.payments) ? { payments: parsePayments(data.payments) } : {}),
+    ...(billRequest ? { billRequest } : {}),
     openedAt: typeof data.openedAt === "string" ? data.openedAt : new Date().toISOString(),
     openedByUid: typeof data.openedByUid === "string" ? data.openedByUid : "",
     openedByName: typeof data.openedByName === "string" ? data.openedByName : "Staff",
@@ -184,9 +251,9 @@ export async function openBarTab(actor: VerifiedUser, input: OpenBarTabInput): P
     .where("status", "==", "abierta")
     .get();
 
-  const normalizedTarget = tableNumber.toLowerCase();
+  const normalizedTarget = getTableLookupKey(tableNumber);
   const duplicate = openTabsSnap.docs.find((doc) => {
-    const existingTable = String(doc.data().tableNumber ?? "").trim().toLowerCase();
+    const existingTable = getTableLookupKey(String(doc.data().tableNumber ?? ""));
     return existingTable === normalizedTarget;
   });
 
@@ -361,6 +428,7 @@ export async function addRoundToBarTab(
       createdAt: now,
       createdByUid: actor.uid,
       createdByName: actorName,
+      source: "staff",
     };
 
     const nextRounds = [...currentTab.rounds, newRound];
@@ -571,4 +639,581 @@ export async function cancelBarTab(actor: VerifiedUser, input: CancelBarTabInput
   }
 
   return cancelledTab;
+}
+
+function parseOrderStatus(value: unknown): OrderStatus | undefined {
+  if (typeof value === "string" && (ORDER_STATUSES as readonly string[]).includes(value)) {
+    return value as OrderStatus;
+  }
+  return undefined;
+}
+
+function assertPublicTableName(rawMesaId: string): { canonicalTable: string; targetKey: string } {
+  if (isPickupTableIdentifier(rawMesaId)) {
+    throw new BarTabError(422, "El modo retiro en barra no utiliza cuenta de mesa en vivo.");
+  }
+
+  const canonicalTable = canonicalizeTableNumber(rawMesaId);
+  if (!canonicalTable) {
+    throw new BarTabError(422, "El identificador de mesa es obligatorio");
+  }
+
+  return {
+    canonicalTable,
+    targetKey: getTableLookupKey(canonicalTable),
+  };
+}
+
+async function loadOrderStatusMapInTransaction(
+  db: Firestore,
+  transaction: FirebaseFirestore.Transaction,
+  rounds: BarTabRound[],
+): Promise<Map<string, OrderStatus>> {
+  const statusMap = new Map<string, OrderStatus>();
+  const uniqueOrderIds = [...new Set(rounds.map((r) => r.orderId).filter((id) => Boolean(id?.trim())))];
+  if (uniqueOrderIds.length === 0) return statusMap;
+
+  const snapshots = await Promise.all(
+    uniqueOrderIds.map(async (orderId) => ({
+      orderId,
+      snap: await transaction.get(db.collection("pedidos").doc(orderId)).catch(() => null),
+    })),
+  );
+
+  for (const { orderId, snap } of snapshots) {
+    if (!snap || !snap.exists) continue;
+    const status = parseOrderStatus((snap.data() as Record<string, unknown> | undefined)?.status);
+    if (status) {
+      statusMap.set(orderId, status);
+    }
+  }
+
+  return statusMap;
+}
+
+async function loadOrderStatusMap(
+  db: Firestore,
+  rounds: BarTabRound[],
+): Promise<Map<string, OrderStatus>> {
+  const statusMap = new Map<string, OrderStatus>();
+  const uniqueOrderIds = [...new Set(rounds.map((r) => r.orderId).filter((id) => Boolean(id?.trim())))];
+  if (uniqueOrderIds.length === 0) return statusMap;
+
+  const snapshots = await Promise.all(
+    uniqueOrderIds.map(async (orderId) => ({
+      orderId,
+      snap: await db.collection("pedidos").doc(orderId).get().catch(() => null),
+    })),
+  );
+
+  for (const { orderId, snap } of snapshots) {
+    if (!snap || !snap.exists) continue;
+    const status = parseOrderStatus((snap.data() as Record<string, unknown> | undefined)?.status);
+    if (status) {
+      statusMap.set(orderId, status);
+    }
+  }
+
+  return statusMap;
+}
+
+export async function reserveTableActionRateLimit(options: {
+  db: Firestore;
+  digest: string;
+  now?: Date;
+}): Promise<boolean> {
+  const now = options.now ?? new Date();
+  const nowTimestamp = Timestamp.fromDate(now);
+  const reference = options.db.collection(TABLE_RATE_LIMIT_COLLECTION).doc(options.digest);
+
+  return options.db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+
+    if (!snapshot.exists) {
+      transaction.create(reference, {
+        windowStartedAt: nowTimestamp,
+        count: 1,
+        updatedAt: nowTimestamp,
+      });
+      return true;
+    }
+
+    const data = snapshot.data() as {
+      windowStartedAt: Timestamp;
+      count: number;
+    };
+    const windowIsActive =
+      now.getTime() - data.windowStartedAt.toDate().getTime() < TABLE_RATE_LIMIT_WINDOW_MS;
+
+    if (windowIsActive && data.count >= TABLE_RATE_LIMIT_MAX_REQUESTS) {
+      return false;
+    }
+
+    transaction.update(reference, {
+      windowStartedAt: windowIsActive ? data.windowStartedAt : nowTimestamp,
+      count: windowIsActive ? data.count + 1 : 1,
+      updatedAt: nowTimestamp,
+    });
+    return true;
+  });
+}
+
+export async function getPublicTableTab(
+  negocioId: string,
+  rawMesaId: string,
+): Promise<{ tableNumber: string; tab: PublicTableTab | null }> {
+  const { canonicalTable, targetKey } = assertPublicTableName(rawMesaId);
+  const cleanNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
+  const db = getAdminDb();
+
+  const openTabsSnap = await db
+    .collection(COLLECTION)
+    .where("negocioId", "==", cleanNegocioId)
+    .where("status", "==", "abierta")
+    .get();
+
+  const matchedDoc = openTabsSnap.docs.find(
+    (doc) => getTableLookupKey(String(doc.data().tableNumber ?? "")) === targetKey,
+  );
+
+  if (!matchedDoc) {
+    return { tableNumber: canonicalTable, tab: null };
+  }
+
+  const tab = toBarTab(matchedDoc.id, (matchedDoc.data() ?? {}) as Record<string, unknown>);
+  const statusMap = await loadOrderStatusMap(db, tab.rounds);
+
+  return {
+    tableNumber: tab.tableNumber,
+    tab: toPublicTableTab(tab, statusMap),
+  };
+}
+
+export async function addPublicRoundToTableTab(
+  input: PublicAddTableRoundInput,
+): Promise<{
+  tab: PublicTableTab;
+  orderId: string;
+  round: PublicTableTabRound;
+  createdTab: boolean;
+  idempotentReplay: boolean;
+}> {
+  const { canonicalTable, targetKey } = assertPublicTableName(input.tableNumber);
+  const negocioId = input.negocioId.trim() || DEFAULT_TENANT_ID;
+  const cleanIdempotencyKey = input.idempotencyKey?.trim() || undefined;
+  const db = getAdminDb();
+
+  const orderRef = cleanIdempotencyKey
+    ? db
+        .collection("pedidos")
+        .doc(
+          `qr_${createHash("sha256")
+            .update(`${negocioId}:${targetKey}:${cleanIdempotencyKey}`)
+            .digest("hex")
+            .slice(0, 28)}`,
+        )
+    : db.collection("pedidos").doc();
+
+  const uniqueProductIds = [...new Set(input.items.map((item) => item.productId))];
+  const productRefs = uniqueProductIds.map((productId) => ({
+    productId,
+    ref: db.collection("productos").doc(productId),
+  }));
+
+  let result: {
+    tab: PublicTableTab;
+    orderId: string;
+    round: PublicTableTabRound;
+    createdTab: boolean;
+    idempotentReplay: boolean;
+  } | null = null;
+
+  await db.runTransaction(async (transaction) => {
+    const openTabsQuery = db
+      .collection(COLLECTION)
+      .where("negocioId", "==", negocioId)
+      .where("status", "==", "abierta");
+
+    const openTabsSnap = await transaction.get(openTabsQuery);
+    const existingTabDoc = openTabsSnap.docs.find(
+      (doc) => getTableLookupKey(String(doc.data().tableNumber ?? "")) === targetKey,
+    );
+    const existingTab = existingTabDoc
+      ? toBarTab(existingTabDoc.id, (existingTabDoc.data() ?? {}) as Record<string, unknown>)
+      : null;
+
+    const existingOrderSnap = cleanIdempotencyKey ? await transaction.get(orderRef) : null;
+
+    if (cleanIdempotencyKey && existingTab) {
+      const existingRound = existingTab.rounds.find(
+        (round) => round.idempotencyKey === cleanIdempotencyKey,
+      );
+      if (existingRound) {
+        const statusMap = await loadOrderStatusMapInTransaction(db, transaction, existingTab.rounds);
+        const publicTab = toPublicTableTab(existingTab, statusMap);
+        const publicRound =
+          publicTab.rounds.find((round) => round.roundNumber === existingRound.roundNumber) ??
+          publicTab.rounds[publicTab.rounds.length - 1];
+
+        result = {
+          tab: publicTab,
+          orderId: existingRound.orderId,
+          round: publicRound,
+          createdTab: false,
+          idempotentReplay: true,
+        };
+        return;
+      }
+    }
+
+    if (existingOrderSnap?.exists) {
+      const orderData = (existingOrderSnap.data() ?? {}) as Record<string, unknown>;
+      const linkedTabId = typeof orderData.barTabId === "string" ? orderData.barTabId.trim() : "";
+      if (linkedTabId) {
+        const linkedTabSnap = await transaction.get(db.collection(COLLECTION).doc(linkedTabId));
+        if (linkedTabSnap.exists) {
+          const linkedTab = toBarTab(
+            linkedTabSnap.id,
+            (linkedTabSnap.data() ?? {}) as Record<string, unknown>,
+          );
+          const statusMap = await loadOrderStatusMapInTransaction(db, transaction, linkedTab.rounds);
+          const publicTab = toPublicTableTab(linkedTab, statusMap);
+          const matchedRound =
+            publicTab.rounds.find((round) => round.orderId === orderRef.id) ??
+            publicTab.rounds[publicTab.rounds.length - 1];
+          if (matchedRound) {
+            result = {
+              tab: publicTab,
+              orderId: orderRef.id,
+              round: matchedRound,
+              createdTab: false,
+              idempotentReplay: true,
+            };
+            return;
+          }
+        }
+      }
+      throw new BarTabError(409, "Esta ronda ya fue procesada previamente.");
+    }
+
+    const existingRoundStatuses = existingTab
+      ? await loadOrderStatusMapInTransaction(db, transaction, existingTab.rounds)
+      : new Map<string, OrderStatus>();
+
+    const productSnapshots = await Promise.all(
+      productRefs.map(async ({ productId, ref }) => ({
+        productId,
+        ref,
+        snapshot: await transaction.get(ref),
+      })),
+    );
+
+    const productsById = new Map<string, ReturnType<typeof productFromData>>();
+    for (const { productId, snapshot } of productSnapshots) {
+      if (!snapshot.exists) {
+        throw new BarTabError(422, "Producto no encontrado en el catálogo");
+      }
+      const product = productFromData(
+        productId,
+        (snapshot.data() ?? {}) as Record<string, unknown>,
+      );
+      if (product.negocioId && product.negocioId !== negocioId) {
+        throw new BarTabError(403, "El producto no pertenece a este local");
+      }
+      productsById.set(productId, product);
+    }
+
+    const availableProducts = [...productsById.values()];
+    const tabTableNumber = existingTab ? existingTab.tableNumber : canonicalTable;
+    const roundNumber = existingTab ? existingTab.rounds.length + 1 : 1;
+    const cleanCustomerName = input.customerName?.trim() || undefined;
+    const resolvedCustomerName = existingTab?.customerName || cleanCustomerName || tabTableNumber;
+    const roundNote = input.notes?.trim()
+      ? `Cuenta ${tabTableNumber} · Ronda QR #${roundNumber} — ${input.notes.trim()}`
+      : `Cuenta ${tabTableNumber} · Ronda QR #${roundNumber}`;
+
+    const calculated = calculateOrder(
+      {
+        customerName: resolvedCustomerName,
+        phone: "0000000",
+        address: `${tabTableNumber} - Consumo en local`,
+        serviceType: "mesa",
+        tableNumber: tabTableNumber,
+        notes: roundNote,
+        items: input.items,
+      },
+      availableProducts,
+    );
+
+    const now = new Date().toISOString();
+    const actorUid =
+      input.actorUid?.trim() || `qr_mesa:${targetKey.replace(/[^a-z0-9]+/g, "-")}`;
+    const actorName = input.actorName?.trim() || cleanCustomerName || tabTableNumber;
+
+    // Todas las lecturas finalizaron: ahora ejecutamos únicamente escrituras atómicas.
+    for (const { productId, ref } of productRefs) {
+      const product = productsById.get(productId)!;
+      const quantity = input.items
+        .filter((item) => item.productId === productId)
+        .reduce((sum, item) => sum + item.quantity, 0);
+      const resultingStock = product.stock - quantity;
+      const movementRef = db.collection("inventario_movimientos").doc();
+
+      transaction.update(ref, {
+        stock: resultingStock,
+        available: resultingStock > 0,
+        updatedAt: now,
+      });
+      transaction.create(movementRef, {
+        productId,
+        type: "salida",
+        quantity,
+        reason: `Cuenta ${tabTableNumber} Ronda QR #${roundNumber} (${orderRef.id})`,
+        actorUid,
+        orderId: orderRef.id,
+        previousStock: product.stock,
+        resultingStock,
+        createdAt: now,
+      });
+    }
+
+    const tabRef = existingTabDoc ? existingTabDoc.ref : db.collection(COLLECTION).doc();
+    const notificationRef = db.collection("notificaciones").doc();
+
+    const orderPayload = {
+      clienteUid: actorUid,
+      customerName: resolvedCustomerName,
+      phone: "0000000",
+      address: `${tabTableNumber} - Consumo en local`,
+      negocioId,
+      notes: roundNote,
+      serviceType: "mesa" as const,
+      tableNumber: tabTableNumber,
+      barTabId: tabRef.id,
+      barTabRoundNumber: roundNumber,
+      source: "cliente_qr" as const,
+      items: calculated.items,
+      subtotal: calculated.subtotal,
+      total: calculated.total,
+      status: "pendiente" as const,
+      createdAt: now,
+      updatedAt: now,
+      statusHistory: [{ status: "pendiente" as const, actorUid, at: now }],
+      audit: { createdByUid: actorUid, createdAt: now },
+    };
+
+    const newRound: BarTabRound = {
+      roundNumber,
+      orderId: orderRef.id,
+      items: calculated.items,
+      subtotal: calculated.subtotal,
+      ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+      createdAt: now,
+      createdByUid: actorUid,
+      createdByName: actorName,
+      source: "cliente_qr",
+      ...(cleanIdempotencyKey ? { idempotencyKey: cleanIdempotencyKey } : {}),
+    };
+
+    const nextRounds = existingTab ? [...existingTab.rounds, newRound] : [newRound];
+    const totals = calculateBarTabTotals(nextRounds);
+    const updatedCustomerName =
+      existingTab && !existingTab.customerName && cleanCustomerName ? cleanCustomerName : undefined;
+    const guestCount = existingTab
+      ? existingTab.guestCount
+      : Math.max(1, Math.min(20, Math.round(input.guestCount ?? 1)));
+
+    transaction.create(orderRef, orderPayload);
+    transaction.create(notificationRef, {
+      audience: "admin",
+      negocioId,
+      title: `Ronda QR #${roundNumber} · ${tabTableNumber}`,
+      message: `El cliente pidió ${calculated.items.length} ítem(s) desde ${tabTableNumber}.`,
+      orderId: orderRef.id,
+      tabId: tabRef.id,
+      read: false,
+      createdAt: now,
+    });
+
+    let resultingTab: BarTab;
+
+    if (existingTab) {
+      transaction.update(tabRef, {
+        rounds: nextRounds,
+        subtotal: totals.subtotal,
+        total: totals.total,
+        ...(updatedCustomerName ? { customerName: updatedCustomerName } : {}),
+        updatedAt: now,
+      });
+
+      resultingTab = {
+        ...existingTab,
+        ...(updatedCustomerName ? { customerName: updatedCustomerName } : {}),
+        rounds: nextRounds,
+        subtotal: totals.subtotal,
+        total: totals.total,
+        updatedAt: now,
+      };
+    } else {
+      const tabPayload = {
+        negocioId,
+        tableNumber: canonicalTable,
+        ...(cleanCustomerName ? { customerName: cleanCustomerName } : {}),
+        guestCount,
+        status: "abierta" as const,
+        rounds: nextRounds,
+        subtotal: totals.subtotal,
+        total: totals.total,
+        openedAt: now,
+        openedByUid: actorUid,
+        openedByName: actorName,
+        updatedAt: now,
+      };
+
+      transaction.create(tabRef, tabPayload);
+      resultingTab = toBarTab(tabRef.id, tabPayload);
+    }
+
+    writeAuditInTransaction(transaction, {
+      actorUid,
+      action: existingTab ? "update" : "create",
+      module: "pedidos",
+      entityId: tabRef.id,
+      changes: {
+        action: "add_public_qr_round",
+        negocioId,
+        tableNumber: tabTableNumber,
+        roundNumber,
+        orderId: orderRef.id,
+        roundSubtotal: calculated.subtotal,
+        tabTotal: totals.total,
+      },
+    });
+
+    existingRoundStatuses.set(orderRef.id, "pendiente");
+    const publicTab = toPublicTableTab(resultingTab, existingRoundStatuses);
+    const publicRound = publicTab.rounds[publicTab.rounds.length - 1];
+
+    result = {
+      tab: publicTab,
+      orderId: orderRef.id,
+      round: publicRound,
+      createdTab: !existingTab,
+      idempotentReplay: false,
+    };
+  });
+
+  if (!result) {
+    throw new BarTabError(500, "No se pudo registrar la ronda en la mesa");
+  }
+
+  return result;
+}
+
+export async function requestTableBill(
+  input: PublicRequestBillInput,
+): Promise<{ tab: PublicTableTab }> {
+  const { canonicalTable, targetKey } = assertPublicTableName(input.tableNumber);
+  const negocioId = input.negocioId.trim() || DEFAULT_TENANT_ID;
+  const db = getAdminDb();
+
+  let updatedPublicTab: PublicTableTab | null = null;
+
+  await db.runTransaction(async (transaction) => {
+    const openTabsQuery = db
+      .collection(COLLECTION)
+      .where("negocioId", "==", negocioId)
+      .where("status", "==", "abierta");
+
+    const openTabsSnap = await transaction.get(openTabsQuery);
+    const existingTabDoc = openTabsSnap.docs.find(
+      (doc) => getTableLookupKey(String(doc.data().tableNumber ?? "")) === targetKey,
+    );
+
+    if (!existingTabDoc) {
+      throw new BarTabError(404, "No hay una cuenta abierta para esta mesa.");
+    }
+
+    const currentTab = toBarTab(
+      existingTabDoc.id,
+      (existingTabDoc.data() ?? {}) as Record<string, unknown>,
+    );
+
+    if (currentTab.rounds.length === 0 || currentTab.total <= 0) {
+      throw new BarTabError(422, "Agrega al menos una ronda antes de solicitar la cuenta.");
+    }
+
+    const statusMap = await loadOrderStatusMapInTransaction(db, transaction, currentTab.rounds);
+    const safeGuests =
+      input.splitMode === "equal"
+        ? Math.max(2, Math.min(20, Math.round(input.guestCount)))
+        : Math.max(1, currentTab.guestCount);
+    const perPersonAmount =
+      input.splitMode === "equal"
+        ? calculateEqualSplitShares(currentTab.total, safeGuests)[0]
+        : currentTab.total;
+
+    const now = new Date().toISOString();
+    const actorUid =
+      input.actorUid?.trim() || `qr_mesa:${targetKey.replace(/[^a-z0-9]+/g, "-")}`;
+    const billRequest: BarTabBillRequest = {
+      requestedAt: now,
+      splitMode: input.splitMode,
+      guestCount: safeGuests,
+      perPersonAmount,
+      ...(input.preferredMethod ? { preferredMethod: input.preferredMethod } : {}),
+      ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+    };
+
+    const notificationRef = db.collection("notificaciones").doc();
+    const splitText =
+      input.splitMode === "equal"
+        ? `Cuenta dividida entre ${safeGuests} personas (~$${perPersonAmount.toLocaleString("es-CO")} c/u)`
+        : "Pago completo";
+
+    transaction.update(existingTabDoc.ref, {
+      billRequest,
+      guestCount: safeGuests,
+      updatedAt: now,
+    });
+    transaction.create(notificationRef, {
+      audience: "admin",
+      negocioId: currentTab.negocioId,
+      title: `Cuenta solicitada · ${currentTab.tableNumber}`,
+      message: `${splitText} · Total: $${currentTab.total.toLocaleString("es-CO")}`,
+      tabId: currentTab.id,
+      read: false,
+      createdAt: now,
+    });
+    writeAuditInTransaction(transaction, {
+      actorUid,
+      action: "update",
+      module: "pedidos",
+      entityId: currentTab.id,
+      changes: {
+        action: "request_table_bill",
+        tableNumber: canonicalTable,
+        splitMode: input.splitMode,
+        guestCount: safeGuests,
+        perPersonAmount,
+        ...(input.preferredMethod ? { preferredMethod: input.preferredMethod } : {}),
+      },
+    });
+
+    updatedPublicTab = toPublicTableTab(
+      {
+        ...currentTab,
+        billRequest,
+        guestCount: safeGuests,
+        updatedAt: now,
+      },
+      statusMap,
+    );
+  });
+
+  if (!updatedPublicTab) {
+    throw new BarTabError(500, "No se pudo solicitar la cuenta de la mesa");
+  }
+
+  return { tab: updatedPublicTab };
 }

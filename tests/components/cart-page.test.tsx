@@ -1,15 +1,26 @@
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CartPage from '@/app/cart/page';
+import {
+  SERVICE_MESA_STORAGE_KEY,
+  SERVICE_NEGOCIO_ID_STORAGE_KEY,
+  SERVICE_STORE_NAME_STORAGE_KEY,
+  SERVICE_TENANT_SLUG_STORAGE_KEY,
+  SERVICE_TYPE_STORAGE_KEY,
+} from '@/components/products/TableServiceBanner';
 import { CartProvider, CART_STORAGE_KEY, type CartItem } from '@/context/cart-context';
 
 describe('CartPage UI Component', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
+    vi.restoreAllMocks();
   });
 
   afterEach(() => {
     cleanup();
+    sessionStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it('muestra el estado vacío cuando no hay ítems en el carrito', async () => {
@@ -128,5 +139,62 @@ describe('CartPage UI Component', () => {
     fireEvent.click(deleteBtn);
 
     expect(await screen.findByRole('heading', { name: /tu carrito está vacío/i })).toBeInTheDocument();
+  });
+
+  it('muestra envío de ronda sin fricción cuando hay una mesa QR activa en sessionStorage', async () => {
+    const mockItems: CartItem[] = [
+      {
+        id: 'mock-qr-1',
+        productId: 'granizado-1',
+        name: 'Granizado Maracuyá',
+        price: 15000,
+        quantity: 2,
+        image: '/catalog-placeholder.svg',
+        customization: {
+          size: '16 oz',
+          flavors: ['Maracuyá'],
+          addOns: ['Gomitas'],
+        },
+      },
+    ];
+
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(mockItems));
+    sessionStorage.setItem(SERVICE_MESA_STORAGE_KEY, 'Mesa 4');
+    sessionStorage.setItem(SERVICE_TYPE_STORAGE_KEY, 'mesa');
+    sessionStorage.setItem(SERVICE_NEGOCIO_ID_STORAGE_KEY, 'neg-la-70');
+    sessionStorage.setItem(SERVICE_TENANT_SLUG_STORAGE_KEY, 'la-70');
+    sessionStorage.setItem(SERVICE_STORE_NAME_STORAGE_KEY, 'Coctels La 70');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ tableNumber: 'Mesa 4', negocioId: 'neg-la-70', tab: null }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    );
+
+    render(
+      <CartProvider>
+        <CartPage />
+      </CartProvider>,
+    );
+
+    expect(await screen.findByText('Mesa 4 · Sin recargo')).toBeInTheDocument();
+
+    const exploreLinks = screen.getAllByRole('link', { name: /agregar más bebidas|seguir explorando la carta/i });
+    expect(exploreLinks[0]).toHaveAttribute('href', '/m/la-70');
+
+    const sendRoundCta = screen.getByRole('button', { name: /enviar ronda a mesa 4/i });
+    expect(sendRoundCta.className).toContain('min-h-[48px]');
+
+    fireEvent.click(sendRoundCta);
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog', { name: /mesa 4/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /enviar ronda a barra/i })).toBeInTheDocument();
+      expect(screen.getByText(/coctels la 70 · autopedido directo a barra sin esperas/i)).toBeInTheDocument();
+    });
   });
 });

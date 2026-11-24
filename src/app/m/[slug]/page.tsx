@@ -8,6 +8,7 @@ import { listActiveProductsByNegocio, listActiveProducts } from "@/lib/firestore
 import { listCategories } from "@/lib/firestore/categories";
 import ProductCatalogBrowser from "@/components/products/ProductCatalogBrowser";
 import TableServiceBanner from "@/components/products/TableServiceBanner";
+import LiveTableTabSheet from "@/components/orders/LiveTableTabSheet";
 import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +55,12 @@ export default async function TenantStorefrontPage({ params, searchParams }: Pro
   return (
     <div className="container mx-auto px-4 py-6 md:py-10 space-y-8">
       {/* Banner de Servicio en Mesa / Barra si fue escaneado por QR */}
-      <TableServiceBanner initialMesa={mesa} />
+      <TableServiceBanner
+        initialMesa={mesa}
+        negocioId={negocio.id}
+        tenantSlug={negocio.slug}
+        storeName={negocio.name}
+      />
 
       {/* Header Local Mobile-First con Branding */}
       <div className="relative overflow-hidden rounded-3xl border border-primary/20 bg-gradient-to-b from-card/60 to-black/80 p-6 md:p-8 backdrop-blur-xl shadow-[0_0_40px_rgba(229,25,110,0.12)] max-w-4xl mx-auto">
@@ -125,6 +131,14 @@ export default async function TenantStorefrontPage({ params, searchParams }: Pro
       <div className="max-w-6xl mx-auto">
         <ProductCatalogBrowser products={products} categories={categories} />
       </div>
+
+      {/* Hoja Flotante de Autopedido QR y Cuenta en Vivo */}
+      <LiveTableTabSheet
+        initialMesa={mesa}
+        negocioId={negocio.id}
+        tenantSlug={negocio.slug}
+        storeName={negocio.name}
+      />
     </div>
   );
 }
