@@ -272,7 +272,7 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Soportar confirmación automática de pagos digitales mediante webhook firmado HMAC en servidor y agregar el registro/distribución de propinas y comisiones de staff (bartenders, meseros y domiciliarios) en el arqueo y cierre de turno de `/admin/caja` y `/admin/reportes`.
   - **Archivos:** `src/types/orders.ts`, `src/types/cash-register.ts`, `src/types/operations.ts`, `src/lib/payments/webhook-signature.ts`, `src/lib/payments/process-webhook.ts`, `src/app/api/webhooks/payments/route.ts`, `src/lib/cash-register/calculator.ts`, `src/lib/validation/cash-register.ts`, `src/lib/firestore/cash-register.ts`, `src/lib/firestore/orders.ts`, `src/lib/orders/customer-order.ts`, `src/app/api/admin/caja/route.ts`, `src/components/admin/StaffTipsSettlementPanel.tsx`, `src/components/admin/PaymentProofVerificationControls.tsx`, `src/app/admin/caja/page.tsx`, `src/lib/reports/order-report.ts`, `src/lib/reports/export-report.ts`, `src/app/admin/reportes/page.tsx`, `.env.example`, `tests/lib/payments-and-tips.test.ts`.
 
-- [ ] **TASK-36: Suite E2E de Fase 11, Auditoría de Seguridad y Release v1.7.0**
+- [x] **TASK-36: Suite E2E de Fase 11, Auditoría de Seguridad y Release v1.7.0**
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
   - **Objetivo:** Validar con Playwright E2E y gates completos los flujos de autopedido en mesa, comprobantes de transferencia, multi-tenancy y reparto por zonas, actualizando changelog y versión `1.7.0`.
-  - **Archivos:** `tests/e2e/table-tab-and-payments.spec.ts`, `README.md`, `package.json`.
+  - **Archivos:** `tests/e2e/table-tab-and-payments.spec.ts`, `tests/e2e/e2e-helpers.ts`, `tests/e2e/order-flow.spec.ts`, `tests/e2e/cart.spec.ts`, `src/lib/firestore/orders.ts`, `src/app/admin/pedidos/[id]/page.tsx`, `tests/security/tenant-isolation-v17.test.ts`, `README.md`, `package.json`.

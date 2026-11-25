@@ -320,6 +320,7 @@ export default function AdminOrderDetailPage() {
                       paymentVerificationStatus={order.paymentVerificationStatus}
                       paymentProof={order.paymentProof}
                       paymentVerification={order.paymentVerification}
+                      paymentGateway={order.paymentGateway}
                       digitalChannel={order.paymentBreakdown?.digitalMethod}
                       digitalReference={order.paymentBreakdown?.digitalReference}
                       isVerifying={verifyingPayment}

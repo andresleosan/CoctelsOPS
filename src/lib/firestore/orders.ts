@@ -674,15 +674,25 @@ export async function getCustomerOrder(user: VerifiedUser, id: string): Promise<
   return toCustomerOrder(order);
 }
 
+function assertStaffOrderTenantAccess(
+  user: VerifiedUser,
+  order: Pick<Order, "negocioId">,
+): void {
+  if (isGlobalAdmin(user)) return;
+  const orderNegocioId = order.negocioId?.trim() || DEFAULT_TENANT_ID;
+  const staffNegocioId = user.profile?.negocioId?.trim();
+  if (staffNegocioId || orderNegocioId !== DEFAULT_TENANT_ID) {
+    requireNegocioAccess(user, orderNegocioId);
+  }
+}
+
 export async function getAdminOrder(user: VerifiedUser, id: string): Promise<Order> {
   requireOrderPermission(user, "pedidos.read");
   if (!id.trim()) throw new OrderNotFoundError();
   const snapshot = await ordersCollection().doc(id).get();
   if (!snapshot.exists) throw new OrderNotFoundError();
   const order = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
-  if (!isGlobalAdmin(user) && user.profile?.negocioId?.trim()) {
-    requireNegocioAccess(user, order.negocioId?.trim() || DEFAULT_TENANT_ID);
-  }
+  assertStaffOrderTenantAccess(user, order);
   return order;
 }
 
@@ -698,9 +708,7 @@ export async function updateOrderStatus(user: VerifiedUser, id: string, input: S
     const snapshot = await transaction.get(reference);
     if (!snapshot.exists) throw new OrderNotFoundError();
     const current = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
-    if (!isGlobalAdmin(user) && user.profile?.negocioId?.trim()) {
-      requireNegocioAccess(user, current.negocioId?.trim() || DEFAULT_TENANT_ID);
-    }
+    assertStaffOrderTenantAccess(user, current);
     assertValidTransition(current.status, validated.status);
     const now = new Date().toISOString();
     const statusEvent = { status: validated.status, actorUid: user.uid, at: now, ...(validated.reason ? { reason: validated.reason } : {}) };
@@ -839,8 +847,8 @@ function assertPaymentProofUploadAllowed(user: VerifiedUser, order: Order): { is
   if (!isOwner && !isStaff) {
     throw new AuthorizationError(403, "No tienes permiso para adjuntar comprobante a este pedido");
   }
-  if (isStaff && !isOwner && order.negocioId && user.profile) {
-    requireNegocioAccess(user, order.negocioId);
+  if (isStaff && !isOwner) {
+    assertStaffOrderTenantAccess(user, order);
   }
   if (order.status === "cancelado") {
     throw new OrderValidationError("No se puede adjuntar comprobante a un pedido cancelado");
@@ -1011,9 +1019,7 @@ export async function updateOrderPaymentVerification(
     const snapshot = await transaction.get(reference);
     if (!snapshot.exists) throw new OrderNotFoundError();
     const current = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
-    if (current.negocioId && user.profile) {
-      requireNegocioAccess(user, current.negocioId);
-    }
+    assertStaffOrderTenantAccess(user, current);
     if (current.status === "cancelado" && validated.status === "verificado") {
       throw new OrderValidationError("No se puede aprobar el pago de un pedido cancelado");
     }
@@ -1091,9 +1097,7 @@ export async function assignOrderDriver(
     const snapshot = await transaction.get(reference);
     if (!snapshot.exists) throw new OrderNotFoundError();
     const current = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
-    if (!isGlobalAdmin(user) && user.profile?.negocioId?.trim()) {
-      requireNegocioAccess(user, current.negocioId?.trim() || DEFAULT_TENANT_ID);
-    }
+    assertStaffOrderTenantAccess(user, current);
     if (current.status === "cancelado" || current.status === "entregado") {
       throw new OrderValidationError(
         "No se puede asignar domiciliario a un pedido entregado o cancelado",

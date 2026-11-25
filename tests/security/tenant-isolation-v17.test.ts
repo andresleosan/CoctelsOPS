@@ -27,7 +27,14 @@ import {
   getCashDashboardStateForCaller,
   openCashShift,
 } from "@/lib/firestore/cash-register";
-import { getAdminOrder, listOrders, updateOrderStatus } from "@/lib/firestore/orders";
+import {
+  assignOrderDriver,
+  getAdminOrder,
+  getOrderForPaymentProofUpload,
+  listOrders,
+  updateOrderPaymentVerification,
+  updateOrderStatus,
+} from "@/lib/firestore/orders";
 import {
   assertRecipeTenantAccess,
   deleteRecipe,
@@ -915,6 +922,54 @@ describe("Paridad Multi-Tenant v1.7 (TASK-33)", () => {
       await expect(getAdminOrder(staffA, "ord-b")).rejects.toThrow(AuthorizationError);
       await expect(
         updateOrderStatus(staffA, "ord-b", { status: "confirmado" }),
+      ).rejects.toThrow(AuthorizationError);
+    });
+
+    it("bloquea verificación de comprobantes y asignación de repartidor cross-tenant o sobre pedidos legacy ajenos", async () => {
+      const { mem, staffA, unassignedStaff } = seedMultiTenantMemory();
+      mem.stores.pedidos["ord-legacy-delivery"] = {
+        clienteUid: "cli-legacy",
+        customerName: "Cliente Legacy Delivery",
+        phone: "3003333333",
+        address: "Calle 10 # 20-30",
+        serviceType: "delivery",
+        items: [],
+        subtotal: 12000,
+        total: 12000,
+        status: "pendiente",
+        createdAt: "2026-11-24T12:35:00.000Z",
+        updatedAt: "2026-11-24T12:35:00.000Z",
+        audit: { createdByUid: "cli-legacy", createdAt: "2026-11-24T12:35:00.000Z" },
+      };
+
+      // Staff de local-a no puede inspeccionar/aprobar comprobantes ni asignar repartidor en local-b ni en coctels-ops (legacy)
+      await expect(getOrderForPaymentProofUpload(staffA, "ord-b")).rejects.toThrow(AuthorizationError);
+      await expect(getOrderForPaymentProofUpload(staffA, "ord-legacy")).rejects.toThrow(
+        AuthorizationError,
+      );
+      await expect(
+        updateOrderPaymentVerification(staffA, "ord-b", { status: "verificado" }),
+      ).rejects.toThrow(AuthorizationError);
+      await expect(
+        updateOrderPaymentVerification(staffA, "ord-legacy", { status: "verificado" }),
+      ).rejects.toThrow(AuthorizationError);
+      await expect(
+        assignOrderDriver(staffA, "ord-b", { name: "Moto A" }),
+      ).rejects.toThrow(AuthorizationError);
+      await expect(
+        assignOrderDriver(staffA, "ord-legacy-delivery", { name: "Moto A" }),
+      ).rejects.toThrow(AuthorizationError);
+
+      // Staff sin negocioId asignado no puede acceder ni mutar pedidos de local-b
+      await expect(getAdminOrder(unassignedStaff, "ord-b")).rejects.toThrow(AuthorizationError);
+      await expect(
+        updateOrderStatus(unassignedStaff, "ord-b", { status: "confirmado" }),
+      ).rejects.toThrow(AuthorizationError);
+      await expect(
+        updateOrderPaymentVerification(unassignedStaff, "ord-b", { status: "verificado" }),
+      ).rejects.toThrow(AuthorizationError);
+      await expect(
+        assignOrderDriver(unassignedStaff, "ord-b", { name: "Moto X" }),
       ).rejects.toThrow(AuthorizationError);
     });
   });

@@ -63,7 +63,7 @@ test.describe("flujo integral de pedido de cliente (order flow)", () => {
       await page.getByLabel("Nombre Completo").fill("Cliente E2E Automatizado");
       await page.getByLabel("Teléfono de Contacto").fill("300 123 4567");
       await page.getByLabel("Dirección Exacta").fill("Carrera 43A # 1-50, El Poblado");
-      await page.getByLabel("Notas o instrucciones de entrega").fill("Dejar en recepción por favor");
+      await page.getByLabel("Indicaciones adicionales").fill("Dejar en recepción por favor");
 
       // 5. Confirmar el pedido
       const orderPromise = page.waitForResponse(

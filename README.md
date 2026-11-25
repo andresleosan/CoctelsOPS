@@ -65,6 +65,7 @@ Las variables privadas son obligatorias para las rutas protegidas y los scripts 
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`, con `\n` escapados si se entrega en una sola línea.
 - `DEEPSEEK_API_KEY`, clave privada obligatoria en el servidor para el asistente conversacional Opsy Bot.
+- `WOMPI_EVENTS_SECRET` y `BOLD_WEBHOOK_SECRET`, secretos privados en servidor para verificar la firma HMAC de webhooks de pasarela (`/api/webhooks/payments`).
 
 ## Sugeridor AI
 
@@ -165,7 +166,7 @@ pnpm test:e2e:local
 
 Los tests de Vitest excluyen `tests/e2e/**`. `pnpm test:e2e` sigue siendo la suite externa y requiere una aplicación levantada, navegadores instalados y variables de prueba; `pnpm test:e2e:local` es la vía reproducible contra emuladores locales y no necesita proyecto remoto. No uses credenciales reales en archivos de test ni reportes.
 
-La limpieza de datos temporales solo funciona contra emuladores locales: el runner define `E2E_CLEANUP=true`, `E2E_CLEANUP_CONFIRM=DELETE_E2E_DATA` y hosts loopback dinámicos. El hook exige ambos hosts, rechaza cualquier host que no sea `localhost` o `127.0.0.1` y falla cerrado antes de borrar si falta alguna variable. Elimina únicamente los pedidos, insumos, recetas, movimientos y usuarios generados en la ejecución emulada. Sin hosts loopback y confirmación explícita no borra nada; no puede apuntar a producción ni a un proyecto Firebase remoto.
+La limpieza de datos temporales solo funciona contra emuladores locales: el runner define `E2E_CLEANUP=true`, `E2E_CLEANUP_CONFIRM=DELETE_E2E_DATA` y hosts loopback dinámicos. El hook exige ambos hosts, rechaza cualquier host que no sea `localhost` o `127.0.0.1` y falla cerrado antes de borrar si falta alguna variable. Elimina únicamente los pedidos, insumos, recetas, movimientos, `cuentas_mesas`, `caja_turnos` y usuarios generados en la ejecución emulada. Sin hosts loopback y confirmación explícita no borra nada; no puede apuntar a producción ni a un proyecto Firebase remoto.
 
 El reporte de release con resultados, riesgos y limitaciones está en `docs/superpowers/reports/2026-08-04-auth-clientes-admin.md`.
 
@@ -175,14 +176,14 @@ El reporte de release con resultados, riesgos y limitaciones está en `docs/supe
 - Login y registro: `/login`, `/registro`, `/recuperar-acceso`, `/verificar-email`.
 - Cuenta e historial: `/cuenta`, `/cuenta/perfil`, `/cuenta/pedidos`, `/cuenta/pedidos/[id]`.
 - Carrito y checkout autenticado: `/cart`, `/checkout`, `/order-status/[id]`.
-- Reparto móvil: `/repartidor/[pedidoId]`.
+- Reparto móvil: `/repartidor` (cola multi-pedido) y `/repartidor/[pedidoId]`.
 - Panel operativo: `/admin/login` y `/admin/dashboard`.
 - Operación de barra (KDS + POS rápido): `/admin/pedidos`, `/admin/pedidos/[id]`, `/admin/mesas`, `/admin/caja`.
 - Gestión de menú y catálogo: `/admin/productos`, `/admin/productos/nueva`, `/admin/productos/[id]`, `/admin/categorias`.
 - Inventario, compras a proveedores y escandallo: `/admin/inventario`.
 - Crecimiento, CRM, reportes de rentabilidad y cierre de caja: `/admin/promociones`, `/admin/clientes`, `/admin/reportes`.
 - Administración, seguridad y configuración QR: `/admin/usuarios`, `/admin/roles`, `/admin/auditoria`, `/admin/notificaciones`, `/admin/configuracion`.
-- Asistente inteligente Opsy Bot: `/api/opsy/chat`.
+- APIs operativas públicas y webhooks: `/api/opsy/chat`, `/api/mesas/[mesaId]`, `/api/webhooks/payments`.
 
 ---
 
@@ -208,3 +209,18 @@ Evolución operativa y financiera completa (Fases 5–10), auditoría de segurid
    - Auditoría de dependencias (`pnpm audit --prod`) y validación de parches reproducibles (`zod@3.25.28`, `@opentelemetry/core` 1.25.1/1.30.1 y `@opentelemetry/propagator-jaeger`) mediante `pnpm run test:security`.
    - Cobertura E2E ampliada en `tests/e2e/pos-and-opsy.spec.ts` para Terminal POS rápido, escandallo con descuento automático y Opsy Bot con armado de carrito.
    - Paridad de empaquetado Cloudflare Pages/Worker verificada (`pnpm run build:cloudflare`) excluyendo `out/api` y delegando `/api/*` y métodos mutables al Worker `APP`.
+
+## 🚀 Notas de Lanzamiento (v1.7.0)
+
+Consolidación SaaS multi-tenant, autopedido QR sin fricción, verificación de pagos digitales y logística avanzada (Fase 11, `TASK-31` a `TASK-36`):
+
+1. **Autopedido QR en Mesa y Cuenta en Vivo (`TASK-31`):** Conexión de `/menu?mesa=X`, `/m/[slug]?mesa=X` y `/cart` con `cuentas_mesas` mediante `/api/mesas/[mesaId]` y `LiveTableTabSheet`, permitiendo enviar rondas sin fricción y solicitar cuenta o división en 1 tap.
+2. **Comprobantes de Transferencia en R2 y Verificación 1-Tap (`TASK-32`):** Subida validada por magic bytes en `/api/pedidos/[id]/comprobante` hacia Cloudflare R2 aislada por `negocioId` y aprobación/rechazo en 1 toque desde `/admin/caja`, KDS y `/admin/pedidos/[id]`.
+3. **Paridad Multi-Tenant Integral y KPIs en Vivo (`TASK-33`):** Aislamiento estricto por `negocioId` en `insumos`, `recetas`, `caja_turnos`, `cuentas_mesas` y `pedidos` (incluyendo verificación de comprobantes y asignación de repartidor sobre pedidos legacy), reglas `firestore.rules` endurecidas y tarjetas operativas de Caja/Mesas en `/admin/dashboard`.
+4. **Zonas de Cobertura Dinámicas y Cola del Repartidor (`TASK-34`):** Configuración de tarifas, tiempos estimados y domicilio gratis por zona en `/admin/configuracion` con recálculo en servidor, más tablero multi-pedido `/repartidor` con filtros por zona, estado y asignación.
+5. **Pasarela Wompi / Bold HMAC y Liquidación de Propinas (`TASK-35`):** Webhook firmado HMAC fail-closed en `/api/webhooks/payments` con idempotencia transaccional y liquidación de propinas/comisiones por turno de staff en `/admin/caja` y `/admin/reportes`.
+6. **Suite E2E Fase 11, Auditoría de Seguridad y Release (`TASK-36`):**
+   - Endurecimiento de acceso multi-tenant en `src/lib/firestore/orders.ts` (`getOrderForPaymentProofUpload`, `updateOrderPaymentVerification`, `assignOrderDriver`) validado en `tests/security/tenant-isolation-v17.test.ts`.
+   - Auditoría de dependencias (`pnpm audit --prod --audit-level high`) y verificación de parches locales mediante `pnpm run test:security`.
+   - Nueva suite E2E `tests/e2e/table-tab-and-payments.spec.ts` cubriendo autopedido QR, transferencias/comprobantes/webhook HMAC, zonas dinámicas + `/repartidor` y aislamiento multi-tenant.
+   - Empaquetado Cloudflare Pages/Worker verificado (`pnpm run build:cloudflare`).

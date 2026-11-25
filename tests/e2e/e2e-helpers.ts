@@ -11,11 +11,21 @@ export type E2ECleanupState = {
   productIds: string[];
   supplyIds: string[];
   recipeIds: string[];
+  tabIds: string[];
+  cashShiftIds: string[];
   registrationEmails: string[];
 };
 
 export function newE2ECleanupState(): E2ECleanupState {
-  return { orderIds: [], productIds: [], supplyIds: [], recipeIds: [], registrationEmails: [] };
+  return {
+    orderIds: [],
+    productIds: [],
+    supplyIds: [],
+    recipeIds: [],
+    tabIds: [],
+    cashShiftIds: [],
+    registrationEmails: [],
+  };
 }
 
 export function getE2EEnvironment() {
@@ -127,6 +137,8 @@ export async function cleanupE2EArtifacts(state: E2ECleanupState): Promise<void>
       state.productIds.length === 0 &&
       state.supplyIds.length === 0 &&
       state.recipeIds.length === 0 &&
+      state.tabIds.length === 0 &&
+      state.cashShiftIds.length === 0 &&
       state.registrationEmails.length === 0)
   ) {
     return;
@@ -191,6 +203,32 @@ export async function cleanupE2EArtifacts(state: E2ECleanupState): Promise<void>
       movements.docs.forEach((doc) => batch.delete(doc.ref));
       audits.docs.forEach((doc) => batch.delete(doc.ref));
       if (movements.size > 0 || audits.size > 0) await batch.commit();
+    }
+  }
+
+  if (state.tabIds.length > 0) {
+    await Promise.all(state.tabIds.map((tabId) => db.collection("cuentas_mesas").doc(tabId).delete()));
+    for (const tabId of state.tabIds) {
+      const [audits, notifications] = await Promise.all([
+        db.collection("auditoria").where("entityId", "==", tabId).get(),
+        db.collection("notificaciones").where("entityId", "==", tabId).get(),
+      ]);
+      const batch = db.batch();
+      audits.docs.forEach((doc) => batch.delete(doc.ref));
+      notifications.docs.forEach((doc) => batch.delete(doc.ref));
+      if (audits.size > 0 || notifications.size > 0) await batch.commit();
+    }
+  }
+
+  if (state.cashShiftIds.length > 0) {
+    await Promise.all(state.cashShiftIds.map((shiftId) => db.collection("caja_turnos").doc(shiftId).delete()));
+    for (const shiftId of state.cashShiftIds) {
+      const audits = await db.collection("auditoria").where("entityId", "==", shiftId).get();
+      if (audits.size > 0) {
+        const batch = db.batch();
+        audits.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+      }
     }
   }
 

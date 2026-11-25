@@ -158,7 +158,7 @@ test.describe("experiencia del carrito de compras y personalización", () => {
     await expect(decreaseBtn).toBeDisabled();
 
     // Eliminar el ítem con el botón de basura
-    const removeBtn = page.getByRole("button", { name: /eliminar fresa salvaje del carrito/i });
+    const removeBtn = page.getByRole("button", { name: /eliminar fresa salvaje del (carrito|pedido)/i });
     await removeBtn.click();
 
     // Debe mostrar la vista vacía con enlace al menú
