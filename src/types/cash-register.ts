@@ -1,4 +1,5 @@
 import type {
+  OrderPaymentGateway,
   OrderPaymentProof,
   OrderPaymentVerification,
   OrderStatus,
@@ -12,6 +13,96 @@ export type CashRegisterStatus = (typeof CASH_REGISTER_STATUSES)[number];
 
 export const CASH_EXPENSE_CATEGORIES = ["hielo", "fruta", "domicilio", "insumo", "otro"] as const;
 export type CashExpenseCategory = (typeof CASH_EXPENSE_CATEGORIES)[number];
+
+export const STAFF_TIP_ROLES = ["bartender", "mesero", "domiciliario"] as const;
+export type StaffTipRole = (typeof STAFF_TIP_ROLES)[number];
+
+export const TIP_SOURCES = ["efectivo", "digital"] as const;
+export type TipSource = (typeof TIP_SOURCES)[number];
+
+export const TIP_DISTRIBUTION_MODES = ["equitativo", "ponderado_rol"] as const;
+export type TipDistributionMode = (typeof TIP_DISTRIBUTION_MODES)[number];
+
+export type CashTipEntry = {
+  id: string;
+  amount: number;
+  source: TipSource;
+  channel?: PosDigitalChannel;
+  orderId?: string;
+  notes?: string;
+  createdAt: string;
+  createdByUid: string;
+  createdByName?: string;
+};
+
+export type StaffTipRecipientInput = {
+  id?: string;
+  name: string;
+  role: StaffTipRole;
+  weight?: number;
+  deliveriesCount?: number;
+  commissionPerDeliveryCop?: number;
+  fixedCommissionCop?: number;
+  paidFromCash?: boolean;
+};
+
+export type StaffTipAllocation = {
+  id: string;
+  name: string;
+  role: StaffTipRole;
+  weight: number;
+  sharePct: number;
+  tipShareCop: number;
+  deliveriesCount: number;
+  commissionPerDeliveryCop: number;
+  fixedCommissionCop: number;
+  commissionCop: number;
+  totalPayoutCop: number;
+  paidFromCash: boolean;
+};
+
+export type StaffRolePayoutTotal = {
+  role: StaffTipRole;
+  membersCount: number;
+  tipsCop: number;
+  commissionsCop: number;
+  totalPayoutCop: number;
+};
+
+export type ShiftStaffSettlement = {
+  mode: TipDistributionMode;
+  cashTipsCop: number;
+  digitalTipsCop: number;
+  totalTipsCop: number;
+  totalCommissionsCop: number;
+  totalPayoutCop: number;
+  paidFromCashCop: number;
+  paidNonCashCop: number;
+  byRole: StaffRolePayoutTotal[];
+  allocations: StaffTipAllocation[];
+};
+
+export type CloseCashShiftStaffSettlementInput = {
+  mode: TipDistributionMode;
+  extraCashTips?: number;
+  extraDigitalTips?: number;
+  recipients: StaffTipRecipientInput[];
+};
+
+export type AddCashTipInput = {
+  shiftId: string;
+  amount: number;
+  source: TipSource;
+  channel?: PosDigitalChannel;
+  orderId?: string;
+  notes?: string;
+};
+
+export type ShiftDriverDeliveryCount = {
+  name: string;
+  deliveriesCount: number;
+  totalCop: number;
+};
 
 export type CashExpense = {
   id: string;
@@ -57,6 +148,11 @@ export type CashReconciliationResult = {
   digitalExpected: number;
   digitalDeclared: number;
   digitalDifference: number;
+  cashTips?: number;
+  digitalTips?: number;
+  totalTips?: number;
+  totalCommissions?: number;
+  staffCashPayouts?: number;
 };
 
 export type CashShift = {
@@ -69,6 +165,8 @@ export type CashShift = {
   openingBase: number;
   openingNotes?: string;
   expenses: CashExpense[];
+  tips?: CashTipEntry[];
+  staffSettlement?: ShiftStaffSettlement;
   closedAt?: string;
   closedByUid?: string;
   closedByName?: string;
@@ -97,6 +195,7 @@ export type CloseCashShiftInput = {
   shiftId: string;
   countBreakdown: CashCountBreakdown;
   closingNotes?: string;
+  staffSettlement?: CloseCashShiftStaffSettlementInput;
 };
 
 export type CashTransferVerificationItem = {
@@ -114,5 +213,9 @@ export type CashTransferVerificationItem = {
   paymentVerification?: Pick<
     OrderPaymentVerification,
     "status" | "updatedAt" | "updatedByName" | "reason"
+  >;
+  paymentGateway?: Pick<
+    OrderPaymentGateway,
+    "provider" | "transactionId" | "status" | "confirmedAt"
   >;
 };

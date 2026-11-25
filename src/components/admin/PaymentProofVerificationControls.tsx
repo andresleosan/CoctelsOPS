@@ -22,6 +22,7 @@ import {
 } from "@/lib/orders/payment-verification";
 import { POS_DIGITAL_CHANNEL_LABELS } from "@/lib/orders/pos-calculator";
 import type {
+  OrderPaymentGateway,
   OrderPaymentProof,
   OrderPaymentVerification,
   PaymentVerificationStatus,
@@ -35,6 +36,10 @@ export type PaymentProofVerificationControlsProps = {
   paymentVerification?: Pick<
     OrderPaymentVerification,
     "status" | "updatedAt" | "updatedByName" | "reason"
+  >;
+  paymentGateway?: Pick<
+    OrderPaymentGateway,
+    "provider" | "transactionId" | "status" | "confirmedAt"
   >;
   digitalChannel?: PosDigitalChannel;
   digitalReference?: string;
@@ -52,6 +57,7 @@ export function PaymentProofVerificationControls({
   paymentVerificationStatus,
   paymentProof,
   paymentVerification,
+  paymentGateway,
   digitalChannel,
   digitalReference,
   isVerifying = false,
@@ -118,6 +124,11 @@ export function PaymentProofVerificationControls({
           {resolvedReference && (
             <span className="rounded bg-white px-2 py-0.5 text-[11px] font-mono text-slate-700 border border-slate-200">
               Ref: {resolvedReference}
+            </span>
+          )}
+          {paymentGateway && (
+            <span className="rounded bg-cyan-50 px-2 py-0.5 text-[11px] font-semibold text-cyan-900 border border-cyan-200">
+              Pasarela {paymentGateway.provider === "wompi" ? "Wompi" : "Bold"}
             </span>
           )}
         </div>

@@ -42,6 +42,8 @@ import type { DeliveryZoneConfig } from "@/types/operations";
 import type { OrderEscandalloSummary } from "@/types/recipes";
 import { DEFAULT_TENANT_ID } from "@/types/tenant";
 import {
+  PAYMENT_GATEWAY_PROVIDERS,
+  PAYMENT_GATEWAY_STATUSES,
   PAYMENT_VERIFICATION_STATUSES,
   POS_DIGITAL_CHANNELS,
   POS_PAYMENT_METHODS,
@@ -51,12 +53,15 @@ import {
   type Order,
   type OrderAssignedDriver,
   type OrderPaymentBreakdown,
+  type OrderPaymentGateway,
   type OrderPaymentProof,
   type OrderPaymentVerification,
   type OrderRating,
   type OrderRatingInput,
   type OrderStatus,
   type OrderStatusHistoryEntry,
+  type PaymentGatewayProvider,
+  type PaymentGatewayStatus,
   type PaymentProofContentType,
   type PaymentVerificationStatus,
   type PosDigitalChannel,
@@ -105,6 +110,58 @@ function isPaymentVerificationStatus(value: unknown): value is PaymentVerificati
     typeof value === "string" &&
     (PAYMENT_VERIFICATION_STATUSES as readonly string[]).includes(value)
   );
+}
+
+function isPaymentGatewayProvider(value: unknown): value is PaymentGatewayProvider {
+  return (
+    typeof value === "string" &&
+    (PAYMENT_GATEWAY_PROVIDERS as readonly string[]).includes(value)
+  );
+}
+
+function isPaymentGatewayStatus(value: unknown): value is PaymentGatewayStatus {
+  return (
+    typeof value === "string" &&
+    (PAYMENT_GATEWAY_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+export function parseOrderPaymentGateway(raw: unknown): OrderPaymentGateway | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  if (
+    !isPaymentGatewayProvider(candidate.provider) ||
+    !isPaymentGatewayStatus(candidate.status) ||
+    typeof candidate.transactionId !== "string" ||
+    !candidate.transactionId.trim()
+  ) {
+    return undefined;
+  }
+  const amountCop =
+    typeof candidate.amountCop === "number" && Number.isFinite(candidate.amountCop)
+      ? Math.max(0, Math.round(candidate.amountCop))
+      : 0;
+  const tipAmountCop =
+    typeof candidate.tipAmountCop === "number" &&
+    Number.isFinite(candidate.tipAmountCop) &&
+    candidate.tipAmountCop >= 0
+      ? Math.round(candidate.tipAmountCop)
+      : undefined;
+
+  return {
+    provider: candidate.provider,
+    transactionId: candidate.transactionId.trim(),
+    eventId: typeof candidate.eventId === "string" ? candidate.eventId : candidate.transactionId.trim(),
+    status: candidate.status,
+    amountCop,
+    currency: typeof candidate.currency === "string" && candidate.currency.trim() ? candidate.currency.trim() : "COP",
+    ...(isPosDigitalChannel(candidate.channel) ? { channel: candidate.channel } : {}),
+    ...(tipAmountCop !== undefined ? { tipAmountCop } : {}),
+    confirmedAt: typeof candidate.confirmedAt === "string" ? candidate.confirmedAt : "",
+    ...(typeof candidate.rawStatus === "string" && candidate.rawStatus.trim()
+      ? { rawStatus: candidate.rawStatus.trim() }
+      : {}),
+  };
 }
 
 function isProofContentType(value: unknown): value is PaymentProofContentType {
@@ -275,6 +332,9 @@ function toOrder(id: string, data: Record<string, unknown>): Order {
       : {}),
     ...(parsePaymentVerification(data.paymentVerification)
       ? { paymentVerification: parsePaymentVerification(data.paymentVerification) }
+      : {}),
+    ...(parseOrderPaymentGateway(data.paymentGateway)
+      ? { paymentGateway: parseOrderPaymentGateway(data.paymentGateway) }
       : {}),
     ...(typeof data.deliveryZoneId === "string" && data.deliveryZoneId.trim()
       ? { deliveryZoneId: data.deliveryZoneId.trim() }

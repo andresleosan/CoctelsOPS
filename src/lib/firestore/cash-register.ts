@@ -6,21 +6,29 @@ import { requireNegocioAccess, resolveAuthorizedNegocioId } from "@/lib/auth/per
 import {
   calculateCashReconciliation,
   calculateOrderPaymentChannels,
+  calculateStaffTipsDistribution,
+  sumCashTips,
 } from "@/lib/cash-register/calculator";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
+import { parseOrderPaymentGateway } from "@/lib/firestore/orders";
 import { getEffectivePaymentVerificationStatus } from "@/lib/orders/payment-verification";
 import type { VerifiedUser } from "@/types/auth";
 import type {
   AddCashExpenseInput,
+  AddCashTipInput,
   CashExpense,
   CashExpenseCategory,
   CashRegisterStatus,
   CashShift,
+  CashTipEntry,
   CashTransferVerificationItem,
   CloseCashShiftInput,
   OpenCashShiftInput,
   PaymentChannelTotals,
+  ShiftDriverDeliveryCount,
+  ShiftStaffSettlement,
+  TipSource,
 } from "@/types/cash-register";
 import {
   PAYMENT_VERIFICATION_STATUSES,
@@ -159,10 +167,47 @@ function parseExpense(raw: unknown): CashExpense | null {
   };
 }
 
+function parseTipEntry(raw: unknown): CashTipEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as Record<string, unknown>;
+  const amount =
+    typeof item.amount === "number" && Number.isFinite(item.amount)
+      ? Math.max(0, Math.round(item.amount))
+      : 0;
+  if (amount <= 0) return null;
+  const source: TipSource = item.source === "digital" ? "digital" : "efectivo";
+
+  return {
+    id: typeof item.id === "string" && item.id ? item.id : randomUUID(),
+    amount,
+    source,
+    ...(isPosDigitalChannel(item.channel) ? { channel: item.channel } : {}),
+    ...(typeof item.orderId === "string" && item.orderId.trim()
+      ? { orderId: item.orderId.trim() }
+      : {}),
+    ...(typeof item.notes === "string" && item.notes.trim() ? { notes: item.notes.trim() } : {}),
+    createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+    createdByUid: typeof item.createdByUid === "string" ? item.createdByUid : "",
+    ...(typeof item.createdByName === "string" && item.createdByName
+      ? { createdByName: item.createdByName }
+      : {}),
+  };
+}
+
+function parseStaffSettlement(raw: unknown): ShiftStaffSettlement | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const data = raw as Record<string, unknown>;
+  if (!Array.isArray(data.allocations)) return undefined;
+  return data as ShiftStaffSettlement;
+}
+
 function parseCashShiftDoc(id: string, data: Record<string, unknown>): CashShift {
   const status: CashRegisterStatus = data.status === "cerrada" ? "cerrada" : "abierta";
   const rawExpenses = Array.isArray(data.expenses) ? data.expenses : [];
   const expenses = rawExpenses.map(parseExpense).filter((item): item is CashExpense => item !== null);
+  const rawTips = Array.isArray(data.tips) ? data.tips : [];
+  const tips = rawTips.map(parseTipEntry).filter((item): item is CashTipEntry => item !== null);
+  const staffSettlement = parseStaffSettlement(data.staffSettlement);
 
   return {
     id,
@@ -174,6 +219,8 @@ function parseCashShiftDoc(id: string, data: Record<string, unknown>): CashShift
     openingBase: typeof data.openingBase === "number" && Number.isFinite(data.openingBase) ? Math.max(0, Math.round(data.openingBase)) : 0,
     ...(typeof data.openingNotes === "string" && data.openingNotes ? { openingNotes: data.openingNotes } : {}),
     expenses,
+    ...(tips.length > 0 ? { tips } : {}),
+    ...(staffSettlement ? { staffSettlement } : {}),
     ...(typeof data.closedAt === "string" ? { closedAt: data.closedAt } : {}),
     ...(typeof data.closedByUid === "string" ? { closedByUid: data.closedByUid } : {}),
     ...(typeof data.closedByName === "string" ? { closedByName: data.closedByName } : {}),
@@ -195,7 +242,10 @@ async function fetchOrdersForShiftWindow(
   negocioId: string,
   openedAt: string,
   closedAt?: string,
-): Promise<PaymentChannelTotals> {
+): Promise<{
+  liveSales: PaymentChannelTotals;
+  shiftDriverDeliveries: ShiftDriverDeliveryCount[];
+}> {
   const cleanNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
   const snapshot = await getAdminDb()
     .collection("pedidos")
@@ -206,6 +256,9 @@ async function fetchOrdersForShiftWindow(
   const orders: Array<
     Pick<Order, "createdAt" | "status" | "total" | "paymentMethod" | "paymentBreakdown">
   > = [];
+  const driverMap = new Map<string, ShiftDriverDeliveryCount>();
+  const openedMs = Date.parse(openedAt);
+  const closedMs = closedAt ? Date.parse(closedAt) : Number.POSITIVE_INFINITY;
 
   for (const doc of snapshot.docs) {
     const data = (doc.data() ?? {}) as Record<string, unknown>;
@@ -228,9 +281,41 @@ async function fetchOrdersForShiftWindow(
       paymentMethod,
       paymentBreakdown,
     });
+
+    const createdMs = Date.parse(createdAt);
+    if (
+      status !== "cancelado" &&
+      Number.isFinite(createdMs) &&
+      Number.isFinite(openedMs) &&
+      createdMs >= openedMs &&
+      createdMs <= closedMs &&
+      data.assignedDriver &&
+      typeof data.assignedDriver === "object"
+    ) {
+      const driverName =
+        typeof (data.assignedDriver as Record<string, unknown>).name === "string"
+          ? ((data.assignedDriver as Record<string, unknown>).name as string).trim()
+          : "";
+      if (driverName) {
+        const key = driverName.toLowerCase();
+        const existing = driverMap.get(key) ?? {
+          name: driverName,
+          deliveriesCount: 0,
+          totalCop: 0,
+        };
+        existing.deliveriesCount += 1;
+        existing.totalCop += Math.max(0, Math.round(total));
+        driverMap.set(key, existing);
+      }
+    }
   }
 
-  return calculateOrderPaymentChannels(orders, openedAt, closedAt);
+  return {
+    liveSales: calculateOrderPaymentChannels(orders, openedAt, closedAt),
+    shiftDriverDeliveries: [...driverMap.values()].sort(
+      (a, b) => b.deliveriesCount - a.deliveriesCount || a.name.localeCompare(b.name),
+    ),
+  };
 }
 
 const VERIFICATION_SORT_PRIORITY: Record<PaymentVerificationStatus, number> = {
@@ -266,6 +351,7 @@ export async function fetchTransferVerificationOrders(
     const paymentBreakdown = parsePaymentBreakdown(data.paymentBreakdown);
     const paymentProof = parseCustomerProof(data.paymentProof);
     const paymentVerification = parseVerificationSummary(data.paymentVerification);
+    const paymentGateway = parseOrderPaymentGateway(data.paymentGateway);
     const explicitStatus = isPaymentVerificationStatus(data.paymentVerificationStatus)
       ? data.paymentVerificationStatus
       : undefined;
@@ -279,9 +365,11 @@ export async function fetchTransferVerificationOrders(
 
     const digitalChannel =
       paymentProof?.channel ??
+      paymentGateway?.channel ??
       paymentBreakdown?.digitalMethod ??
       (isPosDigitalChannel(paymentMethod) ? paymentMethod : undefined);
-    const digitalReference = paymentProof?.reference ?? paymentBreakdown?.digitalReference;
+    const digitalReference =
+      paymentProof?.reference ?? paymentBreakdown?.digitalReference ?? paymentGateway?.transactionId;
 
     items.push({
       orderId: doc.id,
@@ -296,6 +384,16 @@ export async function fetchTransferVerificationOrders(
       paymentVerificationStatus: effectiveStatus,
       ...(paymentProof ? { paymentProof } : {}),
       ...(paymentVerification ? { paymentVerification } : {}),
+      ...(paymentGateway
+        ? {
+            paymentGateway: {
+              provider: paymentGateway.provider,
+              transactionId: paymentGateway.transactionId,
+              status: paymentGateway.status,
+              confirmedAt: paymentGateway.confirmedAt,
+            },
+          }
+        : {}),
     });
   }
 
@@ -333,6 +431,7 @@ export async function listCashShifts(
 export async function getCashDashboardState(negocioId: string = DEFAULT_TENANT_ID): Promise<{
   activeShift: CashShift | null;
   liveSales: PaymentChannelTotals | null;
+  shiftDriverDeliveries: ShiftDriverDeliveryCount[];
   history: CashShift[];
   transferOrders: CashTransferVerificationItem[];
 }> {
@@ -344,13 +443,14 @@ export async function getCashDashboardState(negocioId: string = DEFAULT_TENANT_I
   const activeShift = shifts.find((shift) => shift.status === "abierta") ?? null;
   const history = shifts.filter((shift) => shift.status === "cerrada").slice(0, 15);
 
-  const liveSales = activeShift
+  const shiftWindow = activeShift
     ? await fetchOrdersForShiftWindow(cleanNegocioId, activeShift.openedAt)
     : null;
 
   return {
     activeShift,
-    liveSales,
+    liveSales: shiftWindow?.liveSales ?? null,
+    shiftDriverDeliveries: shiftWindow?.shiftDriverDeliveries ?? [],
     history,
     transferOrders,
   };
@@ -362,6 +462,7 @@ export async function getCashDashboardStateForCaller(
 ): Promise<{
   activeShift: CashShift | null;
   liveSales: PaymentChannelTotals | null;
+  shiftDriverDeliveries: ShiftDriverDeliveryCount[];
   history: CashShift[];
   transferOrders: CashTransferVerificationItem[];
 }> {
@@ -389,6 +490,7 @@ export async function openCashShift(
     openingBase: Math.max(0, Math.round(input.openingBase)),
     ...(input.openingNotes?.trim() ? { openingNotes: input.openingNotes.trim() } : {}),
     expenses: [] as CashExpense[],
+    tips: [] as CashTipEntry[],
     updatedAt: now,
   };
 
@@ -478,6 +580,65 @@ export async function addCashExpense(
   return updatedShift;
 }
 
+export async function addCashTip(
+  user: VerifiedUser,
+  input: AddCashTipInput,
+): Promise<CashShift> {
+  const db = getAdminDb();
+  const ref = db.collection(COLLECTION).doc(input.shiftId);
+  const now = new Date().toISOString();
+  const actorName = actorDisplayName(user);
+
+  const newTip: CashTipEntry = {
+    id: randomUUID(),
+    amount: Math.max(0, Math.round(input.amount)),
+    source: input.source,
+    ...(input.source === "digital" && input.channel ? { channel: input.channel } : {}),
+    ...(input.orderId?.trim() ? { orderId: input.orderId.trim() } : {}),
+    ...(input.notes?.trim() ? { notes: input.notes.trim() } : {}),
+    createdAt: now,
+    createdByUid: user.uid,
+    createdByName: actorName,
+  };
+
+  let updatedShift: CashShift | null = null;
+
+  await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) {
+      throw new CashRegisterError(404, "El turno de caja no existe");
+    }
+
+    const current = parseCashShiftDoc(snap.id, (snap.data() ?? {}) as Record<string, unknown>);
+    requireNegocioAccess(user, current.negocioId);
+
+    if (current.status !== "abierta") {
+      throw new CashRegisterError(409, "No se pueden registrar propinas en un turno cerrado");
+    }
+
+    const tips = [...(current.tips ?? []), newTip];
+    transaction.update(ref, { tips, updatedAt: now });
+    writeAuditInTransaction(transaction, {
+      actorUid: user.uid,
+      action: "update",
+      module: "caja",
+      entityId: current.id,
+      changes: {
+        negocioId: current.negocioId,
+        tipAdded: newTip,
+      },
+    });
+
+    updatedShift = { ...current, tips, updatedAt: now };
+  });
+
+  if (!updatedShift) {
+    throw new CashRegisterError(500, "No se pudo registrar la propina del turno");
+  }
+
+  return updatedShift;
+}
+
 export async function closeCashShift(
   user: VerifiedUser,
   input: CloseCashShiftInput,
@@ -498,7 +659,11 @@ export async function closeCashShift(
     throw new CashRegisterError(409, "Este turno de caja ya fue cerrado");
   }
 
-  const salesSnapshot = await fetchOrdersForShiftWindow(preShift.negocioId, preShift.openedAt, closedAt);
+  const { liveSales: salesSnapshot } = await fetchOrdersForShiftWindow(
+    preShift.negocioId,
+    preShift.openedAt,
+    closedAt,
+  );
 
   let closedShift: CashShift | null = null;
 
@@ -514,11 +679,32 @@ export async function closeCashShift(
       throw new CashRegisterError(409, "Este turno de caja ya fue cerrado");
     }
 
+    const existingTips = current.tips ?? [];
+    const existingTipTotals = sumCashTips(existingTips);
+    let staffSettlement: ShiftStaffSettlement | undefined;
+
+    if (input.staffSettlement) {
+      const cashTipsCop =
+        existingTipTotals.cashTipsCop +
+        Math.max(0, Math.round(input.staffSettlement.extraCashTips ?? 0));
+      const digitalTipsCop =
+        existingTipTotals.digitalTipsCop +
+        Math.max(0, Math.round(input.staffSettlement.extraDigitalTips ?? 0));
+      staffSettlement = calculateStaffTipsDistribution({
+        mode: input.staffSettlement.mode,
+        cashTipsCop,
+        digitalTipsCop,
+        recipients: input.staffSettlement.recipients,
+      });
+    }
+
     const reconciliation = calculateCashReconciliation({
       openingBase: current.openingBase,
       sales: salesSnapshot,
       expenses: current.expenses,
       count: input.countBreakdown,
+      tips: existingTips,
+      ...(staffSettlement ? { staffSettlement } : {}),
     });
 
     const patch = {
@@ -527,6 +713,7 @@ export async function closeCashShift(
       closedByUid: user.uid,
       closedByName: actorName,
       ...(input.closingNotes?.trim() ? { closingNotes: input.closingNotes.trim() } : {}),
+      ...(staffSettlement ? { staffSettlement } : {}),
       salesSnapshot,
       countBreakdown: input.countBreakdown,
       reconciliation,
@@ -548,6 +735,13 @@ export async function closeCashShift(
         statusLabel: reconciliation.statusLabel,
         totalVentas: salesSnapshot.totalVentas,
         totalExpenses: reconciliation.totalExpenses,
+        ...(staffSettlement
+          ? {
+              totalTipsCop: staffSettlement.totalTipsCop,
+              totalCommissionsCop: staffSettlement.totalCommissionsCop,
+              paidFromCashCop: staffSettlement.paidFromCashCop,
+            }
+          : {}),
       },
     });
 

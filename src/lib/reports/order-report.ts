@@ -2,11 +2,13 @@ import "server-only";
 
 import { z } from "zod";
 
+import { aggregateShiftStaffSettlements } from "@/lib/cash-register/calculator";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { getCatalogProfitability } from "@/lib/firestore/recipes";
 import { normalizePresentationKey } from "@/lib/recipes/escandallo";
 import { classifyMarginHealth } from "@/lib/recipes/profitability";
-import type { OrderReport, OrderReportFilter, ReportOrder } from "@/types/operations";
+import type { CashShift } from "@/types/cash-register";
+import type { OrderReport, OrderReportFilter, ReportOrder, StaffTipsReportSummary } from "@/types/operations";
 import type {
   OrderEscandalloItemCost,
   OrderEscandalloSummary,
@@ -305,16 +307,53 @@ export async function generateOrderReport(
     });
   const report = aggregateOrders(orders);
 
+  let staffTipsSummary: StaffTipsReportSummary | undefined;
+  try {
+    const shiftsSnapshot = await getAdminDb()
+      .collection("caja_turnos")
+      .where("status", "==", "cerrada")
+      .get();
+    const closedShifts: Array<Pick<CashShift, "status" | "closedAt" | "staffSettlement">> = [];
+    for (const doc of shiftsSnapshot.docs) {
+      const data = (doc.data() ?? {}) as Record<string, unknown>;
+      const shiftNegocioId =
+        typeof data.negocioId === "string" && data.negocioId.trim()
+          ? data.negocioId.trim()
+          : DEFAULT_TENANT_ID;
+      if (options?.enforceTenantFilter && options?.negocioId && shiftNegocioId !== options.negocioId) {
+        continue;
+      }
+      const closedAt = typeof data.closedAt === "string" ? data.closedAt : "";
+      if (validatedFilter.from && closedAt && closedAt < validatedFilter.from) continue;
+      if (validatedFilter.to && closedAt && closedAt > validatedFilter.to) continue;
+      if (data.staffSettlement && typeof data.staffSettlement === "object") {
+        closedShifts.push({
+          status: "cerrada",
+          closedAt,
+          staffSettlement: data.staffSettlement as CashShift["staffSettlement"],
+        });
+      }
+    }
+    staffTipsSummary = aggregateShiftStaffSettlements(closedShifts);
+  } catch {
+    staffTipsSummary = undefined;
+  }
+
+  let catalogProfitability: OrderReport["catalogProfitability"];
   if (options?.includeCatalogProfitability) {
     try {
-      const { profitability: catalogProfitability } = await getCatalogProfitability(
+      const result = await getCatalogProfitability(
         options.negocioId ?? DEFAULT_TENANT_ID
       );
-      return { ...report, catalogProfitability };
+      catalogProfitability = result.profitability;
     } catch {
-      return report;
+      catalogProfitability = undefined;
     }
   }
 
-  return report;
+  return {
+    ...report,
+    ...(catalogProfitability ? { catalogProfitability } : {}),
+    ...(staffTipsSummary ? { staffTipsSummary } : {}),
+  };
 }

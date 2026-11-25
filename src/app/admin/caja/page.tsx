@@ -18,6 +18,12 @@ import { useCallback, useEffect, useState } from "react";
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import { PaymentProofVerificationControls } from "@/components/admin/PaymentProofVerificationControls";
 import { PermissionGate } from "@/components/admin/PermissionGate";
+import {
+  CloseShiftStaffSettlementSection,
+  ShiftTipsTrackerCard,
+  toStaffRecipientInputs,
+  type StaffTipRecipientDraft,
+} from "@/components/admin/StaffTipsSettlementPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import {
   EXPENSE_CATEGORY_LABELS,
+  STAFF_TIP_ROLE_LABELS,
   sumCashExpenses,
 } from "@/lib/cash-register/calculator";
 import { formatCop, sanitizeCopAmount } from "@/lib/orders/pos-calculator";
@@ -35,12 +42,16 @@ import {
   type CashShift,
   type CashTransferVerificationItem,
   type PaymentChannelTotals,
+  type ShiftDriverDeliveryCount,
+  type TipDistributionMode,
+  type TipSource,
 } from "@/types/cash-register";
-import type { PaymentVerificationStatus } from "@/types/orders";
+import type { PaymentVerificationStatus, PosDigitalChannel } from "@/types/orders";
 
 type CashDashboardResponse = {
   activeShift: CashShift | null;
   liveSales: PaymentChannelTotals | null;
+  shiftDriverDeliveries?: ShiftDriverDeliveryCount[];
   history: CashShift[];
   transferOrders?: CashTransferVerificationItem[];
   error?: string;
@@ -88,6 +99,7 @@ export default function CashRegisterPage() {
   const { user } = useAuth();
   const [activeShift, setActiveShift] = useState<CashShift | null>(null);
   const [liveSales, setLiveSales] = useState<PaymentChannelTotals | null>(null);
+  const [shiftDriverDeliveries, setShiftDriverDeliveries] = useState<ShiftDriverDeliveryCount[]>([]);
   const [history, setHistory] = useState<CashShift[]>([]);
   const [transferOrders, setTransferOrders] = useState<CashTransferVerificationItem[]>([]);
   const [transferFilter, setTransferFilter] = useState<"pendientes" | "todos">("pendientes");
@@ -118,6 +130,13 @@ export default function CashRegisterPage() {
   const [declaredTransferencia, setDeclaredTransferencia] = useState("");
   const [closingNotes, setClosingNotes] = useState("");
 
+  // Staff tips & commissions settlement
+  const [settleStaff, setSettleStaff] = useState(false);
+  const [tipMode, setTipMode] = useState<TipDistributionMode>("ponderado_rol");
+  const [extraCashTips, setExtraCashTips] = useState("");
+  const [extraDigitalTips, setExtraDigitalTips] = useState("");
+  const [staffRecipients, setStaffRecipients] = useState<StaffTipRecipientDraft[]>([]);
+
   const loadDashboard = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -132,6 +151,7 @@ export default function CashRegisterPage() {
       }
       setActiveShift(body.activeShift ?? null);
       setLiveSales(body.liveSales ?? null);
+      setShiftDriverDeliveries(body.shiftDriverDeliveries ?? []);
       setHistory(body.history ?? []);
       setTransferOrders(body.transferOrders ?? []);
     } catch (loadError) {
@@ -225,6 +245,48 @@ export default function CashRegisterPage() {
     }
   }
 
+  async function handleAddTip(tipInput: {
+    amount: number;
+    source: TipSource;
+    channel?: PosDigitalChannel;
+    notes?: string;
+  }) {
+    if (!user || !activeShift) return;
+    setSubmitting(true);
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const response = await fetch("/api/admin/caja", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${await user.getIdToken()}`,
+        },
+        body: JSON.stringify({
+          action: "tip",
+          shiftId: activeShift.id,
+          amount: tipInput.amount,
+          source: tipInput.source,
+          ...(tipInput.channel ? { channel: tipInput.channel } : {}),
+          ...(tipInput.notes ? { notes: tipInput.notes } : {}),
+        }),
+      });
+      const body = (await response.json()) as { shift?: CashShift; error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "No se pudo registrar la propina");
+      }
+      setSuccessMessage("Propina registrada en el turno.");
+      await loadDashboard();
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error ? submitError.message : "Error al registrar la propina.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handleCloseShift(event: React.FormEvent) {
     event.preventDefault();
     if (!user || !activeShift) return;
@@ -248,6 +310,15 @@ export default function CashRegisterPage() {
       if (declaredTransferencia.trim() !== "")
         countBreakdown.declaredTransferencia = sanitizeCopAmount(declaredTransferencia);
 
+      const staffSettlementPayload = settleStaff
+        ? {
+            mode: tipMode,
+            extraCashTips: sanitizeCopAmount(extraCashTips),
+            extraDigitalTips: sanitizeCopAmount(extraDigitalTips),
+            recipients: toStaffRecipientInputs(staffRecipients),
+          }
+        : undefined;
+
       const response = await fetch("/api/admin/caja", {
         method: "POST",
         headers: {
@@ -259,6 +330,7 @@ export default function CashRegisterPage() {
           shiftId: activeShift.id,
           countBreakdown,
           closingNotes: closingNotes.trim() || undefined,
+          ...(staffSettlementPayload ? { staffSettlement: staffSettlementPayload } : {}),
         }),
       });
       const body = (await response.json()) as { shift?: CashShift; error?: string };
@@ -273,6 +345,10 @@ export default function CashRegisterPage() {
       setDeclaredQr("");
       setDeclaredTransferencia("");
       setClosingNotes("");
+      setSettleStaff(false);
+      setExtraCashTips("");
+      setExtraDigitalTips("");
+      setStaffRecipients([]);
       if (body.shift) {
         setLastClosedShift(body.shift);
       }
@@ -403,49 +479,74 @@ export default function CashRegisterPage() {
                 {formatDateTime(lastClosedShift.closedAt)}
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs text-slate-500">Base Inicial</p>
-                <p className="mt-1 text-base font-bold text-slate-900">
-                  {formatCop(lastClosedShift.reconciliation.openingBase)}
-                </p>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Base Inicial</p>
+                  <p className="mt-1 text-base font-bold text-slate-900">
+                    {formatCop(lastClosedShift.reconciliation.openingBase)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Ventas Efectivo</p>
+                  <p className="mt-1 text-base font-bold text-emerald-700">
+                    +{formatCop(lastClosedShift.reconciliation.cashSales)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Salidas Barra</p>
+                  <p className="mt-1 text-base font-bold text-rose-700">
+                    -{formatCop(lastClosedShift.reconciliation.totalExpenses)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">Efectivo Esperado</p>
+                  <p className="mt-1 text-base font-bold text-slate-900">
+                    {formatCop(lastClosedShift.reconciliation.expectedCash)}
+                  </p>
+                </div>
+                <div className="col-span-2 rounded-lg border border-slate-200 bg-white p-3 sm:col-span-1">
+                  <p className="text-xs text-slate-500">Contado / Diferencia</p>
+                  <p className="mt-1 text-base font-bold text-slate-900">
+                    {formatCop(lastClosedShift.reconciliation.declaredCash)}{" "}
+                    <span
+                      className={
+                        lastClosedShift.reconciliation.cashDifference === 0
+                          ? "text-emerald-700"
+                          : lastClosedShift.reconciliation.cashDifference > 0
+                            ? "text-cyan-700"
+                            : "text-rose-700"
+                      }
+                    >
+                      ({lastClosedShift.reconciliation.cashDifference >= 0 ? "+" : "-"}
+                      {formatCop(Math.abs(lastClosedShift.reconciliation.cashDifference))})
+                    </span>
+                  </p>
+                </div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs text-slate-500">Ventas Efectivo</p>
-                <p className="mt-1 text-base font-bold text-emerald-700">
-                  +{formatCop(lastClosedShift.reconciliation.cashSales)}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs text-slate-500">Salidas Barra</p>
-                <p className="mt-1 text-base font-bold text-rose-700">
-                  -{formatCop(lastClosedShift.reconciliation.totalExpenses)}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="text-xs text-slate-500">Efectivo Esperado</p>
-                <p className="mt-1 text-base font-bold text-slate-900">
-                  {formatCop(lastClosedShift.reconciliation.expectedCash)}
-                </p>
-              </div>
-              <div className="col-span-2 rounded-lg border border-slate-200 bg-white p-3 sm:col-span-1">
-                <p className="text-xs text-slate-500">Contado / Diferencia</p>
-                <p className="mt-1 text-base font-bold text-slate-900">
-                  {formatCop(lastClosedShift.reconciliation.declaredCash)}{" "}
-                  <span
-                    className={
-                      lastClosedShift.reconciliation.cashDifference === 0
-                        ? "text-emerald-700"
-                        : lastClosedShift.reconciliation.cashDifference > 0
-                          ? "text-cyan-700"
-                          : "text-rose-700"
-                    }
-                  >
-                    ({lastClosedShift.reconciliation.cashDifference >= 0 ? "+" : "-"}
-                    {formatCop(Math.abs(lastClosedShift.reconciliation.cashDifference))})
-                  </span>
-                </p>
-              </div>
+
+              {lastClosedShift.staffSettlement && (
+                <div className="rounded-lg border border-amber-200 bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-900">
+                    <span>
+                      Liquidación Staff: Propinas {formatCop(lastClosedShift.staffSettlement.totalTipsCop)} · Comisiones{" "}
+                      {formatCop(lastClosedShift.staffSettlement.totalCommissionsCop)}
+                    </span>
+                    <span className="text-rose-700">
+                      Sale de caja: -{formatCop(lastClosedShift.staffSettlement.paidFromCashCop)}
+                    </span>
+                  </div>
+                  {lastClosedShift.staffSettlement.allocations.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {lastClosedShift.staffSettlement.allocations.map((item) => (
+                        <Badge key={item.id} variant="outline" className="border-slate-200 bg-slate-50 text-slate-800">
+                          {item.name} ({STAFF_TIP_ROLE_LABELS[item.role]}): {formatCop(item.totalPayoutCop)}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -653,6 +754,21 @@ export default function CashRegisterPage() {
                           />
                         </div>
                       </div>
+
+                      <CloseShiftStaffSettlementSection
+                        enabled={settleStaff}
+                        onToggleEnabled={setSettleStaff}
+                        mode={tipMode}
+                        onChangeMode={setTipMode}
+                        extraCashTips={extraCashTips}
+                        onChangeExtraCashTips={setExtraCashTips}
+                        extraDigitalTips={extraDigitalTips}
+                        onChangeExtraDigitalTips={setExtraDigitalTips}
+                        recipients={staffRecipients}
+                        onChangeRecipients={setStaffRecipients}
+                        recordedTips={activeShift.tips ?? []}
+                        shiftDriverDeliveries={shiftDriverDeliveries}
+                      />
 
                       <div className="space-y-2">
                         <Label htmlFor="closing-notes" className="text-slate-800">
@@ -909,6 +1025,12 @@ export default function CashRegisterPage() {
                 </CardContent>
               </Card>
             </div>
+
+            <ShiftTipsTrackerCard
+              tips={activeShift.tips ?? []}
+              submitting={submitting}
+              onAddTip={handleAddTip}
+            />
           </div>
         )}
 
@@ -1006,6 +1128,7 @@ export default function CashRegisterPage() {
                       paymentVerificationStatus={item.paymentVerificationStatus}
                       paymentProof={item.paymentProof}
                       paymentVerification={item.paymentVerification}
+                      paymentGateway={item.paymentGateway}
                       digitalChannel={item.digitalChannel}
                       digitalReference={item.digitalReference}
                       isVerifying={verifyingOrderId === item.orderId}
@@ -1050,6 +1173,12 @@ export default function CashRegisterPage() {
                         <p className="text-xs text-slate-600">
                           Abrió: {shift.openedByName} · Cerró: {shift.closedByName ?? "—"}
                         </p>
+                        {shift.staffSettlement && shift.staffSettlement.totalPayoutCop > 0 && (
+                          <p className="text-xs font-medium text-amber-800">
+                            Propinas y comisiones: {formatCop(shift.staffSettlement.totalPayoutCop)} (
+                            {shift.staffSettlement.allocations.length} integrantes)
+                          </p>
+                        )}
                         {shift.closingNotes && (
                           <p className="text-xs italic text-slate-500">“{shift.closingNotes}”</p>
                         )}

@@ -3,6 +3,7 @@
 import {
   BarChart3,
   Check,
+  Coins,
   Copy,
   Download,
   FileSpreadsheet,
@@ -23,6 +24,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
+import { STAFF_TIP_ROLE_LABELS } from "@/lib/cash-register/calculator";
 import {
   buildShiftClosingWhatsAppMessage,
   buildShiftClosingWhatsAppUrl,
@@ -621,6 +623,102 @@ export default function ReportsPage() {
               orderProfitability={report.profitability}
               catalogProfitability={report.catalogProfitability ?? fallbackCatalogProfitability}
             />
+
+            {report.staffTipsSummary && report.staffTipsSummary.shiftsWithSettlement > 0 && (
+              <Card className="border-slate-200 bg-white shadow-sm">
+                <CardHeader>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-lg font-bold text-slate-950">
+                        <Coins className="h-5 w-5 text-amber-600" aria-hidden="true" />
+                        Liquidación de Propinas y Comisiones de Staff
+                      </CardTitle>
+                      <CardDescription className="text-xs text-slate-600">
+                        Consolidado de {report.staffTipsSummary.shiftsWithSettlement}{" "}
+                        {report.staffTipsSummary.shiftsWithSettlement === 1
+                          ? "turno cerrado con liquidación"
+                          : "turnos cerrados con liquidación"}
+                      </CardDescription>
+                    </div>
+                    <Badge variant="outline" className="border-amber-300 bg-amber-50 font-bold text-amber-950">
+                      Total pagado: {formatCurrency(report.staffTipsSummary.totalPayoutCop)}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Total Propinas</p>
+                      <p className="mt-1 text-base font-extrabold text-amber-800">
+                        {formatCurrency(report.staffTipsSummary.totalTipsCop)}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Efec {formatCurrency(report.staffTipsSummary.cashTipsCop)} · Dig{" "}
+                        {formatCurrency(report.staffTipsSummary.digitalTipsCop)}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Total Comisiones</p>
+                      <p className="mt-1 text-base font-extrabold text-cyan-800">
+                        {formatCurrency(report.staffTipsSummary.totalCommissionsCop)}
+                      </p>
+                      <p className="text-[11px] text-slate-500">Domicilios y bonos</p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Egreso desde Caja</p>
+                      <p className="mt-1 text-base font-extrabold text-rose-700">
+                        {formatCurrency(report.staffTipsSummary.paidFromCashCop)}
+                      </p>
+                      <p className="text-[11px] text-slate-500">Descontado de efectivo</p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">Roles Liquidados</p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {report.staffTipsSummary.byRole.map((roleRow) => (
+                          <Badge key={roleRow.role} variant="secondary" className="text-[11px]">
+                            {STAFF_TIP_ROLE_LABELS[roleRow.role]}: {formatCurrency(roleRow.totalPayoutCop)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {report.staffTipsSummary.byStaff.length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Detalle por Integrante
+                      </h3>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {report.staffTipsSummary.byStaff.map((member) => (
+                          <div
+                            key={`${member.role}-${member.name}`}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs"
+                          >
+                            <div>
+                              <p className="font-bold text-slate-900">{member.name}</p>
+                              <p className="text-slate-600">
+                                {STAFF_TIP_ROLE_LABELS[member.role]} · {member.shiftsCount} turno(s)
+                                {member.deliveriesCount > 0
+                                  ? ` · ${member.deliveriesCount} entregas`
+                                  : ""}
+                              </p>
+                            </div>
+                            <div className="text-right font-mono">
+                              <p className="font-extrabold text-slate-950">
+                                {formatCurrency(member.totalPayoutCop)}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                Prop {formatCurrency(member.tipsCop)} · Com {formatCurrency(member.commissionsCop)}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </>
         )}
       </div>

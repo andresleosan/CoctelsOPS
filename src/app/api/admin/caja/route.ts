@@ -4,6 +4,7 @@ import { requirePermission } from "@/lib/auth/permissions";
 import { toAuthorizationResponse } from "@/lib/auth/verify-request";
 import {
   addCashExpense,
+  addCashTip,
   CashRegisterError,
   closeCashShift,
   getCashDashboardStateForCaller,
@@ -67,10 +68,23 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ shift });
     }
 
+    if (parsed.action === "tip") {
+      const shift = await addCashTip(actor, {
+        shiftId: parsed.shiftId,
+        amount: parsed.amount,
+        source: parsed.source,
+        channel: parsed.channel,
+        orderId: parsed.orderId,
+        notes: parsed.notes,
+      });
+      return Response.json({ shift });
+    }
+
     const shift = await closeCashShift(actor, {
       shiftId: parsed.shiftId,
       countBreakdown: parsed.countBreakdown,
       closingNotes: parsed.closingNotes,
+      staffSettlement: parsed.staffSettlement,
     });
     return Response.json({ shift });
   } catch (error) {

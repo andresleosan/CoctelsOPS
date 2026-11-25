@@ -1,6 +1,7 @@
 import type {
   CustomerOrder,
   CustomerOrderAssignedDriver,
+  CustomerOrderPaymentGateway,
   CustomerOrderPaymentProof,
   CustomerOrderPaymentVerification,
   CustomerStatusHistoryEntry,
@@ -12,6 +13,7 @@ export function toCustomerOrder(order: Order): CustomerOrder {
   const statusHistory = visibleOrder.statusHistory;
   const rawPaymentProof = visibleOrder.paymentProof;
   const rawPaymentVerification = visibleOrder.paymentVerification;
+  const rawPaymentGateway = visibleOrder.paymentGateway;
   const rawAssignedDriver = visibleOrder.assignedDriver;
 
   delete visibleOrder.audit;
@@ -22,6 +24,7 @@ export function toCustomerOrder(order: Order): CustomerOrder {
   delete visibleOrder.suppliesDepletedOnStatus;
   delete visibleOrder.paymentProof;
   delete visibleOrder.paymentVerification;
+  delete visibleOrder.paymentGateway;
   delete visibleOrder.assignedDriver;
 
   const visibleHistory: CustomerStatusHistoryEntry[] = (
@@ -51,6 +54,15 @@ export function toCustomerOrder(order: Order): CustomerOrder {
       }
     : undefined;
 
+  const paymentGateway: CustomerOrderPaymentGateway | undefined = rawPaymentGateway
+    ? {
+        provider: rawPaymentGateway.provider,
+        status: rawPaymentGateway.status,
+        confirmedAt: rawPaymentGateway.confirmedAt,
+        ...(rawPaymentGateway.channel ? { channel: rawPaymentGateway.channel } : {}),
+      }
+    : undefined;
+
   const assignedDriver: CustomerOrderAssignedDriver | undefined = rawAssignedDriver
     ? {
         name: rawAssignedDriver.name,
@@ -63,6 +75,7 @@ export function toCustomerOrder(order: Order): CustomerOrder {
     statusHistory: visibleHistory,
     ...(paymentProof ? { paymentProof } : {}),
     ...(paymentVerification ? { paymentVerification } : {}),
+    ...(paymentGateway ? { paymentGateway } : {}),
     ...(assignedDriver ? { assignedDriver } : {}),
   } as CustomerOrder;
 }

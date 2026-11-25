@@ -35,6 +35,36 @@ export const PAYMENT_VERIFICATION_STATUSES = [
 ] as const;
 export type PaymentVerificationStatus = (typeof PAYMENT_VERIFICATION_STATUSES)[number];
 
+export const PAYMENT_GATEWAY_PROVIDERS = ["wompi", "bold"] as const;
+export type PaymentGatewayProvider = (typeof PAYMENT_GATEWAY_PROVIDERS)[number];
+
+export const PAYMENT_GATEWAY_STATUSES = [
+  "approved",
+  "declined",
+  "voided",
+  "pending",
+  "error",
+] as const;
+export type PaymentGatewayStatus = (typeof PAYMENT_GATEWAY_STATUSES)[number];
+
+export type OrderPaymentGateway = {
+  provider: PaymentGatewayProvider;
+  transactionId: string;
+  eventId: string;
+  status: PaymentGatewayStatus;
+  amountCop: number;
+  currency: string;
+  channel?: PosDigitalChannel;
+  tipAmountCop?: number;
+  confirmedAt: string;
+  rawStatus?: string;
+};
+
+export type CustomerOrderPaymentGateway = Pick<
+  OrderPaymentGateway,
+  "provider" | "status" | "channel" | "confirmedAt"
+>;
+
 export type PaymentProofContentType = "image/jpeg" | "image/png" | "image/webp";
 
 export type OrderPaymentProof = {
@@ -191,6 +221,7 @@ export type Order = {
   paymentVerificationStatus?: PaymentVerificationStatus;
   paymentProof?: OrderPaymentProof;
   paymentVerification?: OrderPaymentVerification;
+  paymentGateway?: OrderPaymentGateway;
   deliveryZoneId?: string;
   deliveryZoneName?: string;
   deliveryFee?: number;
@@ -217,11 +248,13 @@ export type CustomerOrder = Omit<
   | "suppliesDepletedOnStatus"
   | "paymentProof"
   | "paymentVerification"
+  | "paymentGateway"
   | "assignedDriver"
 > & {
   statusHistory: CustomerStatusHistoryEntry[];
   rating?: OrderRating;
   paymentProof?: CustomerOrderPaymentProof;
   paymentVerification?: CustomerOrderPaymentVerification;
+  paymentGateway?: CustomerOrderPaymentGateway;
   assignedDriver?: CustomerOrderAssignedDriver;
 };

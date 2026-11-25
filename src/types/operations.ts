@@ -1,3 +1,4 @@
+import type { StaffTipRole } from "@/types/cash-register";
 import type { OrderStatus } from "@/types/orders";
 import type {
   CatalogProfitabilityReport,
@@ -177,6 +178,36 @@ export type ReportOrder = {
 
 export type OrderReportFilter = { from?: string; to?: string; status?: OrderStatus };
 
+export type StaffTipsRoleSummary = {
+  role: StaffTipRole;
+  membersCount: number;
+  tipsCop: number;
+  commissionsCop: number;
+  totalPayoutCop: number;
+};
+
+export type StaffTipsMemberSummary = {
+  name: string;
+  role: StaffTipRole;
+  shiftsCount: number;
+  deliveriesCount: number;
+  tipsCop: number;
+  commissionsCop: number;
+  totalPayoutCop: number;
+};
+
+export type StaffTipsReportSummary = {
+  shiftsWithSettlement: number;
+  totalTipsCop: number;
+  cashTipsCop: number;
+  digitalTipsCop: number;
+  totalCommissionsCop: number;
+  totalPayoutCop: number;
+  paidFromCashCop: number;
+  byRole: StaffTipsRoleSummary[];
+  byStaff: StaffTipsMemberSummary[];
+};
+
 export type OrderReport = {
   orderCount: number;
   totalRevenue: number;
@@ -188,4 +219,5 @@ export type OrderReport = {
   ratingCount?: number;
   profitability?: OrderProfitabilitySummary;
   catalogProfitability?: CatalogProfitabilityReport;
+  staffTipsSummary?: StaffTipsReportSummary;
 };

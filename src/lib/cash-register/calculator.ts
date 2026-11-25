@@ -4,8 +4,22 @@ import type {
   CashExpenseCategory,
   CashReconciliationResult,
   CashReconciliationStatus,
+  CashShift,
+  CashTipEntry,
   PaymentChannelTotals,
+  ShiftStaffSettlement,
+  StaffRolePayoutTotal,
+  StaffTipAllocation,
+  StaffTipRecipientInput,
+  StaffTipRole,
+  TipDistributionMode,
 } from "@/types/cash-register";
+import { STAFF_TIP_ROLES } from "@/types/cash-register";
+import type {
+  StaffTipsMemberSummary,
+  StaffTipsReportSummary,
+  StaffTipsRoleSummary,
+} from "@/types/operations";
 import type { Order, PosDigitalChannel } from "@/types/orders";
 
 export const EXPENSE_CATEGORY_LABELS: Record<CashExpenseCategory, string> = {
@@ -14,6 +28,23 @@ export const EXPENSE_CATEGORY_LABELS: Record<CashExpenseCategory, string> = {
   domicilio: "Domicilios",
   insumo: "Insumos barra",
   otro: "Otros gastos",
+};
+
+export const STAFF_TIP_ROLE_LABELS: Record<StaffTipRole, string> = {
+  bartender: "Bartender",
+  mesero: "Mesero",
+  domiciliario: "Domiciliario",
+};
+
+export const DEFAULT_ROLE_TIP_WEIGHTS: Record<StaffTipRole, number> = {
+  bartender: 50,
+  mesero: 35,
+  domiciliario: 15,
+};
+
+export const TIP_DISTRIBUTION_MODE_LABELS: Record<TipDistributionMode, string> = {
+  equitativo: "Equitativo",
+  ponderado_rol: "Por rol (50 / 35 / 15)",
 };
 
 function toCop(value: unknown): number {
@@ -128,16 +159,211 @@ export function sumCashExpenses(expenses: ReadonlyArray<Pick<CashExpense, "amoun
   return expenses.reduce((sum, expense) => sum + toCop(expense.amount), 0);
 }
 
+export function sumCashTips(
+  tips: ReadonlyArray<Pick<CashTipEntry, "amount" | "source">>,
+): { cashTipsCop: number; digitalTipsCop: number; totalTipsCop: number } {
+  let cashTipsCop = 0;
+  let digitalTipsCop = 0;
+
+  for (const tip of tips) {
+    const amount = toCop(tip.amount);
+    if (tip.source === "digital") {
+      digitalTipsCop += amount;
+    } else {
+      cashTipsCop += amount;
+    }
+  }
+
+  return {
+    cashTipsCop,
+    digitalTipsCop,
+    totalTipsCop: cashTipsCop + digitalTipsCop,
+  };
+}
+
+export function calculateStaffTipsDistribution(input: {
+  mode: TipDistributionMode;
+  cashTipsCop: number;
+  digitalTipsCop: number;
+  recipients: ReadonlyArray<StaffTipRecipientInput>;
+}): ShiftStaffSettlement {
+  const cashTipsCop = toCop(input.cashTipsCop);
+  const digitalTipsCop = toCop(input.digitalTipsCop);
+  const totalTipsCop = cashTipsCop + digitalTipsCop;
+
+  const cleanRecipients = input.recipients
+    .map((recipient, index) => ({
+      id: recipient.id?.trim() || `staff-${index + 1}`,
+      name: recipient.name.trim(),
+      role: recipient.role,
+      explicitWeight:
+        typeof recipient.weight === "number" && Number.isFinite(recipient.weight) && recipient.weight > 0
+          ? recipient.weight
+          : undefined,
+      deliveriesCount: Math.max(0, Math.round(recipient.deliveriesCount ?? 0)),
+      commissionPerDeliveryCop: toCop(recipient.commissionPerDeliveryCop ?? 0),
+      fixedCommissionCop: toCop(recipient.fixedCommissionCop ?? 0),
+      paidFromCash: recipient.paidFromCash !== false,
+    }))
+    .filter((recipient) => recipient.name.length > 0);
+
+  if (cleanRecipients.length === 0) {
+    return {
+      mode: input.mode,
+      cashTipsCop,
+      digitalTipsCop,
+      totalTipsCop,
+      totalCommissionsCop: 0,
+      totalPayoutCop: 0,
+      paidFromCashCop: 0,
+      paidNonCashCop: 0,
+      byRole: [],
+      allocations: [],
+    };
+  }
+
+  const roleCounts: Record<StaffTipRole, number> = {
+    bartender: 0,
+    mesero: 0,
+    domiciliario: 0,
+  };
+  for (const recipient of cleanRecipients) {
+    roleCounts[recipient.role] += 1;
+  }
+
+  const weights = cleanRecipients.map((recipient) => {
+    if (input.mode === "equitativo") {
+      return 1;
+    }
+    if (recipient.explicitWeight !== undefined) {
+      return recipient.explicitWeight;
+    }
+    const countInRole = Math.max(1, roleCounts[recipient.role]);
+    return DEFAULT_ROLE_TIP_WEIGHTS[recipient.role] / countInRole;
+  });
+
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+  const exactShares = weights.map((weight) =>
+    totalWeight > 0 ? (totalTipsCop * weight) / totalWeight : 0,
+  );
+  const floorShares = exactShares.map((share) => Math.floor(share));
+  const assignedSum = floorShares.reduce((sum, val) => sum + val, 0);
+  let remainderCop = Math.max(0, totalTipsCop - assignedSum);
+
+  if (remainderCop > 0) {
+    const orderByRemainder = exactShares
+      .map((exact, index) => ({ index, frac: exact - floorShares[index] }))
+      .sort((a, b) => b.frac - a.frac || a.index - b.index);
+
+    for (const item of orderByRemainder) {
+      if (remainderCop <= 0) break;
+      floorShares[item.index] += 1;
+      remainderCop -= 1;
+    }
+  }
+
+  const allocations: StaffTipAllocation[] = cleanRecipients.map((recipient, index) => {
+    const weight = Number(weights[index].toFixed(4));
+    const sharePct =
+      totalWeight > 0 ? Number(((weights[index] / totalWeight) * 100).toFixed(1)) : 0;
+    const tipShareCop = floorShares[index];
+    const commissionCop =
+      recipient.deliveriesCount * recipient.commissionPerDeliveryCop +
+      recipient.fixedCommissionCop;
+    const totalPayoutCop = tipShareCop + commissionCop;
+
+    return {
+      id: recipient.id,
+      name: recipient.name,
+      role: recipient.role,
+      weight,
+      sharePct,
+      tipShareCop,
+      deliveriesCount: recipient.deliveriesCount,
+      commissionPerDeliveryCop: recipient.commissionPerDeliveryCop,
+      fixedCommissionCop: recipient.fixedCommissionCop,
+      commissionCop,
+      totalPayoutCop,
+      paidFromCash: recipient.paidFromCash,
+    };
+  });
+
+  const roleMap = new Map<StaffTipRole, StaffRolePayoutTotal>();
+  let totalCommissionsCop = 0;
+  let totalPayoutCop = 0;
+  let paidFromCashCop = 0;
+  let paidNonCashCop = 0;
+
+  for (const allocation of allocations) {
+    totalCommissionsCop += allocation.commissionCop;
+    totalPayoutCop += allocation.totalPayoutCop;
+    if (allocation.paidFromCash) {
+      paidFromCashCop += allocation.totalPayoutCop;
+    } else {
+      paidNonCashCop += allocation.totalPayoutCop;
+    }
+
+    const current = roleMap.get(allocation.role) ?? {
+      role: allocation.role,
+      membersCount: 0,
+      tipsCop: 0,
+      commissionsCop: 0,
+      totalPayoutCop: 0,
+    };
+    current.membersCount += 1;
+    current.tipsCop += allocation.tipShareCop;
+    current.commissionsCop += allocation.commissionCop;
+    current.totalPayoutCop += allocation.totalPayoutCop;
+    roleMap.set(allocation.role, current);
+  }
+
+  const byRole: StaffRolePayoutTotal[] = STAFF_TIP_ROLES.flatMap((role) => {
+    const entry = roleMap.get(role);
+    return entry ? [entry] : [];
+  });
+
+  return {
+    mode: input.mode,
+    cashTipsCop,
+    digitalTipsCop,
+    totalTipsCop,
+    totalCommissionsCop,
+    totalPayoutCop,
+    paidFromCashCop,
+    paidNonCashCop,
+    byRole,
+    allocations,
+  };
+}
+
 export function calculateCashReconciliation(input: {
   openingBase: number;
   sales: PaymentChannelTotals;
   expenses: ReadonlyArray<Pick<CashExpense, "amount">>;
   count: CashCountBreakdown;
+  tips?: ReadonlyArray<Pick<CashTipEntry, "amount" | "source">>;
+  staffSettlement?: Pick<
+    ShiftStaffSettlement,
+    "cashTipsCop" | "digitalTipsCop" | "totalTipsCop" | "totalCommissionsCop" | "paidFromCashCop"
+  >;
 }): CashReconciliationResult {
   const openingBase = toCop(input.openingBase);
   const cashSales = toCop(input.sales.efectivo);
   const totalExpenses = sumCashExpenses(input.expenses);
-  const expectedCash = openingBase + cashSales - totalExpenses;
+
+  const tipTotals = input.staffSettlement
+    ? {
+        cashTipsCop: toCop(input.staffSettlement.cashTipsCop),
+        digitalTipsCop: toCop(input.staffSettlement.digitalTipsCop),
+        totalTipsCop: toCop(input.staffSettlement.totalTipsCop),
+      }
+    : sumCashTips(input.tips ?? []);
+
+  const staffCashPayouts = toCop(input.staffSettlement?.paidFromCashCop ?? 0);
+  const totalCommissions = toCop(input.staffSettlement?.totalCommissionsCop ?? 0);
+
+  const expectedCash =
+    openingBase + cashSales - totalExpenses + tipTotals.cashTipsCop - staffCashPayouts;
   const declaredCash = toCop(input.count.declaredCash);
   const cashDifference = declaredCash - expectedCash;
 
@@ -148,7 +374,8 @@ export function calculateCashReconciliation(input: {
     toCop(input.sales.nequi) +
     toCop(input.sales.daviplata) +
     toCop(input.sales.qr) +
-    toCop(input.sales.transferencia);
+    toCop(input.sales.transferencia) +
+    tipTotals.digitalTipsCop;
 
   const hasDigitalDeclaration =
     input.count.declaredNequi !== undefined ||
@@ -164,6 +391,11 @@ export function calculateCashReconciliation(input: {
     : digitalExpected;
 
   const digitalDifference = digitalDeclared - digitalExpected;
+  const includeStaffMetrics =
+    tipTotals.totalTipsCop > 0 ||
+    staffCashPayouts > 0 ||
+    totalCommissions > 0 ||
+    Boolean(input.staffSettlement);
 
   return {
     openingBase,
@@ -176,5 +408,98 @@ export function calculateCashReconciliation(input: {
     digitalExpected,
     digitalDeclared,
     digitalDifference,
+    ...(includeStaffMetrics
+      ? {
+          cashTips: tipTotals.cashTipsCop,
+          digitalTips: tipTotals.digitalTipsCop,
+          totalTips: tipTotals.totalTipsCop,
+          totalCommissions,
+          staffCashPayouts,
+        }
+      : {}),
+  };
+}
+
+export function aggregateShiftStaffSettlements(
+  shifts: ReadonlyArray<Pick<CashShift, "status" | "closedAt" | "staffSettlement">>,
+): StaffTipsReportSummary | undefined {
+  let shiftsWithSettlement = 0;
+  let totalTipsCop = 0;
+  let cashTipsCop = 0;
+  let digitalTipsCop = 0;
+  let totalCommissionsCop = 0;
+  let totalPayoutCop = 0;
+  let paidFromCashCop = 0;
+
+  const roleMap = new Map<StaffTipRole, StaffTipsRoleSummary>();
+  const staffMap = new Map<string, StaffTipsMemberSummary>();
+
+  for (const shift of shifts) {
+    if (shift.status !== "cerrada" || !shift.staffSettlement) continue;
+    const settlement = shift.staffSettlement;
+    shiftsWithSettlement += 1;
+    totalTipsCop += toCop(settlement.totalTipsCop);
+    cashTipsCop += toCop(settlement.cashTipsCop);
+    digitalTipsCop += toCop(settlement.digitalTipsCop);
+    totalCommissionsCop += toCop(settlement.totalCommissionsCop);
+    totalPayoutCop += toCop(settlement.totalPayoutCop);
+    paidFromCashCop += toCop(settlement.paidFromCashCop);
+
+    for (const allocation of settlement.allocations) {
+      const roleEntry = roleMap.get(allocation.role) ?? {
+        role: allocation.role,
+        membersCount: 0,
+        tipsCop: 0,
+        commissionsCop: 0,
+        totalPayoutCop: 0,
+      };
+      roleEntry.membersCount += 1;
+      roleEntry.tipsCop += toCop(allocation.tipShareCop);
+      roleEntry.commissionsCop += toCop(allocation.commissionCop);
+      roleEntry.totalPayoutCop += toCop(allocation.totalPayoutCop);
+      roleMap.set(allocation.role, roleEntry);
+
+      const staffKey = `${allocation.role}::${allocation.name.trim().toLowerCase()}`;
+      const staffEntry = staffMap.get(staffKey) ?? {
+        name: allocation.name.trim(),
+        role: allocation.role,
+        shiftsCount: 0,
+        deliveriesCount: 0,
+        tipsCop: 0,
+        commissionsCop: 0,
+        totalPayoutCop: 0,
+      };
+      staffEntry.shiftsCount += 1;
+      staffEntry.deliveriesCount += Math.max(0, Math.round(allocation.deliveriesCount));
+      staffEntry.tipsCop += toCop(allocation.tipShareCop);
+      staffEntry.commissionsCop += toCop(allocation.commissionCop);
+      staffEntry.totalPayoutCop += toCop(allocation.totalPayoutCop);
+      staffMap.set(staffKey, staffEntry);
+    }
+  }
+
+  if (shiftsWithSettlement === 0) {
+    return undefined;
+  }
+
+  const byRole: StaffTipsRoleSummary[] = STAFF_TIP_ROLES.flatMap((role) => {
+    const entry = roleMap.get(role);
+    return entry ? [entry] : [];
+  });
+
+  const byStaff = [...staffMap.values()].sort(
+    (a, b) => b.totalPayoutCop - a.totalPayoutCop || a.name.localeCompare(b.name),
+  );
+
+  return {
+    shiftsWithSettlement,
+    totalTipsCop,
+    cashTipsCop,
+    digitalTipsCop,
+    totalCommissionsCop,
+    totalPayoutCop,
+    paidFromCashCop,
+    byRole,
+    byStaff,
   };
 }

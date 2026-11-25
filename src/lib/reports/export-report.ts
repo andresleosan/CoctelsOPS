@@ -170,6 +170,21 @@ export function generateOrderReportCsv(report: OrderReport, options: ReportExpor
     }
   }
 
+  if (report.staffTipsSummary && report.staffTipsSummary.shiftsWithSettlement > 0) {
+    lines.push("");
+    lines.push(
+      `${escapeCsvCell("LIQUIDACIÓN PROPINAS Y COMISIONES DE STAFF")},${escapeCsvCell("ROL")},${escapeCsvCell("TURNOS")},${escapeCsvCell("ENTREGAS")},${escapeCsvCell("PROPINAS (COP)")},${escapeCsvCell("COMISIONES (COP)")},${escapeCsvCell("TOTAL LIQUIDADO (COP)")}`
+    );
+    lines.push(
+      `${escapeCsvCell("RESUMEN TURNOS LIQUIDADOS")},${escapeCsvCell("Todos")},${escapeCsvCell(report.staffTipsSummary.shiftsWithSettlement)},${escapeCsvCell("")},${escapeCsvCell(report.staffTipsSummary.totalTipsCop)},${escapeCsvCell(report.staffTipsSummary.totalCommissionsCop)},${escapeCsvCell(report.staffTipsSummary.totalPayoutCop)}`
+    );
+    for (const member of report.staffTipsSummary.byStaff) {
+      lines.push(
+        `${escapeCsvCell(member.name)},${escapeCsvCell(member.role)},${escapeCsvCell(member.shiftsCount)},${escapeCsvCell(member.deliveriesCount)},${escapeCsvCell(member.tipsCop)},${escapeCsvCell(member.commissionsCop)},${escapeCsvCell(member.totalPayoutCop)}`
+      );
+    }
+  }
+
   return bom + lines.join("\r\n");
 }
 
@@ -214,6 +229,14 @@ export function buildShiftClosingWhatsAppMessage(report: OrderReport, options: R
     parts.push(
       `⚠️ *Alertas Rentabilidad (<${report.catalogProfitability.summary.warningMarginPct}%):* ${report.catalogProfitability.lowMarginAlerts.length} recetas por revisar`
     );
+  }
+
+  if (report.staffTipsSummary && report.staffTipsSummary.shiftsWithSettlement > 0) {
+    parts.push("");
+    parts.push("🥂 *PROPINAS Y COMISIONES DE STAFF*");
+    parts.push(`• *Propinas:* ${formatCurrency(report.staffTipsSummary.totalTipsCop)} (Efec ${formatCurrency(report.staffTipsSummary.cashTipsCop)} / Dig ${formatCurrency(report.staffTipsSummary.digitalTipsCop)})`);
+    parts.push(`• *Comisiones:* ${formatCurrency(report.staffTipsSummary.totalCommissionsCop)}`);
+    parts.push(`• *Total Liquidado:* ${formatCurrency(report.staffTipsSummary.totalPayoutCop)}`);
   }
 
   if (report.topProducts.length > 0) {
