@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { hasPermission, requireNegocioAccess } from "@/lib/auth/permissions";
+import { hasPermission, isGlobalAdmin, requireNegocioAccess } from "@/lib/auth/permissions";
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import { getProductById, productFromData } from "@/lib/firestore/products";
 import { getAdminDb } from "@/lib/firebase-admin";
@@ -457,8 +457,28 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
 
 export async function listOrders(user: VerifiedUser): Promise<Order[]> {
   requireOrderPermission(user, "pedidos.read");
+  const staffNegocioId = !isGlobalAdmin(user) ? user.profile?.negocioId?.trim() : undefined;
+  if (staffNegocioId && staffNegocioId !== DEFAULT_TENANT_ID) {
+    const snapshot = await ordersCollection()
+      .where("negocioId", "==", staffNegocioId)
+      .get();
+    return snapshot.docs
+      .map((document) => toOrder(document.id, (document.data() ?? {}) as Record<string, unknown>))
+      .filter((order) => (order.negocioId?.trim() || DEFAULT_TENANT_ID) === staffNegocioId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 50);
+  }
+
   const snapshot = await ordersCollection().orderBy("createdAt", "desc").limit(50).get();
-  return snapshot.docs.map((document) => toOrder(document.id, (document.data() ?? {}) as Record<string, unknown>));
+  const orders = snapshot.docs.map((document) =>
+    toOrder(document.id, (document.data() ?? {}) as Record<string, unknown>),
+  );
+  if (staffNegocioId === DEFAULT_TENANT_ID) {
+    return orders.filter(
+      (order) => (order.negocioId?.trim() || DEFAULT_TENANT_ID) === DEFAULT_TENANT_ID,
+    );
+  }
+  return orders;
 }
 
 export async function listOwnOrders(user: VerifiedUser): Promise<CustomerOrder[]> {
@@ -484,7 +504,11 @@ export async function getAdminOrder(user: VerifiedUser, id: string): Promise<Ord
   if (!id.trim()) throw new OrderNotFoundError();
   const snapshot = await ordersCollection().doc(id).get();
   if (!snapshot.exists) throw new OrderNotFoundError();
-  return toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+  const order = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+  if (!isGlobalAdmin(user) && user.profile?.negocioId?.trim()) {
+    requireNegocioAccess(user, order.negocioId?.trim() || DEFAULT_TENANT_ID);
+  }
+  return order;
 }
 
 export async function updateOrderStatus(user: VerifiedUser, id: string, input: StatusUpdate): Promise<Order> {
@@ -499,6 +523,9 @@ export async function updateOrderStatus(user: VerifiedUser, id: string, input: S
     const snapshot = await transaction.get(reference);
     if (!snapshot.exists) throw new OrderNotFoundError();
     const current = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+    if (!isGlobalAdmin(user) && user.profile?.negocioId?.trim()) {
+      requireNegocioAccess(user, current.negocioId?.trim() || DEFAULT_TENANT_ID);
+    }
     assertValidTransition(current.status, validated.status);
     const now = new Date().toISOString();
     const statusEvent = { status: validated.status, actorUid: user.uid, at: now, ...(validated.reason ? { reason: validated.reason } : {}) };

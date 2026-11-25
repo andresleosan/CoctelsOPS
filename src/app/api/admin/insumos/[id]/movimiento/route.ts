@@ -48,6 +48,7 @@ export async function POST(
       reason: input.reason,
       actorUid: actor.uid,
       actorEmail: actor.profile.email,
+      negocioId: existingSupply.negocioId,
     });
 
     const updatedSupply = await getSupplyById(id);

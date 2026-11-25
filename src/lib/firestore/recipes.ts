@@ -1,6 +1,6 @@
 import "server-only";
 
-import { hasPermission, isGlobalAdmin } from "@/lib/auth/permissions";
+import { hasNegocioAccess, hasPermission } from "@/lib/auth/permissions";
 import { AuthorizationError } from "@/lib/auth/verify-request";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
@@ -226,21 +226,15 @@ function requireRecipePermission(caller: VerifiedUser, permission: "inventario.r
 }
 
 export function assertRecipeTenantAccess(caller: VerifiedUser, targetNegocioId: string): void {
-  if (isGlobalAdmin(caller)) return;
-  const userNegocioId = caller.profile.negocioId?.trim();
-  if (userNegocioId && userNegocioId !== targetNegocioId) {
+  if (!hasNegocioAccess(caller, targetNegocioId)) {
     throw new AuthorizationError(403, "No tienes acceso a recetas de otro negocio");
   }
 }
 
 function resolveTenantScope(caller: VerifiedUser, requestedNegocioId?: string): string {
-  const cleanRequested = requestedNegocioId?.trim();
-  if (cleanRequested) {
-    assertRecipeTenantAccess(caller, cleanRequested);
-    return cleanRequested;
-  }
-  const userNegocioId = caller.profile.negocioId?.trim();
-  return userNegocioId || DEFAULT_TENANT_ID;
+  const target = requestedNegocioId?.trim() || caller.profile.negocioId?.trim() || DEFAULT_TENANT_ID;
+  assertRecipeTenantAccess(caller, target);
+  return target;
 }
 
 async function resolveAuthoritativeIngredients(params: {
@@ -377,6 +371,7 @@ export async function listRecipes(
 
   const recipes = snapshot.docs
     .map((doc) => recipeFromData(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
+    .filter((recipe) => recipe.negocioId === targetNegocioId)
     .filter((recipe) => !options.productId || recipe.productId === options.productId);
 
   return recipes.sort((a, b) => {
@@ -477,32 +472,41 @@ export async function getCatalogProfitability(
   const [recipesSnap, suppliesSnap, productsSnap] = await Promise.all([
     recipesCollection.where("negocioId", "==", targetNegocioId).get(),
     suppliesCollection.where("negocioId", "==", targetNegocioId).get(),
-    typeof productsCollection.get === "function"
-      ? productsCollection.get()
-      : productsCollection.where("negocioId", "==", targetNegocioId).get(),
+    targetNegocioId !== DEFAULT_TENANT_ID && typeof productsCollection.where === "function"
+      ? productsCollection.where("negocioId", "==", targetNegocioId).get()
+      : typeof productsCollection.get === "function"
+        ? productsCollection.get()
+        : productsCollection.where("negocioId", "==", targetNegocioId).get(),
   ]);
 
   const recipes = (recipesSnap?.docs ?? [])
     .map((doc) => recipeFromData(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
+    .filter((recipe) => recipe.negocioId === targetNegocioId)
     .filter((recipe) => !options.productId || recipe.productId === options.productId)
     .sort((a, b) => {
       const byProduct = a.productName.localeCompare(b.productName, "es");
       return byProduct !== 0 ? byProduct : a.presentation.localeCompare(b.presentation, "es");
     });
 
-  const supplies = (suppliesSnap?.docs ?? []).map((doc) => {
-    const data = (doc.data() ?? {}) as Record<string, unknown>;
-    const parsedUnit = supplyUnitSchema.safeParse(data.unit);
-    return {
-      id: doc.id,
-      name: typeof data.name === "string" && data.name.trim() ? data.name.trim() : doc.id,
-      unit: parsedUnit.success ? parsedUnit.data : ("unidad" as SupplyUnit),
-      costPerUnit:
-        typeof data.costPerUnit === "number" && Number.isFinite(data.costPerUnit)
-          ? Math.max(0, data.costPerUnit)
-          : 0,
-    };
-  });
+  const supplies = (suppliesSnap?.docs ?? [])
+    .filter((doc) => {
+      const data = (doc.data() ?? {}) as Record<string, unknown>;
+      const rawNegocioId = typeof data.negocioId === "string" ? data.negocioId.trim() : "";
+      return (rawNegocioId || DEFAULT_TENANT_ID) === targetNegocioId;
+    })
+    .map((doc) => {
+      const data = (doc.data() ?? {}) as Record<string, unknown>;
+      const parsedUnit = supplyUnitSchema.safeParse(data.unit);
+      return {
+        id: doc.id,
+        name: typeof data.name === "string" && data.name.trim() ? data.name.trim() : doc.id,
+        unit: parsedUnit.success ? parsedUnit.data : ("unidad" as SupplyUnit),
+        costPerUnit:
+          typeof data.costPerUnit === "number" && Number.isFinite(data.costPerUnit)
+            ? Math.max(0, data.costPerUnit)
+            : 0,
+      };
+    });
 
   const products = (productsSnap?.docs ?? [])
     .map((doc) => parseCatalogProductDoc(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
@@ -704,6 +708,7 @@ export async function updateRecipe(
     action: "update",
     entityId: current.id,
     changes: {
+      negocioId: current.negocioId,
       presentation: nextPresentation,
       ingredientCount: resolved.ingredients.length,
       active: updatePayload.active,
@@ -736,6 +741,7 @@ export async function deleteRecipe(caller: VerifiedUser, id: string): Promise<vo
     action: "delete",
     entityId: current.id,
     changes: {
+      negocioId: current.negocioId,
       productId: current.productId,
       productName: current.productName,
       presentation: current.presentation,
@@ -795,6 +801,7 @@ export async function prepareOrderSupplyDepletion(params: {
   for (const { supplyId, ref, snapshot } of supplySnapshots) {
     if (!snapshot.exists) continue;
     const parsed = parseSupplySnapshot(supplyId, ref, (snapshot.data() ?? {}) as Record<string, unknown>);
+    if (parsed.negocioId !== negocioId) continue;
     supplyDocs.set(supplyId, parsed);
     suppliesById.set(supplyId, {
       id: parsed.id,

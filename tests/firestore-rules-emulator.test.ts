@@ -29,6 +29,11 @@ let fixtures: {
   deniedRoleId: string;
   deniedStaffAuditId: string;
   deniedAdminRoleId: string;
+  supplyId: string;
+  recipeId: string;
+  cashShiftId: string;
+  barTabId: string;
+  movementId: string;
 } | undefined;
 
 function userProfile(displayName: string) {
@@ -55,6 +60,11 @@ async function seedFixtures() {
     deniedRoleId: `${namespace}-denied-role`,
     deniedStaffAuditId: `${namespace}-denied-staff-audit`,
     deniedAdminRoleId: `${namespace}-denied-admin-role`,
+    supplyId: `${namespace}-supply`,
+    recipeId: `${namespace}-recipe`,
+    cashShiftId: `${namespace}-shift`,
+    barTabId: `${namespace}-tab`,
+    movementId: `${namespace}-movement`,
   };
 
   await testEnvironment.withSecurityRulesDisabled(async (context) => {
@@ -72,6 +82,11 @@ async function seedFixtures() {
       { collection: "roles", id: fixtures!.deniedRoleId },
       { collection: "auditoria", id: fixtures!.deniedStaffAuditId },
       { collection: "roles", id: fixtures!.deniedAdminRoleId },
+      { collection: "insumos", id: fixtures!.supplyId },
+      { collection: "recetas", id: fixtures!.recipeId },
+      { collection: "caja_turnos", id: fixtures!.cashShiftId },
+      { collection: "cuentas_mesas", id: fixtures!.barTabId },
+      { collection: "inventario_movimientos", id: fixtures!.movementId },
     ];
     await Promise.all([
       setDoc(doc(db, "users", fixtures!.customerId), userProfile("Cliente de prueba")),
@@ -82,6 +97,11 @@ async function seedFixtures() {
       setDoc(doc(db, "pedidos", fixtures!.otherOrderId), { clienteUid: fixtures!.otherCustomerId, status: "pendiente" }),
       setDoc(doc(db, "roles", fixtures!.roleId), { name: "Staff" }),
       setDoc(doc(db, "productos", fixtures!.productId), { active: true, name: "Producto" }),
+      setDoc(doc(db, "insumos", fixtures!.supplyId), { negocioId: "local-a", name: "Ron Blanco" }),
+      setDoc(doc(db, "recetas", fixtures!.recipeId), { negocioId: "local-a", productId: "p1" }),
+      setDoc(doc(db, "caja_turnos", fixtures!.cashShiftId), { negocioId: "local-a", status: "abierta" }),
+      setDoc(doc(db, "cuentas_mesas", fixtures!.barTabId), { negocioId: "local-a", tableNumber: "Mesa 1", status: "abierta" }),
+      setDoc(doc(db, "inventario_movimientos", fixtures!.movementId), { negocioId: "local-a", type: "entrada" }),
     ]);
   });
 }
@@ -160,5 +180,26 @@ describe("reglas Firestore en emulator", () => {
     await assertFails(getDoc(doc(customerDb, "roles", fixtures!.roleId)));
     await assertFails(getDoc(doc(nonBooleanAdminDb, "roles", fixtures!.roleId)));
     await assertFails(setDoc(doc(adminDb, "roles", fixtures!.deniedAdminRoleId), { name: "No permitido" }));
+  });
+
+  it("bloquea lectura y escritura directa en cliente para colecciones operativas multi-tenant", async () => {
+    const customerDb = testEnvironment.authenticatedContext(fixtures!.customerId).firestore();
+    const staffDb = testEnvironment.authenticatedContext(fixtures!.staffId, { staff: true }).firestore();
+    const adminDb = testEnvironment.authenticatedContext(fixtures!.adminId, { admin: true }).firestore();
+
+    const targets: Array<[string, string]> = [
+      ["insumos", fixtures!.supplyId],
+      ["recetas", fixtures!.recipeId],
+      ["caja_turnos", fixtures!.cashShiftId],
+      ["cuentas_mesas", fixtures!.barTabId],
+      ["inventario_movimientos", fixtures!.movementId],
+    ];
+
+    for (const db of [customerDb, staffDb, adminDb]) {
+      for (const [col, id] of targets) {
+        await assertFails(getDoc(doc(db, col, id)));
+        await assertFails(setDoc(doc(db, col, `${id}-new`), { negocioId: "local-a" }));
+      }
+    }
   });
 });

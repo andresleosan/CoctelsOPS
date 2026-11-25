@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 
 import { esEmailAdmin, esTokenAdminVerificado } from "@/lib/auth-claims";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { DEFAULT_TENANT_ID } from "@/types/tenant";
 import {
   ALL_ADMIN_PERMISSIONS,
   type AdminAccessDiagnostic,
@@ -89,12 +90,23 @@ export function buildAdminAccessDiagnostic(
 }
 
 export function hasNegocioAccess(user: VerifiedUser, negocioId: string): boolean {
+  const target = negocioId.trim();
+  if (!target) return false;
   if (isGlobalAdmin(user)) return true;
-  return Boolean(user.profile.active && user.profile.negocioId === negocioId);
+  return Boolean(user.profile.active && user.profile.negocioId?.trim() === target);
 }
 
 export function requireNegocioAccess(user: VerifiedUser, negocioId: string): void {
   if (!hasNegocioAccess(user, negocioId)) {
     throw new AuthorizationError(403, "No tienes permiso para acceder a este negocio");
   }
+}
+
+export function resolveAuthorizedNegocioId(
+  user: VerifiedUser,
+  requestedNegocioId?: string | null,
+): string {
+  const target = requestedNegocioId?.trim() || user.profile.negocioId?.trim() || DEFAULT_TENANT_ID;
+  requireNegocioAccess(user, target);
+  return target;
 }

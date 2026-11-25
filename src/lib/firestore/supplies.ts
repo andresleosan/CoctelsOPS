@@ -1,7 +1,10 @@
 import "server-only";
 
+import { requireNegocioAccess, resolveAuthorizedNegocioId } from "@/lib/auth/permissions";
+import { AuthorizationError } from "@/lib/auth/verify-request";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
+import type { VerifiedUser } from "@/types/auth";
 import { DEFAULT_TENANT_ID } from "@/types/tenant";
 import {
   calculateSupplyStatus,
@@ -73,12 +76,17 @@ export function calculateSuppliesKpis(supplies: SupplyItem[]): SuppliesKpis {
   );
 }
 
+function normalizeTenantId(negocioId?: string): string {
+  return negocioId?.trim() || DEFAULT_TENANT_ID;
+}
+
 function parseSupplyDoc(id: string, data: Record<string, unknown>): SupplyItem {
   const currentStock = typeof data.currentStock === "number" ? data.currentStock : 0;
   const minStock = typeof data.minStock === "number" ? data.minStock : 0;
+  const rawNegocioId = typeof data.negocioId === "string" ? data.negocioId.trim() : "";
   return {
     id,
-    negocioId: typeof data.negocioId === "string" ? data.negocioId : DEFAULT_TENANT_ID,
+    negocioId: rawNegocioId || DEFAULT_TENANT_ID,
     name: typeof data.name === "string" ? data.name : "Insumo sin nombre",
     category: (data.category as SupplyItem["category"]) ?? "otro",
     unit: (data.unit as SupplyItem["unit"]) ?? "unidad",
@@ -94,29 +102,66 @@ function parseSupplyDoc(id: string, data: Record<string, unknown>): SupplyItem {
 }
 
 export async function listSupplies(negocioId: string = DEFAULT_TENANT_ID): Promise<SupplyItem[]> {
+  const targetNegocioId = normalizeTenantId(negocioId);
   const snapshot = await getAdminDb()
     .collection("insumos")
-    .where("negocioId", "==", negocioId)
+    .where("negocioId", "==", targetNegocioId)
     .get();
 
-  const supplies = snapshot.docs.map((doc) => parseSupplyDoc(doc.id, doc.data()));
+  const supplies = snapshot.docs
+    .map((doc) => parseSupplyDoc(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
+    .filter((supply) => supply.negocioId === targetNegocioId);
   // Sort alphabetically by name
   return supplies.sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
 }
 
-export async function getSupplyById(id: string): Promise<SupplyItem | null> {
-  const doc = await getAdminDb().collection("insumos").doc(id).get();
-  if (!doc.exists) return null;
-  return parseSupplyDoc(doc.id, doc.data() as Record<string, unknown>);
+export async function listSuppliesForCaller(
+  caller: VerifiedUser,
+  negocioId?: string
+): Promise<SupplyItem[]> {
+  const targetNegocioId = resolveAuthorizedNegocioId(caller, negocioId);
+  return listSupplies(targetNegocioId);
 }
 
-export async function createSupply(input: SupplyItemInput, actorUid: string): Promise<SupplyItem> {
+export async function getSupplyById(
+  id: string,
+  expectedNegocioId?: string
+): Promise<SupplyItem | null> {
+  const cleanId = id.trim();
+  if (!cleanId) return null;
+  const doc = await getAdminDb().collection("insumos").doc(cleanId).get();
+  if (!doc.exists) return null;
+  const supply = parseSupplyDoc(doc.id, (doc.data() ?? {}) as Record<string, unknown>);
+  const cleanExpectedNegocioId = expectedNegocioId?.trim();
+  if (cleanExpectedNegocioId && supply.negocioId !== cleanExpectedNegocioId) {
+    throw new AuthorizationError(403, "No tienes permiso para acceder a insumos de otro negocio");
+  }
+  return supply;
+}
+
+export async function getSupplyByIdForCaller(
+  caller: VerifiedUser,
+  id: string
+): Promise<SupplyItem | null> {
+  const supply = await getSupplyById(id);
+  if (!supply) return null;
+  requireNegocioAccess(caller, supply.negocioId);
+  return supply;
+}
+
+export async function createSupply(
+  input: SupplyItemInput,
+  actorUid: string,
+  options?: { caller?: VerifiedUser }
+): Promise<SupplyItem> {
   if (!input.name?.trim()) throw new SupplyValidationError("El nombre del insumo es obligatorio");
 
   const db = getAdminDb();
   const ref = db.collection("insumos").doc();
   const now = new Date().toISOString();
-  const negocioId = input.negocioId || DEFAULT_TENANT_ID;
+  const negocioId = options?.caller
+    ? resolveAuthorizedNegocioId(options.caller, input.negocioId)
+    : normalizeTenantId(input.negocioId);
   const currentStock = Number(input.currentStock || 0);
   const minStock = Number(input.minStock || 0);
 
@@ -143,7 +188,12 @@ export async function createSupply(input: SupplyItemInput, actorUid: string): Pr
       action: "create",
       module: "inventario",
       entityId: ref.id,
-      changes: { supplyName: supply.name, initialStock: supply.currentStock, minStock: supply.minStock },
+      changes: {
+        negocioId: supply.negocioId,
+        supplyName: supply.name,
+        initialStock: supply.currentStock,
+        minStock: supply.minStock,
+      },
     });
   });
 
@@ -153,7 +203,8 @@ export async function createSupply(input: SupplyItemInput, actorUid: string): Pr
 export async function updateSupply(
   id: string,
   patch: Partial<SupplyItemInput>,
-  actorUid: string
+  actorUid: string,
+  options?: { expectedNegocioId?: string; caller?: VerifiedUser }
 ): Promise<SupplyItem> {
   const db = getAdminDb();
   const ref = db.collection("insumos").doc(id);
@@ -162,21 +213,31 @@ export async function updateSupply(
     const snap = await transaction.get(ref);
     if (!snap.exists) throw new SupplyValidationError("Insumo no encontrado");
 
-    const existing = parseSupplyDoc(snap.id, snap.data() as Record<string, unknown>);
-    const now = new Date().toISOString();
+    const existing = parseSupplyDoc(snap.id, (snap.data() ?? {}) as Record<string, unknown>);
+    if (options?.caller) {
+      requireNegocioAccess(options.caller, existing.negocioId);
+    }
+    const cleanExpectedNegocioId = options?.expectedNegocioId?.trim();
+    if (cleanExpectedNegocioId && existing.negocioId !== cleanExpectedNegocioId) {
+      throw new AuthorizationError(403, "No tienes permiso para actualizar insumos de otro negocio");
+    }
 
-    const minStock = typeof patch.minStock === "number" ? patch.minStock : existing.minStock;
+    const now = new Date().toISOString();
+    const { negocioId: _ignoredNegocioId, ...safePatch } = patch;
+    void _ignoredNegocioId;
+
+    const minStock = typeof safePatch.minStock === "number" ? safePatch.minStock : existing.minStock;
     const currentStock = existing.currentStock;
     const status = calculateSupplyStatus(currentStock, minStock);
 
     const updated: SupplyItem = {
       ...existing,
-      ...(patch.name ? { name: patch.name.trim() } : {}),
-      ...(patch.category ? { category: patch.category } : {}),
-      ...(patch.unit ? { unit: patch.unit } : {}),
-      ...(typeof patch.costPerUnit === "number" ? { costPerUnit: patch.costPerUnit } : {}),
-      ...(patch.supplier !== undefined ? { supplier: patch.supplier.trim() || undefined } : {}),
-      ...(patch.notes !== undefined ? { notes: patch.notes.trim() || undefined } : {}),
+      ...(safePatch.name ? { name: safePatch.name.trim() } : {}),
+      ...(safePatch.category ? { category: safePatch.category } : {}),
+      ...(safePatch.unit ? { unit: safePatch.unit } : {}),
+      ...(typeof safePatch.costPerUnit === "number" ? { costPerUnit: safePatch.costPerUnit } : {}),
+      ...(safePatch.supplier !== undefined ? { supplier: safePatch.supplier.trim() || undefined } : {}),
+      ...(safePatch.notes !== undefined ? { notes: safePatch.notes.trim() || undefined } : {}),
       minStock,
       status,
       updatedAt: now,
@@ -188,14 +249,20 @@ export async function updateSupply(
       action: "update",
       module: "inventario",
       entityId: id,
-      changes: patch,
+      changes: {
+        ...safePatch,
+        negocioId: existing.negocioId,
+      },
     });
 
     return updated;
   });
 }
 
-export async function recordSupplyMovement(input: SupplyMovementInput): Promise<SupplyMovement> {
+export async function recordSupplyMovement(
+  input: SupplyMovementInput,
+  options?: { caller?: VerifiedUser }
+): Promise<SupplyMovement> {
   if (!input.supplyId.trim() || !input.actorUid.trim() || !input.reason.trim()) {
     throw new SupplyValidationError("Insumo, actor y motivo son obligatorios");
   }
@@ -208,7 +275,15 @@ export async function recordSupplyMovement(input: SupplyMovementInput): Promise<
     const snap = await transaction.get(supplyRef);
     if (!snap.exists) throw new SupplyValidationError("Insumo no encontrado");
 
-    const currentSupply = parseSupplyDoc(snap.id, snap.data() as Record<string, unknown>);
+    const currentSupply = parseSupplyDoc(snap.id, (snap.data() ?? {}) as Record<string, unknown>);
+    if (options?.caller) {
+      requireNegocioAccess(options.caller, currentSupply.negocioId);
+    }
+    const cleanInputNegocioId = input.negocioId?.trim();
+    if (cleanInputNegocioId && currentSupply.negocioId !== cleanInputNegocioId) {
+      throw new AuthorizationError(403, "No tienes permiso para registrar movimientos en otro negocio");
+    }
+
     const previousStock = currentSupply.currentStock;
     const resultingStock = calculateSupplyStock(previousStock, {
       type: input.type,
@@ -246,6 +321,7 @@ export async function recordSupplyMovement(input: SupplyMovementInput): Promise<
       module: "inventario",
       entityId: currentSupply.id,
       changes: {
+        negocioId: currentSupply.negocioId,
         type: input.type,
         quantity: input.quantity,
         previousStock,
@@ -262,35 +338,43 @@ export async function listSupplyMovements(options?: {
   supplyId?: string;
   limit?: number;
   negocioId?: string;
+  caller?: VerifiedUser;
 }): Promise<SupplyMovement[]> {
   const limit = Math.min(Math.max(options?.limit ?? 50, 1), 100);
+  const targetNegocioId = options?.caller
+    ? resolveAuthorizedNegocioId(options.caller, options.negocioId)
+    : normalizeTenantId(options?.negocioId);
   const db = getAdminDb();
 
-  let query = db.collection("inventario_movimientos").orderBy("createdAt", "desc").limit(limit);
+  const snapshot = await db
+    .collection("inventario_movimientos")
+    .where("negocioId", "==", targetNegocioId)
+    .get();
 
-  if (options?.supplyId) {
-    query = db
-      .collection("inventario_movimientos")
-      .where("supplyId", "==", options.supplyId)
-      .limit(limit);
-  }
+  const cleanSupplyId = options?.supplyId?.trim();
 
-  const snapshot = await query.get();
-  return snapshot.docs.map((doc) => {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      supplyId: (data.supplyId as string) || (data.productId as string) || "",
-      supplyName: (data.supplyName as string) || (data.productName as string) || "Movimiento",
-      negocioId: (data.negocioId as string) || DEFAULT_TENANT_ID,
-      type: (data.type as SupplyMovementType) || "ajuste",
-      quantity: typeof data.quantity === "number" ? data.quantity : 0,
-      previousStock: typeof data.previousStock === "number" ? data.previousStock : 0,
-      resultingStock: typeof data.resultingStock === "number" ? data.resultingStock : 0,
-      reason: (data.reason as string) || "",
-      actorUid: (data.actorUid as string) || "",
-      actorEmail: (data.actorEmail as string) || undefined,
-      createdAt: (data.createdAt as string) || new Date().toISOString(),
-    };
-  });
+  const movements = snapshot.docs
+    .map((doc) => {
+      const data = (doc.data() ?? {}) as Record<string, unknown>;
+      const rawNegocioId = typeof data.negocioId === "string" ? data.negocioId.trim() : "";
+      return {
+        id: doc.id,
+        supplyId: (data.supplyId as string) || (data.productId as string) || "",
+        supplyName: (data.supplyName as string) || (data.productName as string) || "Movimiento",
+        negocioId: rawNegocioId || DEFAULT_TENANT_ID,
+        type: (data.type as SupplyMovementType) || "ajuste",
+        quantity: typeof data.quantity === "number" ? data.quantity : 0,
+        previousStock: typeof data.previousStock === "number" ? data.previousStock : 0,
+        resultingStock: typeof data.resultingStock === "number" ? data.resultingStock : 0,
+        reason: (data.reason as string) || "",
+        actorUid: (data.actorUid as string) || "",
+        actorEmail: (data.actorEmail as string) || undefined,
+        createdAt: (data.createdAt as string) || new Date().toISOString(),
+      };
+    })
+    .filter((movement) => movement.negocioId === targetNegocioId)
+    .filter((movement) => !cleanSupplyId || movement.supplyId === cleanSupplyId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  return movements.slice(0, limit);
 }

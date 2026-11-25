@@ -1,21 +1,123 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following Firestore collections
+// and server-enforced access model (all privileged/multi-tenant
+// operations go through Next.js API routes using Firebase Admin SDK):
+//
+// Collection: users
+// Document ID: {uid}
+// Fields:
+//   - uid: string (immutable, matches document ID)
+//   - email: string (immutable in client, PII)
+//   - displayName: string | null (optional value, 1..120 chars when non-null)
+//   - photoURL: string | null (optional value, http/https URL <= 2048 chars when updated)
+//   - telefono: string | null (optional value, 7..20 chars when updated)
+//   - addresses: list<Address> (required on update, max 10 items)
+//       Address map keys: id (1..80), alias (1..40), recipientName (1..120),
+//       phone (7..20), address (3..200), neighborhood (1..100), city (1..100),
+//       notes (optional, 0..300)
+//   - active, accountType, roleIds, permissions, negocioId, negocioRole,
+//     createdAt, lastLoginAt: server-managed, immutable from client
+//
+// Collection: roles
+// Document ID: {roleId}
+// Access: read only for custom-claim admins; all writes server-only
+//
+// Collections: pedidos, orders
+// Document ID: {orderId}
+// Fields: clienteUid (string), negocioId (string), status / estado, items, etc.
+// Access: read only by order owner (clienteUid == auth.uid); writes server-only
+//
+// Collections: productos, categorias
+// Document ID: {productId} / {categoryId}
+// Fields: active (bool), negocioId (string), catalog metadata
+// Access: public read only when active == true; all writes server-only
+//
+// Collection: negocios
+// Document ID: {negocioId}
+// Fields: slug (string), name (string), active (bool), branding, configuracion,
+//         ownerUid (string), staffUids (list<string>)
+// Access: read when active == true or admin claim; all writes server-only
+//
+// Collection: usuarios_negocio
+// Document ID: {membershipId}
+// Fields: uid (string), negocioId (string), role (string), active (bool)
+// Access: read by member (uid == auth.uid) or admin claim; writes server-only
+//
+// Collection: notificaciones
+// Document ID: {notificationId}
+// Fields: uid (string), negocioId (string), message, createdAt
+// Access: read only by owner (uid == auth.uid); all writes server-only
+//
+// Collections (Server-only deny-all for all client reads and writes):
+//   - auditoria/{auditId}
+//   - insumos/{supplyId}
+//   - recetas/{recipeId}
+//   - caja_turnos/{shiftId}
+//   - cuentas_mesas/{tabId}
+//   - inventario_movimientos/{movementId}
+//   - promociones/{promotionId}
+//   - configuracion/{configId}
+//   - push_subscriptions/{subscriptionId}
+//   - ai_rate_limits/{digest}
+//   - table_rate_limits/{digest}
+//
+// ===============================================================
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
     function signedIn() {
       return request.auth != null;
     }
 
+    function isAuthenticated() {
+      return signedIn();
+    }
+
     function isAdmin() {
-      return signedIn() && request.auth.token.admin == true;
+      return signedIn() && 'admin' in request.auth.token && request.auth.token.admin == true;
     }
 
     function ownsUser(uid) {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function isOwner(userId) {
+      return ownsUser(userId);
+    }
+
     function ownsOrder() {
       return signedIn() && resource.data.clienteUid == request.auth.uid;
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidUrl(url) {
+      return url is string
+        && url.size() <= 2048
+        && (url.matches("^https://.*") || url.matches("^http://.*"));
     }
 
     function validOrderStatus(status) {
@@ -26,14 +128,14 @@ service cloud.firestore {
       return address is map
         && address.keys().hasAll(['id', 'alias', 'recipientName', 'phone', 'address', 'neighborhood', 'city'])
         && address.keys().hasOnly(['id', 'alias', 'recipientName', 'phone', 'address', 'neighborhood', 'city', 'notes'])
-        && address.id is string
-        && address.alias is string
-        && address.recipientName is string
-        && address.phone is string
-        && address.address is string
-        && address.neighborhood is string
-        && address.city is string
-        && (!address.keys().hasAny(['notes']) || address.notes is string);
+        && address.id is string && address.id.size() >= 1 && address.id.size() <= 80
+        && address.alias is string && address.alias.size() >= 1 && address.alias.size() <= 40
+        && address.recipientName is string && address.recipientName.size() >= 1 && address.recipientName.size() <= 120
+        && address.phone is string && address.phone.size() >= 7 && address.phone.size() <= 20
+        && address.address is string && address.address.size() >= 3 && address.address.size() <= 200
+        && address.neighborhood is string && address.neighborhood.size() >= 1 && address.neighborhood.size() <= 100
+        && address.city is string && address.city.size() >= 1 && address.city.size() <= 100
+        && (!address.keys().hasAny(['notes']) || (address.notes is string && address.notes.size() <= 300));
     }
 
     function validAddresses(addresses) {
@@ -51,17 +153,49 @@ service cloud.firestore {
         && (addresses.size() < 10 || validAddress(addresses[9]));
     }
 
+    // Domain validator for customer profile self-updates
+    function isValidUserProfileUpdate() {
+      let data = request.resource.data;
+      return uidNotModified()
+        && data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'photoURL', 'telefono', 'addresses'
+        ])
+        && hasRequiredFields(['displayName', 'photoURL', 'telefono', 'addresses'])
+        && (
+          data.displayName == null
+          || (
+            data.displayName is string
+            && data.displayName.size() <= 120
+            && (data.displayName.size() >= 1 || ('displayName' in resource.data && data.displayName == resource.data.displayName))
+          )
+        )
+        && (
+          data.photoURL == null
+          || (
+            data.photoURL is string
+            && data.photoURL.size() <= 2048
+            && (isValidUrl(data.photoURL) || ('photoURL' in resource.data && data.photoURL == resource.data.photoURL))
+          )
+        )
+        && (
+          data.telefono == null
+          || (
+            data.telefono is string
+            && data.telefono.size() <= 20
+            && (data.telefono.size() >= 7 || ('telefono' in resource.data && data.telefono == resource.data.telefono))
+          )
+        )
+        && validAddresses(data.addresses);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
     match /users/{uid} {
       allow read: if ownsUser(uid);
       allow create: if false;
-      allow update: if ownsUser(uid)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'displayName', 'photoURL', 'telefono', 'addresses'
-        ])
-        && (request.resource.data.displayName is string || request.resource.data.displayName == null)
-        && (request.resource.data.photoURL is string || request.resource.data.photoURL == null)
-        && (request.resource.data.telefono is string || request.resource.data.telefono == null)
-        && validAddresses(request.resource.data.addresses);
+      allow update: if ownsUser(uid) && isValidUserProfileUpdate();
       allow delete: if false;
     }
 
@@ -109,6 +243,22 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ===============================================================
+    // Server-Only Operational & Internal Collections (v1.2 - v1.7)
+    // ===============================================================
+
+    match /insumos/{supplyId} { allow read, write: if false; }
+    match /recetas/{recipeId} { allow read, write: if false; }
+    match /caja_turnos/{shiftId} { allow read, write: if false; }
+    match /cuentas_mesas/{tabId} { allow read, write: if false; }
+    match /inventario_movimientos/{movementId} { allow read, write: if false; }
+    match /promociones/{promotionId} { allow read, write: if false; }
+    match /configuracion/{configId} { allow read, write: if false; }
+    match /push_subscriptions/{subscriptionId} { allow read, write: if false; }
+    match /ai_rate_limits/{digest} { allow read, write: if false; }
+    match /table_rate_limits/{digest} { allow read, write: if false; }
+
+    // Default deny catch-all
     match /{document=**} {
       allow read, write: if false;
     }

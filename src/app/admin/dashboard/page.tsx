@@ -12,11 +12,17 @@ import {
   Tag,
   UserCog,
   Users,
+  UtensilsCrossed,
+  Wallet,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { AdminAccessCard } from "@/components/admin/AdminAccessCard";
 import { AdminGuard } from "@/components/admin/AdminGuard";
+import {
+  DashboardOperationsCards,
+  type DashboardCashSummary,
+} from "@/components/admin/DashboardOperationsCards";
 import { getAdminDataScopes, type AdminDataScope } from "@/components/admin/admin-data-scope";
 import { fetchAdminSession, invalidateAdminSessionCache } from "@/components/admin/admin-session-cache";
 import { StatsCards, type AdminStatKey, type AdminStats } from "@/components/admin/StatsCards";
@@ -26,9 +32,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import type { Permission } from "@/types/auth";
 import type { Order, OrderStatus } from "@/types/orders";
+import type { BarTab } from "@/types/tabs";
 
 type StatsResponse = { stats: AdminStats };
 type OrdersResponse = { orders: Order[] };
+type CashResponse = DashboardCashSummary;
+type TabsResponse = { tabs?: BarTab[] };
 
 const scopeStatKeys: Record<AdminDataScope, AdminStatKey[]> = {
   orders: ["revenue", "orders", "pending", "csat"],
@@ -51,6 +60,20 @@ const QUICK_ACTIONS: Array<{
     icon: ClipboardList,
   },
   {
+    href: "/admin/caja",
+    label: "Caja y Turnos",
+    description: "Apertura, arqueo y comprobantes",
+    permission: "pedidos.read",
+    icon: Wallet,
+  },
+  {
+    href: "/admin/mesas",
+    label: "Mesas y Cuentas",
+    description: "Bar tabs, rondas QR y división",
+    permission: "pedidos.read",
+    icon: UtensilsCrossed,
+  },
+  {
     href: "/admin/productos",
     label: "Productos (Menú)",
     description: "Stock 1-tap, precios y fotos R2",
@@ -66,7 +89,7 @@ const QUICK_ACTIONS: Array<{
   },
   {
     href: "/admin/reportes",
-    label: "Reportes y Caja",
+    label: "Reportes y Rentabilidad",
     description: "Cierre de turno, CSV y WhatsApp",
     permission: "reportes.read",
     icon: BarChart3,
@@ -118,6 +141,8 @@ export default function AdminDashboard() {
   const { user, isAdmin } = useAuth();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [cashSummary, setCashSummary] = useState<DashboardCashSummary | null>(null);
+  const [barTabs, setBarTabs] = useState<BarTab[] | null>(null);
   const [scopes, setScopes] = useState<AdminDataScope[]>([]);
   const [sessionPermissions, setSessionPermissions] = useState<Permission[]>([]);
   const [serverAdmin, setServerAdmin] = useState(false);
@@ -151,6 +176,8 @@ export default function AdminDashboard() {
 
         const nextStats: AdminStats = {};
         let nextOrders: Order[] = [];
+        let nextCashSummary: DashboardCashSummary | null = null;
+        let nextBarTabs: BarTab[] | null = null;
         for (const scope of nextScopes) {
           const response = await fetch(`/api/admin/stats?scope=${scope}`, { headers });
           const body = (await response.json().catch(() => ({}))) as StatsResponse & {
@@ -161,7 +188,16 @@ export default function AdminDashboard() {
           }
           Object.assign(nextStats, body.stats);
           if (scope === "orders") {
-            const ordersResponse = await fetch("/api/pedidos", { headers });
+            const [ordersResult, cashResult, tabsResult] = await Promise.allSettled([
+              fetch("/api/pedidos", { headers }),
+              fetch("/api/admin/caja", { headers }),
+              fetch("/api/admin/mesas", { headers }),
+            ]);
+
+            if (ordersResult.status !== "fulfilled") {
+              throw ordersResult.reason;
+            }
+            const ordersResponse = ordersResult.value;
             const ordersBody = (await ordersResponse.json().catch(() => ({}))) as OrdersResponse & {
               error?: string;
             };
@@ -169,16 +205,40 @@ export default function AdminDashboard() {
               throw new Error(ordersBody.error ?? "No se pudieron cargar los pedidos recientes.");
             }
             nextOrders = ordersBody.orders.slice(0, 6);
+
+            if (cashResult.status === "fulfilled" && cashResult.value.ok) {
+              const cashBody = (await cashResult.value.json().catch(() => null)) as CashResponse | null;
+              if (cashBody && ("activeShift" in cashBody || "transferOrders" in cashBody)) {
+                nextCashSummary = {
+                  activeShift: cashBody.activeShift ?? null,
+                  liveSales: cashBody.liveSales ?? null,
+                  transferOrders: Array.isArray(cashBody.transferOrders)
+                    ? cashBody.transferOrders
+                    : [],
+                };
+              }
+            }
+
+            if (tabsResult.status === "fulfilled" && tabsResult.value.ok) {
+              const tabsBody = (await tabsResult.value.json().catch(() => null)) as TabsResponse | null;
+              if (tabsBody && Array.isArray(tabsBody.tabs)) {
+                nextBarTabs = tabsBody.tabs;
+              }
+            }
           }
         }
         setStats(nextStats);
         setOrders(nextOrders);
+        setCashSummary(nextCashSummary);
+        setBarTabs(nextBarTabs);
       } catch (loadError) {
         setError(
           loadError instanceof Error ? loadError.message : "No se pudieron cargar los datos operativos.",
         );
         setStats(null);
         setOrders([]);
+        setCashSummary(null);
+        setBarTabs(null);
       } finally {
         setLoading(false);
       }
@@ -250,6 +310,10 @@ export default function AdminDashboard() {
         )}
 
         <StatsCards stats={stats} loading={loading} visibleKeys={visibleStatKeys} />
+
+        {canReadOrders && (
+          <DashboardOperationsCards cash={cashSummary} tabs={barTabs} loading={loading} />
+        )}
 
         {canReadOrders && stats?.byStatus && (
           <Card className="border-slate-200 bg-white shadow-sm">

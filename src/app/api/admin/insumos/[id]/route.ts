@@ -59,7 +59,10 @@ export async function PATCH(
     const json = await request.json();
     const patch = updateSupplySchema.parse(json);
 
-    const supply = await updateSupply(id, patch, actor.uid);
+    const supply = await updateSupply(id, patch, actor.uid, {
+      expectedNegocioId: existing.negocioId,
+      caller: actor,
+    });
     return Response.json({ supply });
   } catch (error) {
     return errorResponse(error);

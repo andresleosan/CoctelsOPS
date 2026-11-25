@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { requireNegocioAccess } from "@/lib/auth/permissions";
+import { requireNegocioAccess, resolveAuthorizedNegocioId } from "@/lib/auth/permissions";
 import {
   calculateCashReconciliation,
   calculateOrderPaymentChannels,
@@ -196,6 +196,7 @@ async function fetchOrdersForShiftWindow(
   openedAt: string,
   closedAt?: string,
 ): Promise<PaymentChannelTotals> {
+  const cleanNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
   const snapshot = await getAdminDb()
     .collection("pedidos")
     .where("createdAt", ">=", openedAt)
@@ -212,7 +213,7 @@ async function fetchOrdersForShiftWindow(
       typeof data.negocioId === "string" && data.negocioId.trim()
         ? data.negocioId.trim()
         : DEFAULT_TENANT_ID;
-    if (orderNegocioId !== negocioId) continue;
+    if (orderNegocioId !== cleanNegocioId) continue;
 
     const createdAt = typeof data.createdAt === "string" ? data.createdAt : "";
     const status = (typeof data.status === "string" ? data.status : "pendiente") as Order["status"];
@@ -241,11 +242,12 @@ const VERIFICATION_SORT_PRIORITY: Record<PaymentVerificationStatus, number> = {
 export async function fetchTransferVerificationOrders(
   negocioId: string = DEFAULT_TENANT_ID,
 ): Promise<CashTransferVerificationItem[]> {
-  const snapshot = await getAdminDb()
-    .collection("pedidos")
-    .orderBy("createdAt", "desc")
-    .limit(50)
-    .get();
+  const cleanNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
+  const pedidosCollection = getAdminDb().collection("pedidos");
+  const snapshot =
+    cleanNegocioId !== DEFAULT_TENANT_ID
+      ? await pedidosCollection.where("negocioId", "==", cleanNegocioId).get()
+      : await pedidosCollection.orderBy("createdAt", "desc").limit(100).get();
 
   const items: CashTransferVerificationItem[] = [];
 
@@ -255,7 +257,7 @@ export async function fetchTransferVerificationOrders(
       typeof data.negocioId === "string" && data.negocioId.trim()
         ? data.negocioId.trim()
         : DEFAULT_TENANT_ID;
-    if (orderNegocioId !== negocioId) continue;
+    if (orderNegocioId !== cleanNegocioId) continue;
 
     const status = (typeof data.status === "string" ? data.status : "pendiente") as Order["status"];
     if (status === "cancelado") continue;
@@ -313,14 +315,15 @@ export async function listCashShifts(
   negocioId: string = DEFAULT_TENANT_ID,
   limit = 20,
 ): Promise<CashShift[]> {
+  const cleanNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
   const snapshot = await getAdminDb()
     .collection(COLLECTION)
-    .where("negocioId", "==", negocioId)
+    .where("negocioId", "==", cleanNegocioId)
     .get();
 
-  const shifts = snapshot.docs.map((doc) =>
-    parseCashShiftDoc(doc.id, (doc.data() ?? {}) as Record<string, unknown>),
-  );
+  const shifts = snapshot.docs
+    .map((doc) => parseCashShiftDoc(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
+    .filter((shift) => shift.negocioId === cleanNegocioId);
 
   return shifts
     .sort((a, b) => b.openedAt.localeCompare(a.openedAt))
@@ -333,15 +336,16 @@ export async function getCashDashboardState(negocioId: string = DEFAULT_TENANT_I
   history: CashShift[];
   transferOrders: CashTransferVerificationItem[];
 }> {
+  const cleanNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
   const [shifts, transferOrders] = await Promise.all([
-    listCashShifts(negocioId, 25),
-    fetchTransferVerificationOrders(negocioId),
+    listCashShifts(cleanNegocioId, 25),
+    fetchTransferVerificationOrders(cleanNegocioId),
   ]);
   const activeShift = shifts.find((shift) => shift.status === "abierta") ?? null;
   const history = shifts.filter((shift) => shift.status === "cerrada").slice(0, 15);
 
   const liveSales = activeShift
-    ? await fetchOrdersForShiftWindow(negocioId, activeShift.openedAt)
+    ? await fetchOrdersForShiftWindow(cleanNegocioId, activeShift.openedAt)
     : null;
 
   return {
@@ -352,12 +356,24 @@ export async function getCashDashboardState(negocioId: string = DEFAULT_TENANT_I
   };
 }
 
+export async function getCashDashboardStateForCaller(
+  caller: VerifiedUser,
+  negocioId?: string | null,
+): Promise<{
+  activeShift: CashShift | null;
+  liveSales: PaymentChannelTotals | null;
+  history: CashShift[];
+  transferOrders: CashTransferVerificationItem[];
+}> {
+  const targetNegocioId = resolveAuthorizedNegocioId(caller, negocioId);
+  return getCashDashboardState(targetNegocioId);
+}
+
 export async function openCashShift(
   user: VerifiedUser,
   input: OpenCashShiftInput,
 ): Promise<CashShift> {
-  const negocioId = input.negocioId?.trim() || user.profile.negocioId?.trim() || DEFAULT_TENANT_ID;
-  requireNegocioAccess(user, negocioId);
+  const negocioId = resolveAuthorizedNegocioId(user, input.negocioId);
 
   const db = getAdminDb();
   const ref = db.collection(COLLECTION).doc();
@@ -447,6 +463,7 @@ export async function addCashExpense(
       module: "caja",
       entityId: current.id,
       changes: {
+        negocioId: current.negocioId,
         expenseAdded: newExpense,
       },
     });
@@ -523,6 +540,7 @@ export async function closeCashShift(
       module: "caja",
       entityId: current.id,
       changes: {
+        negocioId: current.negocioId,
         closedByName: actorName,
         expectedCash: reconciliation.expectedCash,
         declaredCash: reconciliation.declaredCash,

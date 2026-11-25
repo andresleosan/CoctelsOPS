@@ -1,18 +1,20 @@
 import { z } from "zod";
 
-import { requireNegocioAccess, requirePermission } from "@/lib/auth/permissions";
+import { requirePermission } from "@/lib/auth/permissions";
 import { toAuthorizationResponse } from "@/lib/auth/verify-request";
 import {
   addCashExpense,
   CashRegisterError,
   closeCashShift,
-  getCashDashboardState,
+  getCashDashboardStateForCaller,
   openCashShift,
 } from "@/lib/firestore/cash-register";
 import { cashRegisterActionSchema } from "@/lib/validation/cash-register";
-import { DEFAULT_TENANT_ID } from "@/types/tenant";
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof SyntaxError) {
+    return Response.json({ error: "Cuerpo JSON inválido" }, { status: 422 });
+  }
   if (error instanceof z.ZodError) {
     return Response.json(
       { error: error.issues[0]?.message ?? "Datos de caja inválidos" },
@@ -29,14 +31,10 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const actor = await requirePermission(request as never, "pedidos.read");
     const url = new URL(request.url);
-    const negocioId =
-      url.searchParams.get("negocioId")?.trim() ||
-      actor.profile.negocioId?.trim() ||
-      DEFAULT_TENANT_ID;
-
-    requireNegocioAccess(actor, negocioId);
-
-    const dashboard = await getCashDashboardState(negocioId);
+    const dashboard = await getCashDashboardStateForCaller(
+      actor,
+      url.searchParams.get("negocioId"),
+    );
     return Response.json(dashboard);
   } catch (error) {
     return errorResponse(error);

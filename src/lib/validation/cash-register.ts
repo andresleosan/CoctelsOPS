@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { CASH_EXPENSE_CATEGORIES } from "@/types/cash-register";
-import { DEFAULT_TENANT_ID } from "@/types/tenant";
 
 const copAmountSchema = z
   .number({ invalid_type_error: "El monto debe ser numérico" })
@@ -11,7 +10,7 @@ const copAmountSchema = z
 
 export const openCashShiftSchema = z.object({
   action: z.literal("open"),
-  negocioId: z.string().trim().min(1).default(DEFAULT_TENANT_ID),
+  negocioId: z.string().trim().min(1).max(120).optional(),
   openingBase: copAmountSchema,
   openingNotes: z.string().trim().max(300).optional(),
 });

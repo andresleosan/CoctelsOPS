@@ -3,7 +3,7 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { Timestamp, type Firestore } from "firebase-admin/firestore";
 
-import { requireNegocioAccess } from "@/lib/auth/permissions";
+import { requireNegocioAccess, resolveAuthorizedNegocioId } from "@/lib/auth/permissions";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
 import { productFromData } from "@/lib/firestore/products";
@@ -224,9 +224,12 @@ function toBarTab(id: string, data: Record<string, unknown>): BarTab {
 }
 
 export async function listBarTabs(negocioId: string): Promise<BarTab[]> {
+  const cleanNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
   const db = getAdminDb();
-  const snap = await db.collection(COLLECTION).where("negocioId", "==", negocioId).get();
-  const tabs = snap.docs.map((doc) => toBarTab(doc.id, doc.data() as Record<string, unknown>));
+  const snap = await db.collection(COLLECTION).where("negocioId", "==", cleanNegocioId).get();
+  const tabs = snap.docs
+    .map((doc) => toBarTab(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
+    .filter((tab) => tab.negocioId === cleanNegocioId);
 
   return tabs.sort((a, b) => {
     if (a.status === "abierta" && b.status !== "abierta") return -1;
@@ -235,9 +238,16 @@ export async function listBarTabs(negocioId: string): Promise<BarTab[]> {
   });
 }
 
+export async function listBarTabsForCaller(
+  caller: VerifiedUser,
+  negocioId?: string | null,
+): Promise<BarTab[]> {
+  const targetNegocioId = resolveAuthorizedNegocioId(caller, negocioId);
+  return listBarTabs(targetNegocioId);
+}
+
 export async function openBarTab(actor: VerifiedUser, input: OpenBarTabInput): Promise<BarTab> {
-  const negocioId = input.negocioId?.trim() || actor.profile.negocioId?.trim() || DEFAULT_TENANT_ID;
-  requireNegocioAccess(actor, negocioId);
+  const negocioId = resolveAuthorizedNegocioId(actor, input.negocioId);
 
   const tableNumber = normalizeTableNumber(input.tableNumber);
   if (!tableNumber) {
@@ -253,7 +263,13 @@ export async function openBarTab(actor: VerifiedUser, input: OpenBarTabInput): P
 
   const normalizedTarget = getTableLookupKey(tableNumber);
   const duplicate = openTabsSnap.docs.find((doc) => {
-    const existingTable = getTableLookupKey(String(doc.data().tableNumber ?? ""));
+    const data = (doc.data() ?? {}) as Record<string, unknown>;
+    const docNegocioId =
+      typeof data.negocioId === "string" && data.negocioId.trim()
+        ? data.negocioId.trim()
+        : DEFAULT_TENANT_ID;
+    if (docNegocioId !== negocioId) return false;
+    const existingTable = getTableLookupKey(String(data.tableNumber ?? ""));
     return existingTable === normalizedTarget;
   });
 
@@ -371,7 +387,8 @@ export async function addRoundToBarTab(
       if (!product) {
         throw new BarTabError(422, "Producto no encontrado en el catálogo");
       }
-      if (product.negocioId && product.negocioId !== currentTab.negocioId) {
+      const effectiveProductNegocioId = product.negocioId?.trim() || DEFAULT_TENANT_ID;
+      if (effectiveProductNegocioId !== currentTab.negocioId) {
         throw new BarTabError(403, "El producto no pertenece a este local");
       }
       const quantity = input.items
@@ -386,6 +403,7 @@ export async function addRoundToBarTab(
         updatedAt: now,
       });
       transaction.create(movementRef, {
+        negocioId: currentTab.negocioId,
         productId,
         type: "salida",
         quantity,
@@ -437,6 +455,7 @@ export async function addRoundToBarTab(
     transaction.create(orderRef, orderPayload);
     transaction.create(notificationRef, {
       audience: "admin",
+      negocioId: currentTab.negocioId,
       title: `Ronda #${roundNumber} · ${currentTab.tableNumber}`,
       message: `Nueva ronda de ${calculated.items.length} ítem(s) enviada al KDS.`,
       orderId: orderRef.id,
@@ -456,6 +475,7 @@ export async function addRoundToBarTab(
       entityId: currentTab.id,
       changes: {
         action: "add_bar_tab_round",
+        negocioId: currentTab.negocioId,
         roundNumber,
         orderId: orderRef.id,
         roundSubtotal: calculated.subtotal,
@@ -547,6 +567,7 @@ export async function closeBarTab(actor: VerifiedUser, input: CloseBarTabInput):
       entityId: currentTab.id,
       changes: {
         action: "close_bar_tab",
+        negocioId: currentTab.negocioId,
         tableNumber: currentTab.tableNumber,
         total: currentTab.total,
         splitMode: input.splitMode,
@@ -618,6 +639,7 @@ export async function cancelBarTab(actor: VerifiedUser, input: CancelBarTabInput
       entityId: currentTab.id,
       changes: {
         action: "cancel_bar_tab",
+        negocioId: currentTab.negocioId,
         tableNumber: currentTab.tableNumber,
         reason: input.reason?.trim() || "Cancelada sin consumo",
       },
@@ -668,6 +690,7 @@ async function loadOrderStatusMapInTransaction(
   db: Firestore,
   transaction: FirebaseFirestore.Transaction,
   rounds: BarTabRound[],
+  negocioId: string,
 ): Promise<Map<string, OrderStatus>> {
   const statusMap = new Map<string, OrderStatus>();
   const uniqueOrderIds = [...new Set(rounds.map((r) => r.orderId).filter((id) => Boolean(id?.trim())))];
@@ -682,7 +705,13 @@ async function loadOrderStatusMapInTransaction(
 
   for (const { orderId, snap } of snapshots) {
     if (!snap || !snap.exists) continue;
-    const status = parseOrderStatus((snap.data() as Record<string, unknown> | undefined)?.status);
+    const data = (snap.data() ?? {}) as Record<string, unknown>;
+    const orderNegocioId =
+      typeof data.negocioId === "string" && data.negocioId.trim()
+        ? data.negocioId.trim()
+        : DEFAULT_TENANT_ID;
+    if (orderNegocioId !== negocioId) continue;
+    const status = parseOrderStatus(data.status);
     if (status) {
       statusMap.set(orderId, status);
     }
@@ -694,6 +723,7 @@ async function loadOrderStatusMapInTransaction(
 async function loadOrderStatusMap(
   db: Firestore,
   rounds: BarTabRound[],
+  negocioId: string,
 ): Promise<Map<string, OrderStatus>> {
   const statusMap = new Map<string, OrderStatus>();
   const uniqueOrderIds = [...new Set(rounds.map((r) => r.orderId).filter((id) => Boolean(id?.trim())))];
@@ -708,7 +738,13 @@ async function loadOrderStatusMap(
 
   for (const { orderId, snap } of snapshots) {
     if (!snap || !snap.exists) continue;
-    const status = parseOrderStatus((snap.data() as Record<string, unknown> | undefined)?.status);
+    const data = (snap.data() ?? {}) as Record<string, unknown>;
+    const orderNegocioId =
+      typeof data.negocioId === "string" && data.negocioId.trim()
+        ? data.negocioId.trim()
+        : DEFAULT_TENANT_ID;
+    if (orderNegocioId !== negocioId) continue;
+    const status = parseOrderStatus(data.status);
     if (status) {
       statusMap.set(orderId, status);
     }
@@ -772,16 +808,24 @@ export async function getPublicTableTab(
     .where("status", "==", "abierta")
     .get();
 
-  const matchedDoc = openTabsSnap.docs.find(
-    (doc) => getTableLookupKey(String(doc.data().tableNumber ?? "")) === targetKey,
-  );
+  const matchedDoc = openTabsSnap.docs.find((doc) => {
+    const data = (doc.data() ?? {}) as Record<string, unknown>;
+    const docNegocioId =
+      typeof data.negocioId === "string" && data.negocioId.trim()
+        ? data.negocioId.trim()
+        : DEFAULT_TENANT_ID;
+    return (
+      docNegocioId === cleanNegocioId &&
+      getTableLookupKey(String(data.tableNumber ?? "")) === targetKey
+    );
+  });
 
   if (!matchedDoc) {
     return { tableNumber: canonicalTable, tab: null };
   }
 
   const tab = toBarTab(matchedDoc.id, (matchedDoc.data() ?? {}) as Record<string, unknown>);
-  const statusMap = await loadOrderStatusMap(db, tab.rounds);
+  const statusMap = await loadOrderStatusMap(db, tab.rounds, cleanNegocioId);
 
   return {
     tableNumber: tab.tableNumber,
@@ -835,9 +879,17 @@ export async function addPublicRoundToTableTab(
       .where("status", "==", "abierta");
 
     const openTabsSnap = await transaction.get(openTabsQuery);
-    const existingTabDoc = openTabsSnap.docs.find(
-      (doc) => getTableLookupKey(String(doc.data().tableNumber ?? "")) === targetKey,
-    );
+    const existingTabDoc = openTabsSnap.docs.find((doc) => {
+      const data = (doc.data() ?? {}) as Record<string, unknown>;
+      const docNegocioId =
+        typeof data.negocioId === "string" && data.negocioId.trim()
+          ? data.negocioId.trim()
+          : DEFAULT_TENANT_ID;
+      return (
+        docNegocioId === negocioId &&
+        getTableLookupKey(String(data.tableNumber ?? "")) === targetKey
+      );
+    });
     const existingTab = existingTabDoc
       ? toBarTab(existingTabDoc.id, (existingTabDoc.data() ?? {}) as Record<string, unknown>)
       : null;
@@ -849,7 +901,12 @@ export async function addPublicRoundToTableTab(
         (round) => round.idempotencyKey === cleanIdempotencyKey,
       );
       if (existingRound) {
-        const statusMap = await loadOrderStatusMapInTransaction(db, transaction, existingTab.rounds);
+        const statusMap = await loadOrderStatusMapInTransaction(
+          db,
+          transaction,
+          existingTab.rounds,
+          negocioId,
+        );
         const publicTab = toPublicTableTab(existingTab, statusMap);
         const publicRound =
           publicTab.rounds.find((round) => round.roundNumber === existingRound.roundNumber) ??
@@ -868,6 +925,13 @@ export async function addPublicRoundToTableTab(
 
     if (existingOrderSnap?.exists) {
       const orderData = (existingOrderSnap.data() ?? {}) as Record<string, unknown>;
+      const orderNegocioId =
+        typeof orderData.negocioId === "string" && orderData.negocioId.trim()
+          ? orderData.negocioId.trim()
+          : DEFAULT_TENANT_ID;
+      if (orderNegocioId !== negocioId) {
+        throw new BarTabError(403, "Esta ronda pertenece a otro local.");
+      }
       const linkedTabId = typeof orderData.barTabId === "string" ? orderData.barTabId.trim() : "";
       if (linkedTabId) {
         const linkedTabSnap = await transaction.get(db.collection(COLLECTION).doc(linkedTabId));
@@ -876,7 +940,15 @@ export async function addPublicRoundToTableTab(
             linkedTabSnap.id,
             (linkedTabSnap.data() ?? {}) as Record<string, unknown>,
           );
-          const statusMap = await loadOrderStatusMapInTransaction(db, transaction, linkedTab.rounds);
+          if (linkedTab.negocioId !== negocioId) {
+            throw new BarTabError(403, "Esta cuenta pertenece a otro local.");
+          }
+          const statusMap = await loadOrderStatusMapInTransaction(
+            db,
+            transaction,
+            linkedTab.rounds,
+            negocioId,
+          );
           const publicTab = toPublicTableTab(linkedTab, statusMap);
           const matchedRound =
             publicTab.rounds.find((round) => round.orderId === orderRef.id) ??
@@ -897,7 +969,7 @@ export async function addPublicRoundToTableTab(
     }
 
     const existingRoundStatuses = existingTab
-      ? await loadOrderStatusMapInTransaction(db, transaction, existingTab.rounds)
+      ? await loadOrderStatusMapInTransaction(db, transaction, existingTab.rounds, negocioId)
       : new Map<string, OrderStatus>();
 
     const productSnapshots = await Promise.all(
@@ -917,7 +989,8 @@ export async function addPublicRoundToTableTab(
         productId,
         (snapshot.data() ?? {}) as Record<string, unknown>,
       );
-      if (product.negocioId && product.negocioId !== negocioId) {
+      const effectiveProductNegocioId = product.negocioId?.trim() || DEFAULT_TENANT_ID;
+      if (effectiveProductNegocioId !== negocioId) {
         throw new BarTabError(403, "El producto no pertenece a este local");
       }
       productsById.set(productId, product);
@@ -965,6 +1038,7 @@ export async function addPublicRoundToTableTab(
         updatedAt: now,
       });
       transaction.create(movementRef, {
+        negocioId,
         productId,
         type: "salida",
         quantity,
@@ -1126,9 +1200,17 @@ export async function requestTableBill(
       .where("status", "==", "abierta");
 
     const openTabsSnap = await transaction.get(openTabsQuery);
-    const existingTabDoc = openTabsSnap.docs.find(
-      (doc) => getTableLookupKey(String(doc.data().tableNumber ?? "")) === targetKey,
-    );
+    const existingTabDoc = openTabsSnap.docs.find((doc) => {
+      const data = (doc.data() ?? {}) as Record<string, unknown>;
+      const docNegocioId =
+        typeof data.negocioId === "string" && data.negocioId.trim()
+          ? data.negocioId.trim()
+          : DEFAULT_TENANT_ID;
+      return (
+        docNegocioId === negocioId &&
+        getTableLookupKey(String(data.tableNumber ?? "")) === targetKey
+      );
+    });
 
     if (!existingTabDoc) {
       throw new BarTabError(404, "No hay una cuenta abierta para esta mesa.");
@@ -1143,7 +1225,12 @@ export async function requestTableBill(
       throw new BarTabError(422, "Agrega al menos una ronda antes de solicitar la cuenta.");
     }
 
-    const statusMap = await loadOrderStatusMapInTransaction(db, transaction, currentTab.rounds);
+    const statusMap = await loadOrderStatusMapInTransaction(
+      db,
+      transaction,
+      currentTab.rounds,
+      currentTab.negocioId,
+    );
     const safeGuests =
       input.splitMode === "equal"
         ? Math.max(2, Math.min(20, Math.round(input.guestCount)))
@@ -1192,6 +1279,7 @@ export async function requestTableBill(
       entityId: currentTab.id,
       changes: {
         action: "request_table_bill",
+        negocioId: currentTab.negocioId,
         tableNumber: canonicalTable,
         splitMode: input.splitMode,
         guestCount: safeGuests,

@@ -8,7 +8,7 @@ export const supplyUnitSchema = z.enum(["ml", "l", "g", "kg", "unidad", "botella
 export const supplyMovementTypeSchema = z.enum(["entrada", "merma", "ajuste", "consumo"]) satisfies z.ZodType<SupplyMovementType>;
 
 export const createSupplySchema = z.object({
-  negocioId: z.string().trim().min(1).default("coctels-ops"),
+  negocioId: z.string().trim().min(1).max(120).optional(),
   name: z.string().trim().min(2, "El nombre debe tener al menos 2 caracteres").max(100),
   category: supplyCategorySchema,
   unit: supplyUnitSchema,
