@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Bell,
+  Bike,
   Boxes,
   ClipboardList,
   FolderTree,
@@ -44,6 +45,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/pedidos": ClipboardList,
   "/admin/mesas": UtensilsCrossed,
   "/admin/caja": Wallet,
+  "/repartidor": Bike,
   "/admin/productos": Martini,
   "/admin/categorias": FolderTree,
   "/admin/clientes": Users,

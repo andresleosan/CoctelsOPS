@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Clock, Flame, MapPin, MessageSquareWarning, Phone, Printer, Sparkles } from "lucide-react";
+import { ArrowRight, Bike, Clock, Flame, MapPin, MessageSquareWarning, Phone, Printer, Sparkles, UserCheck } from "lucide-react";
 
 import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
 import { PaymentProofVerificationControls } from "@/components/admin/PaymentProofVerificationControls";
@@ -10,6 +10,8 @@ import { PermissionGate } from "@/components/admin/PermissionGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { isDeliveryOrder } from "@/lib/orders/delivery-zones";
 import {
   getOrderSlaStatus,
   groupOrdersIntoKdsColumns,
@@ -18,18 +20,34 @@ import {
 } from "@/lib/orders/kds-sla";
 import { formatPosPaymentSummary } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
-import type { Order, PaymentVerificationStatus } from "@/types/orders";
+import type {
+  AssignOrderDriverInput,
+  Order,
+  PaymentVerificationStatus,
+} from "@/types/orders";
+
+export type DriverOption = {
+  uid?: string;
+  name: string;
+  phone?: string;
+};
 
 export type OrderKdsBoardProps = {
   orders: Order[];
   nowMs?: number;
   updatingOrderId?: string | null;
   verifyingOrderId?: string | null;
+  assigningOrderId?: string | null;
+  availableDrivers?: DriverOption[];
   onAdvanceOrder: (order: Order, skipConfirm?: boolean) => void | Promise<void>;
   onVerifyPayment?: (
     order: Order,
     status: PaymentVerificationStatus,
     reason?: string,
+  ) => void | Promise<void>;
+  onAssignDriver?: (
+    order: Order,
+    driver: AssignOrderDriverInput,
   ) => void | Promise<void>;
   onPrintOrder?: (order: Order) => void;
 };
@@ -53,12 +71,30 @@ export function OrderKdsBoard({
   nowMs = Date.now(),
   updatingOrderId = null,
   verifyingOrderId = null,
+  assigningOrderId = null,
+  availableDrivers = [],
   onAdvanceOrder,
   onVerifyPayment,
+  onAssignDriver,
   onPrintOrder,
 }: OrderKdsBoardProps) {
   const [activePrintOrder, setActivePrintOrder] = useState<Order | null>(null);
+  const [editingDriverOrderId, setEditingDriverOrderId] = useState<string | null>(null);
+  const [driverUid, setDriverUid] = useState("");
+  const [driverName, setDriverName] = useState("");
+  const [driverPhone, setDriverPhone] = useState("");
   const columns = groupOrdersIntoKdsColumns(orders);
+
+  function openDriverEditor(order: Order) {
+    if (editingDriverOrderId === order.id) {
+      setEditingDriverOrderId(null);
+      return;
+    }
+    setEditingDriverOrderId(order.id);
+    setDriverUid(order.assignedDriver?.uid ?? "");
+    setDriverName(order.assignedDriver?.name ?? "");
+    setDriverPhone(order.assignedDriver?.phone ?? "");
+  }
 
   return (
     <div
@@ -152,6 +188,30 @@ export function OrderKdsBoard({
                             💳 {formatPosPaymentSummary(order.paymentMethod, order.paymentBreakdown)}
                           </Badge>
                         )}
+                        {isDeliveryOrder(order) && order.deliveryZoneName && (
+                          <Badge
+                            variant="outline"
+                            className="border-indigo-300 bg-indigo-50 text-indigo-900 font-semibold text-[11px]"
+                          >
+                            📍 {order.deliveryZoneName}
+                            {typeof order.deliveryFee === "number" && order.deliveryFee > 0
+                              ? ` · +$${order.deliveryFee.toLocaleString("es-CO")}`
+                              : ""}
+                          </Badge>
+                        )}
+                        {isDeliveryOrder(order) && (
+                          <Badge
+                            variant="outline"
+                            data-testid={`kds-driver-badge-${order.id}`}
+                            className={
+                              order.assignedDriver
+                                ? "border-violet-300 bg-violet-50 text-violet-900 font-semibold text-[11px]"
+                                : "border-slate-300 bg-slate-100 text-slate-700 font-medium text-[11px]"
+                            }
+                          >
+                            🛵 {order.assignedDriver ? order.assignedDriver.name : "Sin repartidor"}
+                          </Badge>
+                        )}
                       </div>
                     </CardHeader>
 
@@ -222,6 +282,146 @@ export function OrderKdsBoard({
                             : undefined
                         }
                       />
+
+                      {isDeliveryOrder(order) &&
+                        order.status !== "entregado" &&
+                        order.status !== "cancelado" &&
+                        onAssignDriver && (
+                          <PermissionGate permission="pedidos.update">
+                            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/90 p-2.5">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  data-testid={`btn-open-assign-driver-${order.id}`}
+                                  onClick={() => openDriverEditor(order)}
+                                  className="min-h-11 gap-1.5 border-slate-300 bg-white text-xs font-semibold text-slate-900 hover:bg-slate-100"
+                                >
+                                  <UserCheck className="h-3.5 w-3.5 text-violet-700" />
+                                  {order.assignedDriver ? "Cambiar repartidor" : "Asignar repartidor"}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  asChild
+                                  className="min-h-11 gap-1.5 border-slate-300 bg-white text-xs font-semibold text-slate-900 hover:bg-slate-100"
+                                >
+                                  <Link
+                                    href={`/repartidor/${order.id}`}
+                                    aria-label={`Abrir vista repartidor ${order.id}`}
+                                  >
+                                    <Bike className="h-3.5 w-3.5 text-cyan-700" /> Vista reparto
+                                  </Link>
+                                </Button>
+                              </div>
+
+                              {editingDriverOrderId === order.id && (
+                                <div
+                                  data-testid={`assign-driver-panel-${order.id}`}
+                                  className="space-y-2 border-t border-slate-200 pt-2"
+                                >
+                                  {availableDrivers.length > 0 && (
+                                    <select
+                                      aria-label="Seleccionar repartidor del equipo"
+                                      value={driverUid}
+                                      onChange={(event) => {
+                                        const selectedUid = event.target.value;
+                                        setDriverUid(selectedUid);
+                                        const matched = availableDrivers.find(
+                                          (candidate) => (candidate.uid ?? candidate.name) === selectedUid,
+                                        );
+                                        if (matched) {
+                                          setDriverName(matched.name);
+                                          setDriverPhone(matched.phone ?? "");
+                                        }
+                                      }}
+                                      className="h-11 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-900"
+                                    >
+                                      <option value="">Elegir del equipo o escribir abajo...</option>
+                                      {availableDrivers.map((candidate) => (
+                                        <option
+                                          key={candidate.uid ?? candidate.name}
+                                          value={candidate.uid ?? candidate.name}
+                                        >
+                                          {candidate.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    <Input
+                                      aria-label="Nombre del domiciliario"
+                                      placeholder="Nombre del repartidor"
+                                      value={driverName}
+                                      onChange={(event) => {
+                                        setDriverName(event.target.value);
+                                        if (driverUid) setDriverUid("");
+                                      }}
+                                      className="h-11 border-slate-300 bg-white text-xs text-slate-900"
+                                    />
+                                    <Input
+                                      aria-label="Teléfono del domiciliario"
+                                      placeholder="Teléfono (opcional)"
+                                      value={driverPhone}
+                                      onChange={(event) => setDriverPhone(event.target.value)}
+                                      className="h-11 border-slate-300 bg-white text-xs text-slate-900"
+                                    />
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      data-testid={`btn-save-assign-driver-${order.id}`}
+                                      disabled={
+                                        assigningOrderId === order.id ||
+                                        driverName.trim().length < 2
+                                      }
+                                      onClick={async () => {
+                                        await onAssignDriver(order, {
+                                          ...(driverUid ? { uid: driverUid } : {}),
+                                          name: driverName.trim(),
+                                          ...(driverPhone.trim()
+                                            ? { phone: driverPhone.trim() }
+                                            : {}),
+                                        });
+                                        setEditingDriverOrderId(null);
+                                      }}
+                                      className="min-h-11 bg-slate-900 px-3 text-xs font-bold text-white hover:bg-slate-800"
+                                    >
+                                      {assigningOrderId === order.id ? "Guardando..." : "Guardar"}
+                                    </Button>
+                                    {order.assignedDriver && (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        data-testid={`btn-clear-assign-driver-${order.id}`}
+                                        disabled={assigningOrderId === order.id}
+                                        onClick={async () => {
+                                          await onAssignDriver(order, null);
+                                          setEditingDriverOrderId(null);
+                                        }}
+                                        className="min-h-11 border-rose-300 bg-white px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                                      >
+                                        Quitar
+                                      </Button>
+                                    )}
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setEditingDriverOrderId(null)}
+                                      className="min-h-11 px-3 text-xs text-slate-700"
+                                    >
+                                      Cancelar
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </PermissionGate>
+                        )}
 
                       <div className="flex items-center justify-between border-t border-slate-100 pt-2">
                         <span className="text-sm font-extrabold text-slate-950">

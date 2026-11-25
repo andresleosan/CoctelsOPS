@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Bell,
   BellOff,
+  Bike,
   CloudUpload,
   Columns3,
   LayoutList,
@@ -18,7 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
-import { OrderKdsBoard } from "@/components/admin/OrderKdsBoard";
+import { OrderKdsBoard, type DriverOption } from "@/components/admin/OrderKdsBoard";
 import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
 import { PaymentProofVerificationControls } from "@/components/admin/PaymentProofVerificationControls";
 import { PermissionGate } from "@/components/admin/PermissionGate";
@@ -48,6 +49,7 @@ import {
   subscribeOfflineConnectivity,
   syncOfflineQueue,
 } from "@/lib/offline/sync";
+import { isDeliveryOrder } from "@/lib/orders/delivery-zones";
 import { detectNewPendingOrderIds, getOrderSlaStatus } from "@/lib/orders/kds-sla";
 import { getEffectivePaymentVerificationStatus } from "@/lib/orders/payment-verification";
 import {
@@ -55,8 +57,10 @@ import {
   type PosOrderPreview,
 } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
+import type { UserProfile } from "@/types/auth";
 import type { Product } from "@/types/catalog";
 import type {
+  AssignOrderDriverInput,
   CreateOrderInput,
   Order,
   OrderStatus,
@@ -117,6 +121,8 @@ export default function AdminOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
+  const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
+  const [availableDrivers, setAvailableDrivers] = useState<DriverOption[]>([]);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [isOnline, setIsOnline] = useState(true);
@@ -335,10 +341,34 @@ export default function AdminOrdersPage() {
     return { ok: true, synced: false, order: provisionalOrder };
   }
 
+  async function loadDrivers() {
+    if (!user || !isClientOnline()) return;
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) return;
+      const body = (await response.json().catch(() => ({}))) as { users?: UserProfile[] };
+      if (!Array.isArray(body.users)) return;
+      const drivers = body.users
+        .filter((profile) => profile.active && (profile.accountType === "staff" || profile.accountType === "admin"))
+        .map((profile) => ({
+          uid: profile.uid,
+          name: profile.displayName?.trim() || profile.email,
+          ...(profile.telefono?.trim() ? { phone: profile.telefono.trim() } : {}),
+        }));
+      setAvailableDrivers(drivers);
+    } catch {
+      // Staff without usuarios.read can still enter driver names manually.
+    }
+  }
+
   useEffect(() => {
     setIsOnline(isClientOnline());
     void loadOrders();
     void loadPosProducts();
+    void loadDrivers();
   }, [user]);
 
   useEffect(() => {
@@ -452,6 +482,40 @@ export default function AdminOrdersPage() {
       );
     } finally {
       setVerifyingOrderId(null);
+    }
+  }
+
+  async function assignOrderDriverHandler(order: Order, driver: AssignOrderDriverInput) {
+    if (!user) return;
+    setActionError("");
+    setAssigningOrderId(order.id);
+    try {
+      const response = await fetch(`/api/pedidos/${encodeURIComponent(order.id)}/repartidor`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${await user.getIdToken()}`,
+        },
+        body: JSON.stringify({ driver }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        order?: Order;
+        error?: string;
+      };
+      if (!response.ok || !body.order) {
+        throw new ApiResponseError(body.error ?? "No se pudo asignar el domiciliario.");
+      }
+      const nextOrders = orders.map((item) => (item.id === order.id ? body.order! : item));
+      setOrders(nextOrders);
+      await cacheOrdersSnapshot(nextOrders);
+    } catch (assignError) {
+      setActionError(
+        assignError instanceof Error
+          ? assignError.message
+          : "No se pudo asignar el domiciliario.",
+      );
+    } finally {
+      setAssigningOrderId(null);
     }
   }
 
@@ -593,6 +657,12 @@ export default function AdminOrdersPage() {
               </Button>
             </PermissionGate>
 
+            <Button variant="outline" size="sm" asChild className="min-h-11 border-slate-300 bg-white text-slate-900 hover:bg-slate-50">
+              <Link href="/repartidor">
+                <Bike className="h-4 w-4 text-cyan-700" /> Tablero Reparto
+              </Link>
+            </Button>
+
             <div
               className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm"
               role="group"
@@ -718,8 +788,11 @@ export default function AdminOrdersPage() {
             orders={filteredOrders}
             updatingOrderId={updatingOrderId}
             verifyingOrderId={verifyingOrderId}
+            assigningOrderId={assigningOrderId}
+            availableDrivers={availableDrivers}
             onAdvanceOrder={updateStatus}
             onVerifyPayment={verifyOrderPayment}
+            onAssignDriver={assignOrderDriverHandler}
           />
         ) : (
           <div className="space-y-3">
@@ -744,6 +817,22 @@ export default function AdminOrdersPage() {
                             className="border-emerald-300 bg-emerald-50 text-xs font-semibold text-emerald-900"
                           >
                             {formatPosPaymentSummary(order.paymentMethod, order.paymentBreakdown)}
+                          </Badge>
+                        )}
+                        {isDeliveryOrder(order) && order.deliveryZoneName && (
+                          <Badge
+                            variant="outline"
+                            className="border-indigo-300 bg-indigo-50 text-xs font-semibold text-indigo-900"
+                          >
+                            📍 {order.deliveryZoneName}
+                          </Badge>
+                        )}
+                        {isDeliveryOrder(order) && order.assignedDriver && (
+                          <Badge
+                            variant="outline"
+                            className="border-violet-300 bg-violet-50 text-xs font-semibold text-violet-900"
+                          >
+                            🛵 {order.assignedDriver.name}
                           </Badge>
                         )}
                       </div>
@@ -794,6 +883,13 @@ export default function AdminOrdersPage() {
                           </Button>
                         )}
                       </PermissionGate>
+                      {isDeliveryOrder(order) && (
+                        <Button variant="outline" size="sm" asChild>
+                          <Link href={`/repartidor/${order.id}`}>
+                            <Bike className="h-4 w-4" /> Reparto
+                          </Link>
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" asChild>
                         <Link href={`/admin/pedidos/${order.id}`}>
                           Detalle <ArrowRight />

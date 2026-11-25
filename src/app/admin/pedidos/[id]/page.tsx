@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Clock, FlaskConical, MessageCircle, Printer } from "lucide-react";
+import { ArrowLeft, Bike, CheckCircle2, Clock, FlaskConical, MessageCircle, Printer } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
+import { isDeliveryOrder } from "@/lib/orders/delivery-zones";
 import { getOrderSlaStatus } from "@/lib/orders/kds-sla";
 import { formatPosPaymentSummary } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
@@ -188,6 +189,13 @@ export default function AdminOrderDetailPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {isDeliveryOrder(order) && (
+                    <Button variant="outline" asChild className="inline-flex items-center gap-1.5">
+                      <Link href={`/repartidor/${order.id}`}>
+                        <Bike className="h-4 w-4" /> Vista repartidor
+                      </Link>
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     data-testid="btn-open-print-modal"
@@ -277,6 +285,25 @@ export default function AdminOrderDetailPage() {
                     <p>
                       <strong>Dirección:</strong> {order.address}
                     </p>
+                    {order.deliveryZoneName && (
+                      <p>
+                        <strong>Zona:</strong> {order.deliveryZoneName}
+                        {typeof order.deliveryFee === "number" && (
+                          <span className="ml-1 text-slate-600">
+                            ({order.deliveryFee === 0 ? "Gratis" : `$${order.deliveryFee.toLocaleString("es-CO")}`})
+                          </span>
+                        )}
+                        {typeof order.estimatedDeliveryMinutes === "number" && (
+                          <span className="ml-1 text-slate-500">· ~{order.estimatedDeliveryMinutes} min</span>
+                        )}
+                      </p>
+                    )}
+                    {order.assignedDriver && (
+                      <p>
+                        <strong>Repartidor:</strong> {order.assignedDriver.name}
+                        {order.assignedDriver.phone ? ` (${order.assignedDriver.phone})` : ""}
+                      </p>
+                    )}
                     {order.notes && (
                       <p>
                         <strong>Notas:</strong> {order.notes}

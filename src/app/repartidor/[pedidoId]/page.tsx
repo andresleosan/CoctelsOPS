@@ -151,16 +151,25 @@ export default function DriverOrderPage() {
     <AdminGuard permission="pedidos.read">
       <div className="min-h-screen bg-slate-950 px-3 py-4 text-slate-50 sm:px-6 sm:py-6">
         <div className="mx-auto max-w-xl space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="outline"
-              asChild
-              className="min-h-11 border-white/15 bg-slate-900 text-slate-100 hover:bg-slate-800 hover:text-white"
-            >
-              <Link href="/admin/pedidos">
-                <ArrowLeft className="h-4 w-4" /> Pedidos
-              </Link>
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                asChild
+                className="min-h-11 border-white/15 bg-slate-900 text-slate-100 hover:bg-slate-800 hover:text-white"
+              >
+                <Link href="/repartidor">
+                  <ArrowLeft className="h-4 w-4" /> Cola reparto
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
+                asChild
+                className="min-h-11 border-white/15 bg-slate-900 text-slate-100 hover:bg-slate-800 hover:text-white"
+              >
+                <Link href="/admin/pedidos">Pedidos</Link>
+              </Button>
+            </div>
 
             <Button
               type="button"

@@ -42,6 +42,8 @@ export const createOrderInputSchema = z.object({
   notes: z.string().trim().max(500).optional(),
   serviceType: z.enum(["delivery", "mesa", "pickup"]).optional(),
   tableNumber: z.string().trim().max(50).optional(),
+  deliveryZoneId: z.string().trim().max(64).optional(),
+  deliveryZoneName: z.string().trim().max(80).optional(),
   items: z.array(z.object({
     productId: z.string().trim().min(1),
     quantity: z.number().int().min(1).max(50),
@@ -82,6 +84,23 @@ export const paymentProofMetadataSchema = z.object({
     .max(80, "La referencia no puede superar 80 caracteres")
     .optional()
     .transform((value) => (value && value.length > 0 ? value : undefined)),
+});
+
+export const assignOrderDriverSchema = z.object({
+  driver: z
+    .object({
+      uid: z.string().trim().min(1).max(128).optional(),
+      name: z.string().trim().min(2, "El nombre del domiciliario es obligatorio").max(100),
+      phone: z
+        .string()
+        .trim()
+        .max(30)
+        .regex(/^[+\d()\s-]+$/, "El teléfono del domiciliario no es válido")
+        .optional()
+        .or(z.literal(""))
+        .transform((value) => (value && value.length > 0 ? value : undefined)),
+    })
+    .nullable(),
 });
 
 export const allowedTransitions: Record<OrderStatus, readonly OrderStatus[]> = {

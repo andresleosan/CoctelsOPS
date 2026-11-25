@@ -91,6 +91,22 @@ export type CheckoutItemInput = {
   customization: OrderCustomization;
 };
 
+export type OrderAssignedDriver = {
+  uid?: string;
+  name: string;
+  phone?: string;
+  assignedAt: string;
+  assignedByUid: string;
+};
+
+export type AssignOrderDriverInput = {
+  uid?: string;
+  name: string;
+  phone?: string;
+} | null;
+
+export type CustomerOrderAssignedDriver = Pick<OrderAssignedDriver, "name" | "assignedAt">;
+
 export type CreateOrderInput = {
   customerName: string;
   phone: string;
@@ -98,6 +114,8 @@ export type CreateOrderInput = {
   notes?: string;
   serviceType?: ServiceType;
   tableNumber?: string;
+  deliveryZoneId?: string;
+  deliveryZoneName?: string;
   items: CheckoutItemInput[];
   promotionCode?: string;
   loyaltyRewardId?: LoyaltyRewardId;
@@ -173,6 +191,11 @@ export type Order = {
   paymentVerificationStatus?: PaymentVerificationStatus;
   paymentProof?: OrderPaymentProof;
   paymentVerification?: OrderPaymentVerification;
+  deliveryZoneId?: string;
+  deliveryZoneName?: string;
+  deliveryFee?: number;
+  estimatedDeliveryMinutes?: number;
+  assignedDriver?: OrderAssignedDriver;
   rating?: OrderRating;
   negocioId?: string;
   suppliesDepletedAt?: string;
@@ -194,9 +217,11 @@ export type CustomerOrder = Omit<
   | "suppliesDepletedOnStatus"
   | "paymentProof"
   | "paymentVerification"
+  | "assignedDriver"
 > & {
   statusHistory: CustomerStatusHistoryEntry[];
   rating?: OrderRating;
   paymentProof?: CustomerOrderPaymentProof;
   paymentVerification?: CustomerOrderPaymentVerification;
+  assignedDriver?: CustomerOrderAssignedDriver;
 };

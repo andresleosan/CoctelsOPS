@@ -251,6 +251,25 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
             <div className="mt-10 grid grid-cols-1 gap-4 border-t pt-8 sm:grid-cols-2">
               <div className="space-y-1"><div className="flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3 w-3" /> Total</div><p className="text-sm font-bold">${order.total.toLocaleString()}</p></div>
               <div className="space-y-1"><div className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> Entrega en</div><p className="truncate text-sm font-bold">{order.address}</p></div>
+              {order.deliveryZoneName && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">Zona de cobertura</div>
+                  <p className="text-sm font-bold">
+                    {order.deliveryZoneName}
+                    {typeof order.deliveryFee === 'number' && (
+                      <span className="ml-1.5 text-xs font-semibold text-primary">
+                        ({order.deliveryFee === 0 ? 'Domicilio gratis' : `+$${order.deliveryFee.toLocaleString('es-CO')}`})
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+              {order.assignedDriver?.name && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">Domiciliario asignado</div>
+                  <p className="text-sm font-bold text-primary">{order.assignedDriver.name}</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Save } from "lucide-react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
+import { DeliveryZonesEditor } from "@/components/admin/DeliveryZonesEditor";
 import { PermissionGate } from "@/components/admin/PermissionGate";
 import { QrGeneratorCard } from "@/components/admin/QrGeneratorCard";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
-import { DEFAULT_STORE_CONFIGURATION, type StoreConfiguration } from "@/types/operations";
+import {
+  resolveDeliveryZones,
+  syncLegacyDeliveryZones,
+} from "@/lib/orders/delivery-zones";
+import {
+  DEFAULT_STORE_CONFIGURATION,
+  type DeliveryZoneConfig,
+  type StoreConfiguration,
+} from "@/types/operations";
 
 export default function ConfigurationPage() {
   const { user } = useAuth();
@@ -41,19 +50,35 @@ export default function ConfigurationPage() {
     void load();
   }, [load]);
 
+  const editableZones = resolveDeliveryZones(configuration, { includeInactive: true });
+
+  function handleZonesChange(nextZones: DeliveryZoneConfig[]) {
+    setConfiguration({
+      ...configuration,
+      deliveryZoneRates: nextZones,
+      deliveryZones: syncLegacyDeliveryZones(nextZones),
+    });
+  }
+
   async function save(event: React.FormEvent) {
     event.preventDefault();
     if (!user) return;
     setSaving(true);
     setMessage("");
     try {
+      const normalizedRates = resolveDeliveryZones(configuration, { includeInactive: true });
+      const payload: StoreConfiguration = {
+        ...configuration,
+        deliveryZoneRates: normalizedRates,
+        deliveryZones: syncLegacyDeliveryZones(normalizedRates),
+      };
       const response = await fetch("/api/admin/configuration", {
         method: "PUT",
         headers: {
           "content-type": "application/json",
           Authorization: `Bearer ${await user.getIdToken()}`,
         },
-        body: JSON.stringify(configuration),
+        body: JSON.stringify(payload),
       });
       const body = (await response.json()) as { configuration?: StoreConfiguration; error?: string };
       if (!response.ok) throw new Error(body.error);
@@ -133,20 +158,10 @@ export default function ConfigurationPage() {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <Label htmlFor="zones">Zonas de entrega, una por línea</Label>
-                  <textarea
-                    id="zones"
-                    value={configuration.deliveryZones.join("\n")}
-                    onChange={(event) =>
-                      setConfiguration({
-                        ...configuration,
-                        deliveryZones: event.target.value
-                          .split("\n")
-                          .map((zone) => zone.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                    className="min-h-24 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                  <DeliveryZonesEditor
+                    zones={editableZones}
+                    defaultEstimatedMinutes={configuration.estimatedDeliveryMinutes}
+                    onChange={handleZonesChange}
                   />
                 </div>
               </CardContent>

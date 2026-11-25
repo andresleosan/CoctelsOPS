@@ -7,6 +7,7 @@ import { AuthorizationError } from "@/lib/auth/verify-request";
 import { getProductById, productFromData } from "@/lib/firestore/products";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
+import { getStoreConfiguration } from "@/lib/firestore/configuration";
 import {
   calculateEarnedPoints,
   calculateLoyaltyRedemption,
@@ -16,12 +17,19 @@ import { calculatePromotion, getPromotionByCode, toPromotion } from "@/lib/fires
 import { prepareOrderSupplyDepletion } from "@/lib/firestore/recipes";
 import { toCustomerOrder } from "@/lib/orders/customer-order";
 import {
+  calculateDeliveryQuote,
+  findDeliveryZone,
+  isDeliveryOrder,
+  resolveDeliveryZones,
+} from "@/lib/orders/delivery-zones";
+import {
   getEffectivePaymentVerificationStatus,
   isDigitalTransferMethod,
 } from "@/lib/orders/payment-verification";
 import {
   assertOrderOwnership,
   assertValidTransition,
+  assignOrderDriverSchema,
   calculateOrder,
   createOrderInputSchema,
   OrderValidationError,
@@ -30,15 +38,18 @@ import {
   verifyOrderPaymentSchema,
 } from "@/lib/validation/orders";
 import type { VerifiedUser } from "@/types/auth";
+import type { DeliveryZoneConfig } from "@/types/operations";
 import type { OrderEscandalloSummary } from "@/types/recipes";
 import { DEFAULT_TENANT_ID } from "@/types/tenant";
 import {
   PAYMENT_VERIFICATION_STATUSES,
   POS_DIGITAL_CHANNELS,
   POS_PAYMENT_METHODS,
+  type AssignOrderDriverInput,
   type CreateOrderInput,
   type CustomerOrder,
   type Order,
+  type OrderAssignedDriver,
   type OrderPaymentBreakdown,
   type OrderPaymentProof,
   type OrderPaymentVerification,
@@ -186,6 +197,23 @@ function parseEscandalloSummary(raw: unknown): OrderEscandalloSummary | undefine
   return candidate as OrderEscandalloSummary;
 }
 
+function parseAssignedDriver(raw: unknown): OrderAssignedDriver | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.name !== "string" || !candidate.name.trim()) return undefined;
+  return {
+    ...(typeof candidate.uid === "string" && candidate.uid.trim()
+      ? { uid: candidate.uid.trim() }
+      : {}),
+    name: candidate.name.trim(),
+    ...(typeof candidate.phone === "string" && candidate.phone.trim()
+      ? { phone: candidate.phone.trim() }
+      : {}),
+    assignedAt: typeof candidate.assignedAt === "string" ? candidate.assignedAt : "",
+    assignedByUid: typeof candidate.assignedByUid === "string" ? candidate.assignedByUid : "",
+  };
+}
+
 function toOrder(id: string, data: Record<string, unknown>): Order {
   if (!isOrderStatus(data.status)) throw new OrderValidationError("El estado del pedido no es valido");
   const status = data.status;
@@ -247,6 +275,25 @@ function toOrder(id: string, data: Record<string, unknown>): Order {
       : {}),
     ...(parsePaymentVerification(data.paymentVerification)
       ? { paymentVerification: parsePaymentVerification(data.paymentVerification) }
+      : {}),
+    ...(typeof data.deliveryZoneId === "string" && data.deliveryZoneId.trim()
+      ? { deliveryZoneId: data.deliveryZoneId.trim() }
+      : {}),
+    ...(typeof data.deliveryZoneName === "string" && data.deliveryZoneName.trim()
+      ? { deliveryZoneName: data.deliveryZoneName.trim() }
+      : {}),
+    ...(typeof data.deliveryFee === "number" &&
+    Number.isFinite(data.deliveryFee) &&
+    data.deliveryFee >= 0
+      ? { deliveryFee: Math.round(data.deliveryFee) }
+      : {}),
+    ...(typeof data.estimatedDeliveryMinutes === "number" &&
+    Number.isFinite(data.estimatedDeliveryMinutes) &&
+    data.estimatedDeliveryMinutes > 0
+      ? { estimatedDeliveryMinutes: Math.round(data.estimatedDeliveryMinutes) }
+      : {}),
+    ...(parseAssignedDriver(data.assignedDriver)
+      ? { assignedDriver: parseAssignedDriver(data.assignedDriver) }
       : {}),
     ...(data.rating && typeof data.rating === "object" && typeof (data.rating as Record<string, unknown>).stars === "number"
       ? {
@@ -335,6 +382,31 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
   const sanitizedPaymentBreakdown = validated.paymentBreakdown
     ? sanitizePaymentBreakdown(validated.paymentBreakdown)
     : undefined;
+  const wantsDeliveryZone =
+    validated.serviceType !== "mesa" &&
+    validated.serviceType !== "pickup" &&
+    Boolean(validated.deliveryZoneId?.trim() || validated.deliveryZoneName?.trim());
+  let matchedDeliveryZone: DeliveryZoneConfig | null = null;
+  let fallbackDeliveryMinutes = 45;
+  if (wantsDeliveryZone) {
+    const config = await getStoreConfiguration({ allowDefaults: true });
+    fallbackDeliveryMinutes = config.estimatedDeliveryMinutes;
+    matchedDeliveryZone = findDeliveryZone(resolveDeliveryZones(config), {
+      id: validated.deliveryZoneId,
+      name: validated.deliveryZoneName,
+    });
+    if (!matchedDeliveryZone) {
+      throw new OrderValidationError("La zona de entrega seleccionada no está disponible");
+    }
+  }
+  const initialDeliveryQuote = matchedDeliveryZone
+    ? calculateDeliveryQuote({
+        serviceType: validated.serviceType ?? "delivery",
+        zone: matchedDeliveryZone,
+        subtotalCop: calculated.subtotal,
+        fallbackEstimatedMinutes: fallbackDeliveryMinutes,
+      })
+    : null;
   const derivedNegocioId = availableProducts
     .map((product) => (typeof product.negocioId === "string" ? product.negocioId.trim() : ""))
     .find(Boolean);
@@ -348,9 +420,17 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     ...(validated.notes ? { notes: validated.notes } : {}),
     ...(validated.serviceType ? { serviceType: validated.serviceType } : {}),
     ...(validated.tableNumber ? { tableNumber: validated.tableNumber } : {}),
+    ...(matchedDeliveryZone && initialDeliveryQuote
+      ? {
+          deliveryZoneId: matchedDeliveryZone.id,
+          deliveryZoneName: matchedDeliveryZone.name,
+          deliveryFee: initialDeliveryQuote.feeCop,
+          estimatedDeliveryMinutes: initialDeliveryQuote.estimatedMinutes,
+        }
+      : {}),
     items: calculated.items,
     subtotal: calculated.subtotal,
-    total: calculated.total,
+    total: calculated.total + (initialDeliveryQuote?.feeCop ?? 0),
     status: "pendiente" as const,
     createdAt: now,
     updatedAt: now,
@@ -421,6 +501,17 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     if (validated.loyaltyRewardId && typeof loyaltyDiscount === "number") {
       transactionTotal = Math.max(0, transactionTotal - Math.min(loyaltyDiscount, transactionTotal));
     }
+    const transactionDeliveryQuote = matchedDeliveryZone
+      ? calculateDeliveryQuote({
+          serviceType: validated.serviceType ?? "delivery",
+          zone: matchedDeliveryZone,
+          subtotalCop: transactionCalculated.subtotal,
+          fallbackEstimatedMinutes: fallbackDeliveryMinutes,
+        })
+      : null;
+    if (transactionDeliveryQuote) {
+      transactionTotal += transactionDeliveryQuote.feeCop;
+    }
 
     const transactionNow = new Date().toISOString();
     const transactionNegocioId = transactionProducts
@@ -431,6 +522,14 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
       items: transactionCalculated.items,
       subtotal: transactionCalculated.subtotal,
       total: transactionTotal,
+      ...(matchedDeliveryZone && transactionDeliveryQuote
+        ? {
+            deliveryZoneId: matchedDeliveryZone.id,
+            deliveryZoneName: matchedDeliveryZone.name,
+            deliveryFee: transactionDeliveryQuote.feeCop,
+            estimatedDeliveryMinutes: transactionDeliveryQuote.estimatedMinutes,
+          }
+        : {}),
       ...(transactionNegocioId ? { negocioId: transactionNegocioId } : {}),
       createdAt: transactionNow,
       updatedAt: transactionNow,
@@ -449,7 +548,23 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     }
     transaction.create(reference, orderData);
     transaction.create(notificationReference, { audience: "admin", title: "Nuevo pedido", message: `Se recibió el pedido #${reference.id.slice(0, 8)}.`, orderId: reference.id, read: false, createdAt: transactionNow });
-    writeAuditInTransaction(transaction, { actorUid: user.uid, action: "create", module: "pedidos", entityId: reference.id, changes: { total: orderData.total, itemCount: orderData.items.length, ...(orderData.promotionCode ? { promotionCode: orderData.promotionCode } : {}) } });
+    writeAuditInTransaction(transaction, {
+      actorUid: user.uid,
+      action: "create",
+      module: "pedidos",
+      entityId: reference.id,
+      changes: {
+        total: orderData.total,
+        itemCount: orderData.items.length,
+        ...(orderData.promotionCode ? { promotionCode: orderData.promotionCode } : {}),
+        ...(matchedDeliveryZone && transactionDeliveryQuote
+          ? {
+              deliveryZoneName: matchedDeliveryZone.name,
+              deliveryFee: transactionDeliveryQuote.feeCop,
+            }
+          : {}),
+      },
+    });
   });
 
   return { id: reference.id, ...orderData } as Order;
@@ -896,5 +1011,96 @@ export async function updateOrderPaymentVerification(
   });
 
   if (!updated) throw new Error("No fue posible actualizar la verificación del pago");
+  return updated;
+}
+
+export async function assignOrderDriver(
+  user: VerifiedUser,
+  id: string,
+  driverInput: AssignOrderDriverInput,
+): Promise<Order> {
+  requireOrderPermission(user, "pedidos.update");
+  const cleanId = id?.trim();
+  if (!cleanId) throw new OrderNotFoundError();
+  const { driver } = assignOrderDriverSchema.parse({ driver: driverInput });
+  const db = getAdminDb();
+  const reference = db.collection("pedidos").doc(cleanId);
+  let updated: Order | undefined;
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new OrderNotFoundError();
+    const current = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+    if (!isGlobalAdmin(user) && user.profile?.negocioId?.trim()) {
+      requireNegocioAccess(user, current.negocioId?.trim() || DEFAULT_TENANT_ID);
+    }
+    if (current.status === "cancelado" || current.status === "entregado") {
+      throw new OrderValidationError(
+        "No se puede asignar domiciliario a un pedido entregado o cancelado",
+      );
+    }
+    if (!isDeliveryOrder(current)) {
+      throw new OrderValidationError(
+        "Solo los pedidos a domicilio pueden asignarse a un domiciliario",
+      );
+    }
+
+    const now = new Date().toISOString();
+    const audit = { ...current.audit, updatedByUid: user.uid, updatedAt: now };
+
+    if (!driver) {
+      transaction.update(reference, {
+        assignedDriver: null,
+        updatedAt: now,
+        audit,
+      });
+      writeAuditInTransaction(transaction, {
+        actorUid: user.uid,
+        action: "unassign_driver",
+        module: "pedidos",
+        entityId: cleanId,
+      });
+      const { assignedDriver: _removed, ...restCurrent } = current;
+      void _removed;
+      updated = {
+        ...restCurrent,
+        updatedAt: now,
+        audit,
+      };
+      return;
+    }
+
+    const assignedDriver: OrderAssignedDriver = {
+      ...(driver.uid ? { uid: driver.uid } : {}),
+      name: driver.name.trim(),
+      ...(driver.phone ? { phone: driver.phone.trim() } : {}),
+      assignedAt: now,
+      assignedByUid: user.uid,
+    };
+
+    transaction.update(reference, {
+      assignedDriver,
+      updatedAt: now,
+      audit,
+    });
+    writeAuditInTransaction(transaction, {
+      actorUid: user.uid,
+      action: "assign_driver",
+      module: "pedidos",
+      entityId: cleanId,
+      changes: {
+        driverName: assignedDriver.name,
+        ...(assignedDriver.uid ? { driverUid: assignedDriver.uid } : {}),
+      },
+    });
+    updated = {
+      ...current,
+      assignedDriver,
+      updatedAt: now,
+      audit,
+    };
+  });
+
+  if (!updated) throw new Error("No fue posible asignar el domiciliario");
   return updated;
 }

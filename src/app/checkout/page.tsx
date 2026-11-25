@@ -32,6 +32,11 @@ import {
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 import { getCheckoutErrorMessage } from '@/lib/checkout/messages';
+import {
+  calculateDeliveryQuote,
+  hasConfiguredDynamicZones,
+  resolveDeliveryZones,
+} from '@/lib/orders/delivery-zones';
 import { validateClientProofFile } from '@/lib/orders/payment-verification';
 import { LOYALTY_REWARDS, type LoyaltyRewardId, type LoyaltySummary } from '@/types/loyalty';
 import type { StoreConfiguration } from '@/types/operations';
@@ -65,6 +70,8 @@ export default function CheckoutPage() {
 
   const [serviceType, setServiceType] = useState<ServiceType>('delivery');
   const [tableNumber, setTableNumber] = useState('');
+  const [selectedZoneId, setSelectedZoneId] = useState('');
+  const [zoneError, setZoneError] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -352,7 +359,18 @@ export default function CheckoutPage() {
   const loyaltyDiscount = selectedReward
     ? Math.min(selectedReward.maxDiscountCop, subtotalAfterPromo)
     : 0;
-  const finalTotal = Math.max(0, subtotalAfterPromo - loyaltyDiscount);
+  const activeDeliveryZones = resolveDeliveryZones(configuration);
+  const hasDynamicZoneRates = hasConfiguredDynamicZones(configuration);
+  const selectedZone =
+    activeDeliveryZones.find((zone) => zone.id === selectedZoneId) ??
+    (activeDeliveryZones.length === 1 ? activeDeliveryZones[0] : null);
+  const deliveryQuote = calculateDeliveryQuote({
+    serviceType,
+    zone: selectedZone,
+    subtotalCop: totalPrice,
+    fallbackEstimatedMinutes: configuration?.estimatedDeliveryMinutes,
+  });
+  const finalTotal = Math.max(0, subtotalAfterPromo - loyaltyDiscount) + deliveryQuote.feeCop;
   const estimatedPointsEarned = Math.max(0, Math.floor(finalTotal / 1000));
   const selectedTransferChannelLabel =
     TRANSFER_CHANNELS.find((channel) => channel.id === transferChannel)?.label ?? 'Transferencia';
@@ -401,6 +419,17 @@ export default function CheckoutPage() {
     e.preventDefault();
     if (!user) return;
 
+    if (
+      serviceType === 'delivery' &&
+      hasDynamicZoneRates &&
+      activeDeliveryZones.length > 1 &&
+      !selectedZone
+    ) {
+      setZoneError('Selecciona tu zona o barrio de entrega para calcular el domicilio.');
+      return;
+    }
+
+    setZoneError('');
     setIsSubmitting(true);
     setSubmitError('');
 
@@ -423,6 +452,12 @@ export default function CheckoutPage() {
           address: effectiveAddress,
           serviceType,
           tableNumber: serviceType === 'mesa' ? tableNumber.trim() : undefined,
+          ...(serviceType === 'delivery' && selectedZone
+            ? {
+                deliveryZoneId: selectedZone.id,
+                deliveryZoneName: selectedZone.name,
+              }
+            : {}),
           notes: formData.notes,
           items: getCheckoutItems(),
           paymentMethod: paymentMethod === 'transferencia' ? transferChannel : 'efectivo',
@@ -659,21 +694,109 @@ export default function CheckoutPage() {
                 )}
 
                 {serviceType === 'delivery' && (
-                  <div className="space-y-1.5 animate-in fade-in duration-200">
-                    <Label
-                      htmlFor="address"
-                      className="text-xs font-bold uppercase tracking-widest text-muted-foreground"
-                    >
-                      Dirección Exacta *
-                    </Label>
-                    <Input
-                      id="address"
-                      required
-                      placeholder="Ej: Carrera 37 # 66-36"
-                      className="bg-background/50 h-12 rounded-xl"
-                      value={formData.address}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    />
+                  <div className="space-y-4 animate-in fade-in duration-200">
+                    {activeDeliveryZones.length > 0 && (
+                      <div className="space-y-2" data-testid="checkout-delivery-zones">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Label className="text-xs font-bold uppercase tracking-widest text-emerald-300">
+                            Zona / Barrio de Entrega {hasDynamicZoneRates && activeDeliveryZones.length > 1 ? '*' : ''}
+                          </Label>
+                          {selectedZone && (
+                            <span className="text-[11px] font-semibold text-cyan-300">
+                              ~{deliveryQuote.estimatedMinutes} min
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+                          role="group"
+                          aria-label="Zona de entrega"
+                        >
+                          {activeDeliveryZones.map((zone) => {
+                            const isSelected = selectedZone?.id === zone.id;
+                            const zoneQuote = calculateDeliveryQuote({
+                              serviceType: 'delivery',
+                              zone,
+                              subtotalCop: totalPrice,
+                              fallbackEstimatedMinutes: configuration?.estimatedDeliveryMinutes,
+                            });
+                            return (
+                              <button
+                                key={zone.id}
+                                type="button"
+                                data-testid={`checkout-zone-${zone.id}`}
+                                aria-pressed={isSelected}
+                                onClick={() => {
+                                  setSelectedZoneId(zone.id);
+                                  setZoneError('');
+                                  idempotencyKey.current = null;
+                                }}
+                                className={`flex min-h-[52px] items-center justify-between gap-2 rounded-xl border px-3.5 py-2.5 text-left transition-all active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 ${
+                                  isSelected
+                                    ? 'border-emerald-400 bg-emerald-500/20 text-white shadow-[0_0_16px_rgba(16,185,129,0.25)]'
+                                    : 'border-white/15 bg-background/40 text-slate-200 hover:border-emerald-400/50 hover:text-white'
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-bold">{zone.name}</p>
+                                  <p className="text-[11px] text-slate-300">~{zone.estimatedMinutes} min</p>
+                                </div>
+                                <span
+                                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-black ${
+                                    zoneQuote.feeCop === 0
+                                      ? 'bg-emerald-500/25 text-emerald-200'
+                                      : 'bg-white/10 text-white'
+                                  }`}
+                                >
+                                  {zoneQuote.feeCop === 0
+                                    ? 'Gratis'
+                                    : `+$${zoneQuote.feeCop.toLocaleString('es-CO')}`}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {zoneError && (
+                          <p role="alert" className="text-xs font-bold text-rose-400">
+                            {zoneError}
+                          </p>
+                        )}
+                        {selectedZone && deliveryQuote.isFreeByThreshold && (
+                          <p
+                            data-testid="checkout-free-delivery-badge"
+                            className="rounded-xl border border-emerald-500/40 bg-emerald-950/35 px-3 py-2 text-xs font-bold text-emerald-200"
+                          >
+                            ¡Domicilio gratis aplicado en {selectedZone.name}!
+                          </p>
+                        )}
+                        {selectedZone && deliveryQuote.freeDeliveryRemainingCop > 0 && (
+                          <p className="rounded-xl border border-cyan-500/30 bg-cyan-950/25 px-3 py-2 text-xs text-cyan-200">
+                            Agrega{' '}
+                            <strong>
+                              ${deliveryQuote.freeDeliveryRemainingCop.toLocaleString('es-CO')}
+                            </strong>{' '}
+                            más para domicilio gratis en {selectedZone.name}.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor="address"
+                        className="text-xs font-bold uppercase tracking-widest text-muted-foreground"
+                      >
+                        Dirección Exacta *
+                      </Label>
+                      <Input
+                        id="address"
+                        required
+                        placeholder="Ej: Carrera 37 # 66-36"
+                        className="bg-background/50 h-12 rounded-xl"
+                        value={formData.address}
+                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -1086,7 +1209,7 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className="space-y-2 border-t border-white/15 pt-4">
-                  {(appliedPromotion || selectedReward) && (
+                  {(appliedPromotion || selectedReward || deliveryQuote.feeCop > 0 || deliveryQuote.isFreeByThreshold) && (
                     <div className="flex justify-between items-center text-sm opacity-90">
                       <span>Subtotal</span>
                       <span className="font-semibold">${totalPrice.toLocaleString()}</span>
@@ -1107,6 +1230,24 @@ export default function CheckoutPage() {
                       <span>-${loyaltyDiscount.toLocaleString()}</span>
                     </div>
                   )}
+                  {serviceType === 'delivery' &&
+                    (deliveryQuote.feeCop > 0 ||
+                      deliveryQuote.isFreeByThreshold ||
+                      Boolean(selectedZone && hasDynamicZoneRates)) && (
+                      <div
+                        data-testid="checkout-summary-delivery-fee"
+                        className="flex justify-between items-center text-sm text-emerald-200 font-bold"
+                      >
+                        <span>
+                          Domicilio ({selectedZone?.name ?? 'Cobertura'})
+                        </span>
+                        <span>
+                          {deliveryQuote.feeCop === 0
+                            ? 'GRATIS'
+                            : `+$${deliveryQuote.feeCop.toLocaleString()}`}
+                        </span>
+                      </div>
+                    )}
                   <div className="flex justify-between items-end pt-2">
                     <span className="text-base md:text-lg opacity-80">Total a Pagar</span>
                     <span className="font-black text-3xl md:text-5xl">${finalTotal.toLocaleString()}</span>
@@ -1135,7 +1276,7 @@ export default function CheckoutPage() {
                   <div className="space-y-4 py-2">
                     <div className="flex items-center gap-3 text-sm font-bold">
                       <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
-                      <p>Entrega estimada: {configuration.estimatedDeliveryMinutes} min</p>
+                      <p>Entrega estimada: {deliveryQuote.estimatedMinutes} min</p>
                     </div>
                   </div>
                 )}

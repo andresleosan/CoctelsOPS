@@ -187,6 +187,23 @@ export function DriverOrderView({
                 {order.customerName}
               </CardTitle>
               <p className="mt-0.5 text-sm font-medium text-slate-300">{order.phone}</p>
+              {(order.deliveryZoneName || order.assignedDriver?.name) && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {order.deliveryZoneName && (
+                    <Badge className="border border-emerald-400/40 bg-emerald-500/15 text-xs font-bold text-emerald-200">
+                      📍 {order.deliveryZoneName}
+                      {typeof order.deliveryFee === "number" && order.deliveryFee > 0
+                        ? ` · +$${order.deliveryFee.toLocaleString("es-CO")}`
+                        : ""}
+                    </Badge>
+                  )}
+                  {order.assignedDriver?.name && (
+                    <Badge className="border border-purple-400/40 bg-purple-500/15 text-xs font-bold text-purple-200">
+                      🛵 {order.assignedDriver.name}
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
             <Badge
               variant="outline"

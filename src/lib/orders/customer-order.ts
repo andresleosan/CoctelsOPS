@@ -1,5 +1,6 @@
 import type {
   CustomerOrder,
+  CustomerOrderAssignedDriver,
   CustomerOrderPaymentProof,
   CustomerOrderPaymentVerification,
   CustomerStatusHistoryEntry,
@@ -11,6 +12,7 @@ export function toCustomerOrder(order: Order): CustomerOrder {
   const statusHistory = visibleOrder.statusHistory;
   const rawPaymentProof = visibleOrder.paymentProof;
   const rawPaymentVerification = visibleOrder.paymentVerification;
+  const rawAssignedDriver = visibleOrder.assignedDriver;
 
   delete visibleOrder.audit;
   delete visibleOrder.clienteUid;
@@ -20,6 +22,7 @@ export function toCustomerOrder(order: Order): CustomerOrder {
   delete visibleOrder.suppliesDepletedOnStatus;
   delete visibleOrder.paymentProof;
   delete visibleOrder.paymentVerification;
+  delete visibleOrder.assignedDriver;
 
   const visibleHistory: CustomerStatusHistoryEntry[] = (
     statusHistory?.length
@@ -48,10 +51,18 @@ export function toCustomerOrder(order: Order): CustomerOrder {
       }
     : undefined;
 
+  const assignedDriver: CustomerOrderAssignedDriver | undefined = rawAssignedDriver
+    ? {
+        name: rawAssignedDriver.name,
+        assignedAt: rawAssignedDriver.assignedAt,
+      }
+    : undefined;
+
   return {
     ...visibleOrder,
     statusHistory: visibleHistory,
     ...(paymentProof ? { paymentProof } : {}),
     ...(paymentVerification ? { paymentVerification } : {}),
+    ...(assignedDriver ? { assignedDriver } : {}),
   } as CustomerOrder;
 }

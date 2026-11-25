@@ -36,10 +36,20 @@ export type {
 
 export type BusinessHour = { day: string; open: string; close: string; closed?: boolean };
 
+export type DeliveryZoneConfig = {
+  id: string;
+  name: string;
+  feeCop: number;
+  estimatedMinutes: number;
+  freeDeliveryMinCop?: number;
+  active: boolean;
+};
+
 export type StoreConfiguration = {
   whatsappNumber: string;
   businessHours: BusinessHour[];
   deliveryZones: string[];
+  deliveryZoneRates?: DeliveryZoneConfig[];
   estimatedDeliveryMinutes: number;
   messages: {
     orderReceived: string;
@@ -61,6 +71,32 @@ export const DEFAULT_STORE_CONFIGURATION: StoreConfiguration = {
     { day: "Domingo", open: "12:00", close: "20:00" },
   ],
   deliveryZones: ["Laureles", "El Poblado", "Belén"],
+  deliveryZoneRates: [
+    {
+      id: "laureles",
+      name: "Laureles",
+      feeCop: 4000,
+      estimatedMinutes: 35,
+      freeDeliveryMinCop: 50000,
+      active: true,
+    },
+    {
+      id: "el-poblado",
+      name: "El Poblado",
+      feeCop: 6000,
+      estimatedMinutes: 45,
+      freeDeliveryMinCop: 60000,
+      active: true,
+    },
+    {
+      id: "belen",
+      name: "Belén",
+      feeCop: 4000,
+      estimatedMinutes: 40,
+      freeDeliveryMinCop: 50000,
+      active: true,
+    },
+  ],
   estimatedDeliveryMinutes: 45,
   messages: {
     orderReceived: "Recibimos tu pedido y pronto confirmaremos la preparación.",
