@@ -247,3 +247,37 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Nivel Recomendado:** `3.8 Flash (Medium)`
   - **Objetivo:** Validar con Playwright E2E y gates completos los flujos de autopedido en mesa, comprobantes de transferencia, multi-tenancy y reparto por zonas, actualizando changelog y versión `1.7.0`.
   - **Archivos:** `tests/e2e/table-tab-and-payments.spec.ts`, `tests/e2e/e2e-helpers.ts`, `tests/e2e/order-flow.spec.ts`, `tests/e2e/cart.spec.ts`, `src/lib/firestore/orders.ts`, `src/app/admin/pedidos/[id]/page.tsx`, `tests/security/tenant-isolation-v17.test.ts`, `README.md`, `package.json`.
+
+---
+
+### Fase 12: Conversión Online, Operación de Salón y Escala SaaS (v1.8)
+
+- [x] **TASK-37: Inicio de Pago Online Firmado (Wompi / Bold) desde `/checkout` y `/order-status/[id]`**
+  - **Nivel Asignado:** `Argon (Medium)`
+  - **Objetivo:** Generar sesiones de pago online firmadas con HMAC/SHA-256 en servidor (`COCTELS:<orderId>`), exponer pasarelas activas sin secretos y habilitar el flujo completo de pago online en `/checkout` y `/order-status/[id]` con retorno verificado por polling reactivo.
+  - **Archivos:** `src/types/orders.ts`, `src/lib/payments/client.ts`, `src/lib/payments/checkout-session.ts`, `src/lib/firestore/orders.ts`, `src/app/api/payments/checkout-session/route.ts`, `src/components/orders/OnlinePaymentGatewayCard.tsx`, `src/app/checkout/page.tsx`, `src/app/order-status/[id]/page.tsx`, `.env.example`, `README.md`, `tests/api/payment-checkout-session.test.ts`, `tests/components/online-payment-gateway.test.tsx`.
+
+- [ ] **TASK-38: Horarios de Operación, Pausa de Emergencia ("Barra Saturada") y Pedidos Programados**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Evitar pedidos fuera de horario en `/menu`, `/m/[slug]` y `/checkout`, añadir switch de pausa rápida en barra y permitir programar entregas/recogidas dentro del horario del local, validado en servidor.
+  - **Archivos:** `src/types/operations.ts`, `src/lib/firestore/configuration.ts`, `src/lib/firestore/orders.ts`, `src/app/admin/configuracion/page.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `src/app/checkout/page.tsx`.
+
+- [ ] **TASK-39: Pantalla Pública de Turnos en Barra (`/pantalla`) y Mapa Visual de Mesas en `/admin/mesas`**
+  - **Nivel Recomendado:** `3.8 Flash (High)`
+  - **Objetivo:** Implementar pantalla oscura neón optimizada para TV/tablet que muestra pedidos "En preparación" y "Listo para recoger", junto a un tablero visual de estado de mesas (libre, ocupada, pidiendo cuenta).
+  - **Archivos:** `src/app/pantalla/page.tsx`, `src/app/admin/mesas/page.tsx`, `src/components/admin/TableMapBoard.tsx`.
+
+- [ ] **TASK-40: Onboarding SaaS de Nuevos Locales: Plantilla de Carta Base, Branding R2 y Staff por Local**
+  - **Nivel Recomendado:** `Argon (High)`
+  - **Objetivo:** Mejorar `/admin/negocios` y su navegación para clonar una carta inicial en 1 clic, subir logo a Cloudflare R2 y asignar staff por `negocioId` sin configuración manual.
+  - **Archivos:** `src/app/admin/negocios/page.tsx`, `src/components/admin/admin-navigation.ts`, `src/app/api/admin/negocios/route.ts`, `src/lib/firestore/tenant.ts`.
+
+- [ ] **TASK-41: Opsy Bot v2 Multi-Tenant: Happy Hour en Vivo, Filtro "Sin Licor" y Armado Directo al Carrito**
+  - **Nivel Recomendado:** `Argon (Medium)`
+  - **Objetivo:** Conectar `/api/opsy/chat` con promociones activas, stock real del tenant y preferencias de licor/sabor para que Opsy recomiende combos vigentes con botón directo de agregar al carrito.
+  - **Archivos:** `src/app/api/opsy/chat/route.ts`, `src/lib/ai/opsy-guardrails.ts`, `src/components/opsy/OpsyChat.tsx`.
+
+- [ ] **TASK-42: Suite E2E de Fase 12, Auditoría de Seguridad y Release `v1.8.0`**
+  - **Nivel Recomendado:** `3.8 Flash (Medium)`
+  - **Objetivo:** Cobertura Playwright para pagos online simulados, horarios/pausa de barra, pantalla de turnos y onboarding SaaS, más `pnpm audit --prod` y changelog `v1.8.0`.
+  - **Archivos:** `tests/e2e/`, `README.md`, `package.json`.

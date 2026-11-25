@@ -65,7 +65,7 @@ Las variables privadas son obligatorias para las rutas protegidas y los scripts 
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY`, con `\n` escapados si se entrega en una sola línea.
 - `DEEPSEEK_API_KEY`, clave privada obligatoria en el servidor para el asistente conversacional Opsy Bot.
-- `WOMPI_EVENTS_SECRET` y `BOLD_WEBHOOK_SECRET`, secretos privados en servidor para verificar la firma HMAC de webhooks de pasarela (`/api/webhooks/payments`).
+- `WOMPI_PUBLIC_KEY`, `WOMPI_INTEGRITY_SECRET`, `WOMPI_EVENTS_SECRET`, `BOLD_API_KEY`, `BOLD_SECRET_KEY` y `BOLD_WEBHOOK_SECRET`, credenciales privadas en servidor para iniciar sesiones de pago firmadas (`/api/payments/checkout-session`) y verificar webhooks HMAC (`/api/webhooks/payments`).
 
 ## Sugeridor AI
 

@@ -38,9 +38,19 @@ import {
   resolveDeliveryZones,
 } from '@/lib/orders/delivery-zones';
 import { validateClientProofFile } from '@/lib/orders/payment-verification';
+import {
+  formatGatewayProviderName,
+  isSafeGatewayCheckoutUrl,
+  navigateToExternalUrl,
+} from '@/lib/payments/client';
 import { LOYALTY_REWARDS, type LoyaltyRewardId, type LoyaltySummary } from '@/types/loyalty';
 import type { StoreConfiguration } from '@/types/operations';
-import type { ServiceType } from '@/types/orders';
+import type {
+  OnlinePaymentGatewayOption,
+  PaymentCheckoutSession,
+  PaymentGatewayProvider,
+  ServiceType,
+} from '@/types/orders';
 
 type AppliedPromotion = {
   code: string;
@@ -78,7 +88,10 @@ export default function CheckoutPage() {
     address: '',
     notes: '',
   });
-  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'transferencia'>('efectivo');
+  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'transferencia' | 'online'>('efectivo');
+  const [availableGateways, setAvailableGateways] = useState<OnlinePaymentGatewayOption[]>([]);
+  const [selectedGatewayProvider, setSelectedGatewayProvider] = useState<PaymentGatewayProvider>('wompi');
+  const [isInitiatingGateway, setIsInitiatingGateway] = useState(false);
   const [transferChannel, setTransferChannel] = useState<TransferChannel>('nequi');
   const [transferReference, setTransferReference] = useState('');
   const [copiedTransferNumber, setCopiedTransferNumber] = useState(false);
@@ -112,6 +125,23 @@ export default function CheckoutPage() {
         if (!response.ok) return;
         const data = (await response.json()) as { configuration?: StoreConfiguration };
         if (data.configuration) setConfiguration(data.configuration);
+      })
+      .catch(() => undefined);
+
+    void fetch('/api/payments/checkout-session')
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = (await response.json().catch(() => ({}))) as {
+          gateways?: OnlinePaymentGatewayOption[];
+        };
+        if (Array.isArray(data.gateways) && data.gateways.length > 0) {
+          setAvailableGateways(data.gateways);
+          setSelectedGatewayProvider((prev) =>
+            data.gateways!.some((item) => item.provider === prev)
+              ? prev
+              : data.gateways![0].provider
+          );
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -460,7 +490,12 @@ export default function CheckoutPage() {
             : {}),
           notes: formData.notes,
           items: getCheckoutItems(),
-          paymentMethod: paymentMethod === 'transferencia' ? transferChannel : 'efectivo',
+          paymentMethod:
+            paymentMethod === 'transferencia'
+              ? transferChannel
+              : paymentMethod === 'online'
+                ? 'transferencia'
+                : 'efectivo',
           ...(paymentMethod === 'transferencia'
             ? {
                 paymentBreakdown: {
@@ -472,7 +507,18 @@ export default function CheckoutPage() {
                   ...(cleanReference ? { digitalReference: cleanReference } : {}),
                 },
               }
-            : {}),
+            : paymentMethod === 'online'
+              ? {
+                  paymentBreakdown: {
+                    cashAmount: 0,
+                    cashReceived: 0,
+                    changeAmount: 0,
+                    digitalAmount: finalTotal,
+                    digitalMethod: 'transferencia',
+                    digitalReference: `ONLINE-${selectedGatewayProvider.toUpperCase()}`,
+                  },
+                }
+              : {}),
           ...(appliedPromotion ? { promotionCode: appliedPromotion.code } : {}),
           ...(selectedReward ? { loyaltyRewardId: selectedReward.id } : {}),
         }),
@@ -489,6 +535,43 @@ export default function CheckoutPage() {
           }
         } catch {
           // ignore
+        }
+
+        if (paymentMethod === 'online') {
+          setIsInitiatingGateway(true);
+          try {
+            const sessionRes = await fetch('/api/payments/checkout-session', {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: JSON.stringify({
+                orderId: data.order.id,
+                provider: selectedGatewayProvider,
+              }),
+            });
+            const sessionData = (await sessionRes.json().catch(() => ({}))) as {
+              session?: PaymentCheckoutSession;
+            };
+            if (
+              sessionRes.ok &&
+              sessionData.session?.checkoutUrl &&
+              isSafeGatewayCheckoutUrl(sessionData.session.checkoutUrl)
+            ) {
+              clearCart();
+              navigateToExternalUrl(sessionData.session.checkoutUrl);
+              return;
+            }
+          } catch {
+            // fallback hacia order-status para reintentar
+          } finally {
+            setIsInitiatingGateway(false);
+          }
+
+          clearCart();
+          router.push(`/order-status/${data.order.id}?paymentInitError=1`);
+          return;
         }
 
         if (paymentMethod === 'transferencia' && paymentProofFile) {
@@ -984,7 +1067,13 @@ export default function CheckoutPage() {
                 <RadioGroup
                   value={paymentMethod}
                   onValueChange={(value) => {
-                    setPaymentMethod(value === 'transferencia' ? 'transferencia' : 'efectivo');
+                    if (value === 'transferencia') {
+                      setPaymentMethod('transferencia');
+                    } else if (value === 'online' && availableGateways.length > 0) {
+                      setPaymentMethod('online');
+                    } else {
+                      setPaymentMethod('efectivo');
+                    }
                     idempotencyKey.current = null;
                   }}
                   className="space-y-3"
@@ -1028,7 +1117,83 @@ export default function CheckoutPage() {
                       </p>
                     </div>
                   </label>
+
+                  {availableGateways.length > 0 && (
+                    <label
+                      htmlFor="online-gateway"
+                      data-testid="checkout-payment-online-option"
+                      className={`flex items-start space-x-3 border p-4 md:p-5 rounded-2xl cursor-pointer transition-colors ${
+                        paymentMethod === 'online'
+                          ? 'border-emerald-400 bg-emerald-950/25'
+                          : 'border-white/15 bg-background/40 hover:border-emerald-400/40 hover:bg-emerald-950/10'
+                      }`}
+                    >
+                      <RadioGroupItem
+                        value="online"
+                        id="online-gateway"
+                        className="border-emerald-400 text-emerald-400 mt-0.5"
+                      />
+                      <div className="flex-grow space-y-0.5">
+                        <span className="flex items-center gap-2.5 font-bold text-sm text-white">
+                          <CreditCard className="w-5 h-5 text-emerald-400 shrink-0" />
+                          PAGO ONLINE INSTANTÁNEO (WOMPI / BOLD)
+                        </span>
+                        <p className="text-xs text-muted-foreground">
+                          Paga con tarjeta, PSE o Nequi con confirmación automática en barra.
+                        </p>
+                      </div>
+                    </label>
+                  )}
                 </RadioGroup>
+
+                {paymentMethod === 'online' && availableGateways.length > 0 && (
+                  <div
+                    data-testid="checkout-online-gateway-panel"
+                    className="rounded-2xl border border-emerald-500/35 bg-emerald-950/25 p-4 space-y-3 animate-in fade-in duration-200"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+                        Elige tu pasarela segura
+                      </p>
+                      {availableGateways.find((g) => g.provider === selectedGatewayProvider)?.mode === 'test' && (
+                        <span className="rounded-full border border-amber-400/40 bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-200">
+                          Modo pruebas
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label="Pasarela online">
+                      {availableGateways.map((gateway) => {
+                        const selected = selectedGatewayProvider === gateway.provider;
+                        return (
+                          <button
+                            key={gateway.provider}
+                            type="button"
+                            data-testid={`checkout-gateway-${gateway.provider}`}
+                            onClick={() => {
+                              setSelectedGatewayProvider(gateway.provider);
+                              idempotencyKey.current = null;
+                            }}
+                            aria-pressed={selected}
+                            className={`min-h-[48px] rounded-xl border px-3.5 py-2.5 text-left transition-all active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100 ${
+                              selected
+                                ? 'border-emerald-400 bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
+                                : 'border-white/15 bg-black/40 text-slate-200 hover:border-emerald-400/50 hover:text-white'
+                            }`}
+                          >
+                            <span className="block text-xs font-black">{gateway.label}</span>
+                            <span className={`block text-[11px] ${selected ? 'text-slate-900 font-semibold' : 'text-slate-300'}`}>
+                              {gateway.subtitle}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-emerald-100/90">
+                      Al confirmar crearemos tu orden y te llevaremos a la pasarela firmada de{' '}
+                      <strong>{formatGatewayProviderName(selectedGatewayProvider)}</strong> para completar el pago.
+                    </p>
+                  </div>
+                )}
 
                 {paymentMethod === 'transferencia' && (
                   <div className="rounded-2xl border border-cyan-500/35 bg-cyan-950/25 p-4 space-y-3 animate-in fade-in duration-200">
@@ -1284,13 +1449,17 @@ export default function CheckoutPage() {
                 <div className="flex items-center gap-2.5 rounded-2xl border border-white/15 bg-black/20 px-4 py-3 text-xs font-bold text-white">
                   {paymentMethod === 'transferencia' ? (
                     <Landmark className="w-4 h-4 shrink-0 text-cyan-200" />
+                  ) : paymentMethod === 'online' ? (
+                    <CreditCard className="w-4 h-4 shrink-0 text-emerald-300" />
                   ) : (
                     <Wallet className="w-4 h-4 shrink-0 text-white" />
                   )}
                   <span>
                     {paymentMethod === 'transferencia'
                       ? `Pago: Transferencia · ${selectedTransferChannelLabel}${paymentProofFile ? ' (con comprobante)' : ''}`
-                      : 'Pago: Efectivo contra entrega'}
+                      : paymentMethod === 'online'
+                        ? `Pago Online · ${formatGatewayProviderName(selectedGatewayProvider)}`
+                        : 'Pago: Efectivo contra entrega'}
                   </span>
                 </div>
 
@@ -1298,13 +1467,17 @@ export default function CheckoutPage() {
                   type="submit"
                   size="lg"
                   className="w-full bg-white text-primary hover:bg-white/90 font-black py-7 md:py-10 text-xl md:text-2xl rounded-full shadow-2xl transition-all active:scale-95"
-                  disabled={isSubmitting || isUploadingProof}
+                  disabled={isSubmitting || isUploadingProof || isInitiatingGateway}
                 >
-                  {isUploadingProof
-                    ? 'SUBIENDO COMPROBANTE...'
-                    : isSubmitting
-                      ? 'PROCESANDO...'
-                      : 'CONFIRMAR PEDIDO'}
+                  {isInitiatingGateway
+                    ? `ABRIENDO ${formatGatewayProviderName(selectedGatewayProvider).toUpperCase()}...`
+                    : isUploadingProof
+                      ? 'SUBIENDO COMPROBANTE...'
+                      : isSubmitting
+                        ? 'PROCESANDO...'
+                        : paymentMethod === 'online'
+                          ? `PAGAR CON ${formatGatewayProviderName(selectedGatewayProvider).toUpperCase()}`
+                          : 'CONFIRMAR PEDIDO'}
                 </Button>
                 {submitError && (
                   <p role="alert" className="text-center text-sm font-bold text-white">

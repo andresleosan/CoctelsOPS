@@ -873,6 +873,27 @@ export async function getOrderForPaymentProofUpload(
   return order;
 }
 
+export async function getOrderForOnlinePayment(
+  user: VerifiedUser,
+  id: string,
+): Promise<Order> {
+  const cleanId = id?.trim();
+  if (!cleanId) throw new OrderNotFoundError();
+  const snapshot = await ordersCollection().doc(cleanId).get();
+  if (!snapshot.exists) throw new OrderNotFoundError();
+  const order = toOrder(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+
+  const isOwner = user.uid === order.clienteUid;
+  const isStaff = Boolean(user.profile && hasPermission(user.profile, "pedidos.update"));
+  if (!isOwner && !isStaff) {
+    throw new AuthorizationError(403, "No tienes permiso para iniciar un pago para este pedido");
+  }
+  if (isStaff && !isOwner) {
+    assertStaffOrderTenantAccess(user, order);
+  }
+  return order;
+}
+
 export async function attachOrderPaymentProof(
   user: VerifiedUser,
   id: string,

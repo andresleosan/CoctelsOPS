@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle2, Package, MapPin, Clock, Home, MessageSquare, Landmark, Upload, ExternalLink } from 'lucide-react';
 import { RepeatOrderButton } from '@/components/account/RepeatOrderButton';
+import { OnlinePaymentGatewayCard } from '@/components/orders/OnlinePaymentGatewayCard';
 import { OrderRatingCard } from '@/components/orders/OrderRatingCard';
 import { PushSubscriptionBanner } from '@/components/notifications/PushSubscriptionBanner';
 import { playOrderNotificationSound, triggerLocalNotification } from '@/lib/notifications/web-push';
@@ -20,7 +21,12 @@ import {
 } from '@/lib/orders/payment-verification';
 import { useAuth } from '@/hooks/use-auth';
 import { buildWhatsAppMessage } from '@/lib/orders/whatsapp-message';
-import type { Order, OrderStatus } from '@/types/orders';
+import type {
+  OnlinePaymentGatewayOption,
+  Order,
+  OrderStatus,
+  PaymentGatewayProvider,
+} from '@/types/orders';
 import type { StoreConfiguration } from '@/types/operations';
 
 const statusSteps: Array<{ status: OrderStatus; title: string; description: string }> = [
@@ -43,23 +49,95 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [configuration, setConfiguration] = useState<StoreConfiguration | null>(null);
+  const [availableGateways, setAvailableGateways] = useState<OnlinePaymentGatewayOption[]>([]);
+  const [paymentReturnProvider, setPaymentReturnProvider] = useState<PaymentGatewayProvider | null>(null);
+  const [paymentInitErrorBanner, setPaymentInitErrorBanner] = useState(false);
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
   const [proofUploadErrorBanner, setProofUploadErrorBanner] = useState(false);
   const [uploadingProof, setUploadingProof] = useState(false);
   const [proofFeedback, setProofFeedback] = useState('');
   const [proofError, setProofError] = useState('');
   const previousStatusRef = useRef<OrderStatus | null>(null);
+  const configurationRef = useRef<StoreConfiguration | null>(null);
+  const fastPollCyclesRef = useRef(0);
+
+  useEffect(() => {
+    configurationRef.current = configuration;
+  }, [configuration]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('proofUploadError') === '1') {
+      const searchParams = new URLSearchParams(window.location.search);
+      if (searchParams.get('proofUploadError') === '1') {
         setProofUploadErrorBanner(true);
+      }
+      if (searchParams.get('paymentInitError') === '1') {
+        setPaymentInitErrorBanner(true);
+      }
+      if (searchParams.get('paymentReturn') === '1') {
+        const rawProvider = searchParams.get('provider')?.trim().toLowerCase();
+        setPaymentReturnProvider(rawProvider === 'bold' ? 'bold' : 'wompi');
       }
     } catch {
       // ignore
     }
   }, []);
+
+  const refreshOrder = useCallback(
+    async (options: { notifyOnChange?: boolean; manual?: boolean } = {}) => {
+      if (!user) return;
+      if (options.manual) setRefreshingStatus(true);
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) {
+          if (response.status === 401) {
+            setError('Tu sesion expiro. Inicia sesion nuevamente.');
+          } else if (response.status === 403) {
+            setError('No tienes permiso para ver este pedido.');
+          } else if (response.status === 404) {
+            setError('No encontramos este pedido.');
+          } else {
+            setError('No pudimos cargar el estado del pedido.');
+          }
+          return;
+        }
+        const data = (await response.json()) as { order: Order };
+        if (data.order) {
+          if (
+            options.notifyOnChange &&
+            previousStatusRef.current &&
+            previousStatusRef.current !== data.order.status
+          ) {
+            playOrderNotificationSound();
+            void triggerLocalNotification(
+              `¡Tu pedido #${data.order.id.slice(0, 8)} ahora está ${statusLabel(data.order.status)}!`,
+              {
+                body:
+                  configurationRef.current?.messages.orderStatus.replace(
+                    '{status}',
+                    statusLabel(data.order.status),
+                  ) || `Tu orden cambió a estado ${statusLabel(data.order.status)}.`,
+                tag: `order-${data.order.id}`,
+              },
+            );
+          }
+          previousStatusRef.current = data.order.status;
+          setOrder(data.order);
+        }
+      } catch {
+        if (!options.notifyOnChange && !options.manual) {
+          setError('No pudimos conectar con la central de pedidos.');
+        }
+      } finally {
+        if (options.manual) setRefreshingStatus(false);
+      }
+    },
+    [id, user],
+  );
 
   useEffect(() => {
     if (authLoading) return;
@@ -69,77 +147,60 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
     }
 
     let active = true;
-    void fetch('/api/configuration').then(async (response) => {
-      if (!response.ok || !active) return;
-      const data = await response.json() as { configuration?: StoreConfiguration };
-      if (active && data.configuration) setConfiguration(data.configuration);
-    }).catch(() => undefined);
+    void fetch('/api/configuration')
+      .then(async (response) => {
+        if (!response.ok || !active) return;
+        const data = (await response.json()) as { configuration?: StoreConfiguration };
+        if (active && data.configuration) setConfiguration(data.configuration);
+      })
+      .catch(() => undefined);
 
-    void user.getIdToken().then(async (token) => {
-      const response = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!active) return;
-      if (response.ok) {
-        const data = await response.json() as { order: Order };
-        setOrder(data.order);
-        previousStatusRef.current = data.order.status;
-      } else if (response.status === 401) {
-        setError('Tu sesion expiro. Inicia sesion nuevamente.');
-      } else if (response.status === 403) {
-        setError('No tienes permiso para ver este pedido.');
-      } else if (response.status === 404) {
-        setError('No encontramos este pedido.');
-      } else {
-        setError('No pudimos cargar el estado del pedido.');
-      }
-      setLoading(false);
-    }).catch(() => {
-      if (active) {
-        setError('No pudimos conectar con la central de pedidos.');
-        setLoading(false);
-      }
+    void fetch('/api/payments/checkout-session')
+      .then(async (response) => {
+        if (!response.ok || !active) return;
+        const data = (await response.json().catch(() => ({}))) as {
+          gateways?: OnlinePaymentGatewayOption[];
+        };
+        if (active && Array.isArray(data.gateways)) {
+          setAvailableGateways(data.gateways);
+        }
+      })
+      .catch(() => undefined);
+
+    void refreshOrder().finally(() => {
+      if (active) setLoading(false);
     });
 
-    return () => { active = false; };
-  }, [authLoading, id, router, user]);
+    return () => {
+      active = false;
+    };
+  }, [authLoading, id, refreshOrder, router, user]);
 
-  // Polling reactivo en tiempo real para estados en progreso
+  // Polling reactivo en tiempo real para estados en progreso y retorno de pasarela online
   useEffect(() => {
     if (!user || !order) return;
     const isTerminal = order.status === 'entregado' || order.status === 'cancelado';
     if (isTerminal) return;
 
-    let active = true;
+    const effectiveVerif = getEffectivePaymentVerificationStatus(order);
+    const shouldFastPoll =
+      Boolean(paymentReturnProvider) &&
+      effectiveVerif !== 'verificado' &&
+      effectiveVerif !== 'rechazado' &&
+      fastPollCyclesRef.current < 15;
+    const pollMs = shouldFastPoll ? 3000 : 10000;
+
     const interval = setInterval(() => {
-      void user.getIdToken().then(async (token) => {
-        const response = await fetch(`/api/pedidos/${encodeURIComponent(id)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!active || !response.ok) return;
-        const data = (await response.json()) as { order: Order };
-        if (active && data.order) {
-          if (previousStatusRef.current && previousStatusRef.current !== data.order.status) {
-            playOrderNotificationSound();
-            void triggerLocalNotification(
-              `¡Tu pedido #${data.order.id.slice(0, 8)} ahora está ${statusLabel(data.order.status)}!`,
-              {
-                body: configuration?.messages.orderStatus.replace('{status}', statusLabel(data.order.status)) || `Tu orden cambió a estado ${statusLabel(data.order.status)}.`,
-                tag: `order-${data.order.id}`,
-              }
-            );
-          }
-          previousStatusRef.current = data.order.status;
-          setOrder(data.order);
-        }
-      }).catch(() => undefined);
-    }, 10000);
+      if (shouldFastPoll) {
+        fastPollCyclesRef.current += 1;
+      }
+      void refreshOrder({ notifyOnChange: true });
+    }, pollMs);
 
     return () => {
-      active = false;
       clearInterval(interval);
     };
-  }, [configuration, id, order, user]);
+  }, [order, paymentReturnProvider, refreshOrder, user]);
 
   if (authLoading || !user || loading) {
     return <div className="container mx-auto flex min-h-[50vh] items-center justify-center px-4 text-muted-foreground">Consultando tu pedido...</div>;
@@ -166,6 +227,14 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
   const verificationMeta = PAYMENT_VERIFICATION_META[activeVerificationStatus];
   const canUploadProof =
     order.status !== 'cancelado' && activeVerificationStatus !== 'verificado';
+  const showOnlineGatewayCard =
+    (availableGateways.length > 0 &&
+      order.status !== 'cancelado' &&
+      order.status !== 'entregado' &&
+      activeVerificationStatus !== 'verificado') ||
+    Boolean(order.paymentGateway) ||
+    Boolean(paymentReturnProvider) ||
+    paymentInitErrorBanner;
 
   const handleUploadProof = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
@@ -273,6 +342,18 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
             </div>
           </CardContent>
         </Card>
+
+        {showOnlineGatewayCard && (
+          <OnlinePaymentGatewayCard
+            order={order}
+            gateways={availableGateways}
+            getIdToken={() => user.getIdToken()}
+            paymentReturnProvider={paymentReturnProvider}
+            paymentInitError={paymentInitErrorBanner}
+            isRefreshingStatus={refreshingStatus}
+            onRefreshStatus={() => refreshOrder({ manual: true })}
+          />
+        )}
 
         {showTransferPaymentCard && (
           <Card className="overflow-hidden border border-slate-200 bg-white text-left shadow-lg">

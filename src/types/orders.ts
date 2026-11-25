@@ -65,6 +65,29 @@ export type CustomerOrderPaymentGateway = Pick<
   "provider" | "status" | "channel" | "confirmedAt"
 >;
 
+export type OnlinePaymentGatewayOption = {
+  provider: PaymentGatewayProvider;
+  label: string;
+  subtitle: string;
+  mode: "test" | "live";
+};
+
+export type PaymentCheckoutSession = {
+  provider: PaymentGatewayProvider;
+  mode: "test" | "live";
+  orderId: string;
+  reference: string;
+  currency: "COP";
+  amountCop: number;
+  amountInCents: number;
+  publicKey: string;
+  integritySignature: string;
+  redirectUrl: string;
+  checkoutUrl: string;
+  description: string;
+  createdAt: string;
+};
+
 export type PaymentProofContentType = "image/jpeg" | "image/png" | "image/webp";
 
 export type OrderPaymentProof = {
