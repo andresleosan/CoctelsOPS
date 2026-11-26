@@ -18,6 +18,7 @@ import { isDeliveryOrder } from "@/lib/orders/delivery-zones";
 import { getOrderSlaStatus } from "@/lib/orders/kds-sla";
 import { formatPosPaymentSummary } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
+import { formatScheduledForLabel } from "@/lib/orders/store-schedule";
 import { buildWhatsAppMessage } from "@/lib/orders/whatsapp-message";
 import type { StoreConfiguration } from "@/types/operations";
 import type { Order, PaymentVerificationStatus } from "@/types/orders";
@@ -285,6 +286,12 @@ export default function AdminOrderDetailPage() {
                     <p>
                       <strong>Dirección:</strong> {order.address}
                     </p>
+                    {order.scheduledFor && (
+                      <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
+                        <strong>Entrega programada:</strong>{" "}
+                        {formatScheduledForLabel(order.scheduledFor)}
+                      </p>
+                    )}
                     {order.deliveryZoneName && (
                       <p>
                         <strong>Zona:</strong> {order.deliveryZoneName}

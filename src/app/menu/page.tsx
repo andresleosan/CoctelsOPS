@@ -1,6 +1,8 @@
 import { listActiveProducts } from "@/lib/firestore/products";
 import { listCategories } from "@/lib/firestore/categories";
+import { getStoreConfiguration } from "@/lib/firestore/configuration";
 import ProductCatalogBrowser from "@/components/products/ProductCatalogBrowser";
+import { StoreAvailabilityBanner } from "@/components/products/StoreAvailabilityBanner";
 import TableServiceBanner from "@/components/products/TableServiceBanner";
 import { HappyHourBanner } from "@/components/products/HappyHourBanner";
 import LiveTableTabSheet from "@/components/orders/LiveTableTabSheet";
@@ -17,10 +19,17 @@ type MenuPageProps = {
 export default async function MenuPage({ searchParams }: MenuPageProps) {
   const resolvedParams = searchParams ? await searchParams : undefined;
   const mesa = typeof resolvedParams?.mesa === "string" ? resolvedParams.mesa : undefined;
-  const [products, categories] = await Promise.all([listActiveProducts(), listCategories()]);
+  const [products, categories, configuration] = await Promise.all([
+    listActiveProducts(),
+    listCategories(),
+    getStoreConfiguration({ allowDefaults: true }),
+  ]);
 
   return (
     <div className="container mx-auto px-4 py-8 md:py-12 space-y-8 md:space-y-12">
+      {/* Banner de Disponibilidad (Horario / Barra Saturada) */}
+      <StoreAvailabilityBanner configuration={configuration} storeName="Coctels OPS" />
+
       {/* Banner de Servicio en Mesa / Barra si fue escaneado por QR */}
       <TableServiceBanner
         initialMesa={mesa}

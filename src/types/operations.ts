@@ -37,6 +37,21 @@ export type {
 
 export type BusinessHour = { day: string; open: string; close: string; closed?: boolean };
 
+export type StoreEmergencyPause = {
+  active: boolean;
+  reason?: string;
+  pausedAt?: string;
+  resumeAt?: string;
+  pausedByUid?: string;
+};
+
+export type ScheduledOrdersConfig = {
+  enabled: boolean;
+  slotIntervalMinutes: number;
+  minLeadMinutes: number;
+  maxDaysAhead: number;
+};
+
 export type DeliveryZoneConfig = {
   id: string;
   name: string;
@@ -48,10 +63,13 @@ export type DeliveryZoneConfig = {
 
 export type StoreConfiguration = {
   whatsappNumber: string;
+  timezone?: string;
   businessHours: BusinessHour[];
   deliveryZones: string[];
   deliveryZoneRates?: DeliveryZoneConfig[];
   estimatedDeliveryMinutes: number;
+  emergencyPause?: StoreEmergencyPause;
+  scheduledOrders?: ScheduledOrdersConfig;
   messages: {
     orderReceived: string;
     orderStatus: string;
@@ -62,6 +80,7 @@ export type StoreConfiguration = {
 
 export const DEFAULT_STORE_CONFIGURATION: StoreConfiguration = {
   whatsappNumber: "573000000000",
+  timezone: "America/Bogota",
   businessHours: [
     { day: "Lunes", open: "10:00", close: "22:00" },
     { day: "Martes", open: "10:00", close: "22:00" },
@@ -99,6 +118,15 @@ export const DEFAULT_STORE_CONFIGURATION: StoreConfiguration = {
     },
   ],
   estimatedDeliveryMinutes: 45,
+  emergencyPause: {
+    active: false,
+  },
+  scheduledOrders: {
+    enabled: true,
+    slotIntervalMinutes: 30,
+    minLeadMinutes: 45,
+    maxDaysAhead: 2,
+  },
   messages: {
     orderReceived: "Recibimos tu pedido y pronto confirmaremos la preparación.",
     orderStatus: "El estado de tu pedido cambió a {status}.",

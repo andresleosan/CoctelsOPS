@@ -348,6 +348,12 @@ export async function prepareLocalE2EState(): Promise<LocalE2EState> {
 
     await db.collection("configuracion").doc("principal").create({
       ...DEFAULT_STORE_CONFIGURATION,
+      businessHours: DEFAULT_STORE_CONFIGURATION.businessHours.map((hour) => ({
+        ...hour,
+        open: "00:00",
+        close: "23:59",
+        closed: false,
+      })),
       [LOCAL_E2E_OWNERSHIP_FIELD]: state.runId,
       e2eManaged: true,
       updatedAt: now,

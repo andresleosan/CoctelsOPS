@@ -257,10 +257,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Generar sesiones de pago online firmadas con HMAC/SHA-256 en servidor (`COCTELS:<orderId>`), exponer pasarelas activas sin secretos y habilitar el flujo completo de pago online en `/checkout` y `/order-status/[id]` con retorno verificado por polling reactivo.
   - **Archivos:** `src/types/orders.ts`, `src/lib/payments/client.ts`, `src/lib/payments/checkout-session.ts`, `src/lib/firestore/orders.ts`, `src/app/api/payments/checkout-session/route.ts`, `src/components/orders/OnlinePaymentGatewayCard.tsx`, `src/app/checkout/page.tsx`, `src/app/order-status/[id]/page.tsx`, `.env.example`, `README.md`, `tests/api/payment-checkout-session.test.ts`, `tests/components/online-payment-gateway.test.tsx`.
 
-- [ ] **TASK-38: Horarios de Operación, Pausa de Emergencia ("Barra Saturada") y Pedidos Programados**
-  - **Nivel Recomendado:** `Argon (Medium)`
+- [x] **TASK-38: Horarios de Operación, Pausa de Emergencia ("Barra Saturada") y Pedidos Programados**
+  - **Nivel Asignado:** `Argon (Medium)`
   - **Objetivo:** Evitar pedidos fuera de horario en `/menu`, `/m/[slug]` y `/checkout`, añadir switch de pausa rápida en barra y permitir programar entregas/recogidas dentro del horario del local, validado en servidor.
-  - **Archivos:** `src/types/operations.ts`, `src/lib/firestore/configuration.ts`, `src/lib/firestore/orders.ts`, `src/app/admin/configuracion/page.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `src/app/checkout/page.tsx`.
+  - **Archivos:** `src/types/operations.ts`, `src/types/tenant.ts`, `src/types/orders.ts`, `src/lib/validation/tenant.ts`, `src/lib/validation/orders.ts`, `src/lib/orders/store-schedule.ts`, `src/lib/firestore/configuration.ts`, `src/lib/firestore/orders.ts`, `src/app/api/configuration/route.ts`, `src/app/api/admin/configuration/route.ts`, `src/components/products/StoreAvailabilityBanner.tsx`, `src/components/admin/EmergencyPauseControl.tsx`, `src/components/admin/OrderKdsBoard.tsx`, `src/app/admin/configuracion/page.tsx`, `src/app/admin/pedidos/page.tsx`, `src/app/admin/pedidos/[id]/page.tsx`, `src/app/menu/page.tsx`, `src/app/m/[slug]/page.tsx`, `src/app/checkout/page.tsx`, `src/app/order-status/[id]/page.tsx`, `scripts/e2e-local-state.ts`, `tests/lib/store-schedule.test.ts`, `tests/api/store-schedule-orders.test.ts`, `tests/components/store-schedule-checkout.test.tsx`.
 
 - [ ] **TASK-39: Pantalla Pública de Turnos en Barra (`/pantalla`) y Mapa Visual de Mesas en `/admin/mesas`**
   - **Nivel Recomendado:** `3.8 Flash (High)`

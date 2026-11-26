@@ -1,4 +1,8 @@
-import type { BusinessHour } from "@/types/operations";
+import type {
+  BusinessHour,
+  ScheduledOrdersConfig,
+  StoreEmergencyPause,
+} from "@/types/operations";
 
 export const DEFAULT_TENANT_ID = "coctels-ops";
 export const DEFAULT_TENANT_SLUG = "coctels-ops";
@@ -15,9 +19,12 @@ export type NegocioBranding = {
 
 export type NegocioConfiguration = {
   whatsappNumber: string;
+  timezone?: string;
   businessHours: BusinessHour[];
   deliveryZones: string[];
   estimatedDeliveryMinutes: number;
+  emergencyPause?: StoreEmergencyPause;
+  scheduledOrders?: ScheduledOrdersConfig;
   messages: {
     orderReceived: string;
     orderStatus: string;

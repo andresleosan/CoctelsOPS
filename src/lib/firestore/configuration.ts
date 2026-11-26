@@ -5,7 +5,12 @@ import { z } from "zod";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
 import { syncLegacyDeliveryZones } from "@/lib/orders/delivery-zones";
-import { DEFAULT_STORE_CONFIGURATION, type StoreConfiguration } from "@/types/operations";
+import { DEFAULT_EMERGENCY_PAUSE_REASON } from "@/lib/orders/store-schedule";
+import {
+  DEFAULT_STORE_CONFIGURATION,
+  type StoreConfiguration,
+  type StoreEmergencyPause,
+} from "@/types/operations";
 
 export { DEFAULT_STORE_CONFIGURATION } from "@/types/operations";
 
@@ -26,6 +31,29 @@ const businessHourSchema = z.object({
   }
 });
 
+export const storeEmergencyPauseSchema = z.object({
+  active: z.boolean(),
+  reason: z.string().trim().max(240).optional(),
+  pausedAt: z.string().trim().optional(),
+  resumeAt: z.string().trim().optional(),
+  pausedByUid: z.string().trim().max(128).optional(),
+});
+
+export const scheduledOrdersConfigSchema = z.object({
+  enabled: z.boolean(),
+  slotIntervalMinutes: z.number().int().min(15, "El intervalo mínimo es de 15 minutos").max(120),
+  minLeadMinutes: z.number().int().min(15, "La anticipación mínima es de 15 minutos").max(240),
+  maxDaysAhead: z.number().int().min(1, "Debe permitir al menos 1 día").max(7),
+});
+
+export const emergencyPausePatchSchema = z.object({
+  active: z.boolean(),
+  reason: z.string().trim().max(240).optional(),
+  durationMinutes: z.number().int().min(15).max(360).nullable().optional(),
+});
+
+export type EmergencyPausePatchInput = z.infer<typeof emergencyPausePatchSchema>;
+
 export const deliveryZoneConfigSchema = z.object({
   id: z.string().trim().min(1, "El identificador de la zona es obligatorio").max(64),
   name: z.string().trim().min(1, "El nombre de la zona es obligatorio").max(80),
@@ -38,10 +66,13 @@ export const deliveryZoneConfigSchema = z.object({
 export const storeConfigurationSchema = z
   .object({
     whatsappNumber: z.string().trim().regex(/^\d{10,15}$/, "El WhatsApp debe ser un número internacional"),
+    timezone: z.string().trim().min(1).max(64).optional(),
     businessHours: z.array(businessHourSchema).length(7),
     deliveryZones: z.array(z.string().trim().min(1)).min(1).max(50),
     deliveryZoneRates: z.array(deliveryZoneConfigSchema).max(50).optional(),
     estimatedDeliveryMinutes: z.number().int().min(1).max(240),
+    emergencyPause: storeEmergencyPauseSchema.optional(),
+    scheduledOrders: scheduledOrdersConfigSchema.optional(),
     messages: z.object({ orderReceived: z.string().trim().min(1).max(300), orderStatus: z.string().trim().min(1).max(300), unavailable: z.string().trim().min(1).max(300) }),
   })
   .superRefine((value, context) => {
@@ -107,4 +138,65 @@ export async function updateStoreConfiguration(input: StoreConfiguration, actorU
     writeAuditInTransaction(transaction, { actorUid, action: "update", module: "configuracion", entityId: "principal", changes: normalizedValidated });
   });
   return data;
+}
+
+export async function updateEmergencyPause(
+  input: EmergencyPausePatchInput,
+  actorUid: string,
+): Promise<StoreConfiguration> {
+  const validated = emergencyPausePatchSchema.parse(input);
+  const db = getAdminDb();
+  const reference = db.collection("configuracion").doc("principal");
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  const nextPause: StoreEmergencyPause = validated.active
+    ? {
+        active: true,
+        reason: validated.reason?.trim() || DEFAULT_EMERGENCY_PAUSE_REASON,
+        pausedAt: nowIso,
+        pausedByUid: actorUid,
+        ...(typeof validated.durationMinutes === "number"
+          ? {
+              resumeAt: new Date(
+                now.getTime() + validated.durationMinutes * 60_000,
+              ).toISOString(),
+            }
+          : {}),
+      }
+    : { active: false };
+
+  let nextConfiguration: StoreConfiguration = {
+    ...DEFAULT_STORE_CONFIGURATION,
+    emergencyPause: nextPause,
+    updatedAt: nowIso,
+  };
+
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    const parsedExisting = snapshot.exists
+      ? storeConfigurationSchema.safeParse(snapshot.data())
+      : null;
+    const baseConfiguration =
+      parsedExisting && parsedExisting.success
+        ? parsedExisting.data
+        : DEFAULT_STORE_CONFIGURATION;
+
+    nextConfiguration = {
+      ...baseConfiguration,
+      emergencyPause: nextPause,
+      updatedAt: nowIso,
+    };
+
+    transaction.set(reference, nextConfiguration, { merge: true });
+    writeAuditInTransaction(transaction, {
+      actorUid,
+      action: validated.active ? "emergency_pause_on" : "emergency_pause_off",
+      module: "configuracion",
+      entityId: "principal",
+      changes: { emergencyPause: nextPause },
+    });
+  });
+
+  return nextConfiguration;
 }

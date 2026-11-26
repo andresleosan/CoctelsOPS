@@ -20,6 +20,7 @@ import {
 } from "@/lib/orders/kds-sla";
 import { formatPosPaymentSummary } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
+import { formatScheduledForLabel } from "@/lib/orders/store-schedule";
 import type {
   AssignOrderDriverInput,
   Order,
@@ -186,6 +187,15 @@ export function OrderKdsBoard({
                             className="border-emerald-300 bg-emerald-50 text-emerald-900 font-semibold text-[11px]"
                           >
                             💳 {formatPosPaymentSummary(order.paymentMethod, order.paymentBreakdown)}
+                          </Badge>
+                        )}
+                        {order.scheduledFor && (
+                          <Badge
+                            variant="outline"
+                            data-testid={`kds-scheduled-${order.id}`}
+                            className="border-amber-300 bg-amber-50 text-amber-950 font-bold text-[11px]"
+                          >
+                            ⏰ Programado: {formatScheduledForLabel(order.scheduledFor)}
                           </Badge>
                         )}
                         {isDeliveryOrder(order) && order.deliveryZoneName && (

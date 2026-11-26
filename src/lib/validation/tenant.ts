@@ -24,11 +24,29 @@ const businessHourSchema = z.object({
   closed: z.boolean().optional(),
 });
 
+const emergencyPauseSchema = z.object({
+  active: z.boolean(),
+  reason: z.string().trim().max(240).optional(),
+  pausedAt: z.string().trim().optional(),
+  resumeAt: z.string().trim().optional(),
+  pausedByUid: z.string().trim().max(128).optional(),
+});
+
+const scheduledOrdersSchema = z.object({
+  enabled: z.boolean(),
+  slotIntervalMinutes: z.number().int().min(15).max(120),
+  minLeadMinutes: z.number().int().min(15).max(240),
+  maxDaysAhead: z.number().int().min(1).max(7),
+});
+
 export const negocioConfigurationSchema = z.object({
   whatsappNumber: z.string().trim().regex(/^\d{10,15}$/, "El número de WhatsApp debe contener entre 10 y 15 dígitos"),
+  timezone: z.string().trim().min(1).max(64).optional(),
   businessHours: z.array(businessHourSchema).min(1, "Debe tener al menos un horario"),
   deliveryZones: z.array(z.string().trim().min(1)).min(1, "Debe incluir al menos una zona"),
   estimatedDeliveryMinutes: z.number().int().positive("Los minutos estimados deben ser positivos"),
+  emergencyPause: emergencyPauseSchema.optional(),
+  scheduledOrders: scheduledOrdersSchema.optional(),
   messages: z.object({
     orderReceived: z.string().trim().min(1),
     orderStatus: z.string().trim().min(1),

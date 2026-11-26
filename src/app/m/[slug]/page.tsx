@@ -7,6 +7,7 @@ import { getNegocioBySlug } from "@/lib/firestore/tenant";
 import { listActiveProductsByNegocio, listActiveProducts } from "@/lib/firestore/products";
 import { listCategories } from "@/lib/firestore/categories";
 import ProductCatalogBrowser from "@/components/products/ProductCatalogBrowser";
+import { StoreAvailabilityBanner } from "@/components/products/StoreAvailabilityBanner";
 import TableServiceBanner from "@/components/products/TableServiceBanner";
 import LiveTableTabSheet from "@/components/orders/LiveTableTabSheet";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,12 @@ export default async function TenantStorefrontPage({ params, searchParams }: Pro
 
   return (
     <div className="container mx-auto px-4 py-6 md:py-10 space-y-8">
+      {/* Banner de Disponibilidad del Local */}
+      <StoreAvailabilityBanner
+        configuration={negocio.configuracion}
+        storeName={negocio.name}
+      />
+
       {/* Banner de Servicio en Mesa / Barra si fue escaneado por QR */}
       <TableServiceBanner
         initialMesa={mesa}

@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
+import { EmergencyPauseControl } from "@/components/admin/EmergencyPauseControl";
 import { OrderKdsBoard, type DriverOption } from "@/components/admin/OrderKdsBoard";
 import { OrderReceiptPrint } from "@/components/admin/OrderReceiptPrint";
 import { PaymentProofVerificationControls } from "@/components/admin/PaymentProofVerificationControls";
@@ -57,8 +58,10 @@ import {
   type PosOrderPreview,
 } from "@/lib/orders/pos-calculator";
 import { getOrderAction } from "@/lib/orders/status-actions";
+import { formatScheduledForLabel } from "@/lib/orders/store-schedule";
 import type { UserProfile } from "@/types/auth";
 import type { Product } from "@/types/catalog";
+import type { StoreConfiguration } from "@/types/operations";
 import type {
   AssignOrderDriverInput,
   CreateOrderInput,
@@ -133,6 +136,7 @@ export default function AdminOrdersPage() {
   const [posProducts, setPosProducts] = useState<Product[]>([]);
   const [loadingPosProducts, setLoadingPosProducts] = useState(false);
   const [posPrintOrder, setPosPrintOrder] = useState<Order | null>(null);
+  const [storeConfig, setStoreConfig] = useState<StoreConfiguration | null>(null);
   const seenOrderIdsRef = useRef<Set<string> | null>(null);
 
   async function loadFromOfflineCache(noticeMessage: string): Promise<boolean> {
@@ -364,11 +368,28 @@ export default function AdminOrdersPage() {
     }
   }
 
+  async function loadStoreConfiguration() {
+    if (!isClientOnline()) return;
+    try {
+      const response = await fetch("/api/configuration");
+      if (!response.ok) return;
+      const body = (await response.json().catch(() => ({}))) as {
+        configuration?: StoreConfiguration;
+      };
+      if (body.configuration) {
+        setStoreConfig(body.configuration);
+      }
+    } catch {
+      // Ignore configuration fetch failure in bar orders view.
+    }
+  }
+
   useEffect(() => {
     setIsOnline(isClientOnline());
     void loadOrders();
     void loadPosProducts();
     void loadDrivers();
+    void loadStoreConfiguration();
   }, [user]);
 
   useEffect(() => {
@@ -723,6 +744,17 @@ export default function AdminOrdersPage() {
           </div>
         </div>
 
+        {storeConfig && (
+          <PermissionGate permission="pedidos.update">
+            <EmergencyPauseControl
+              mode="bar"
+              configuration={storeConfig}
+              onConfigurationUpdated={setStoreConfig}
+              getAuthToken={async () => (user ? user.getIdToken() : "")}
+            />
+          </PermissionGate>
+        )}
+
         <Card className="border-slate-200 bg-white shadow-sm">
           <CardContent className="flex flex-col gap-3 p-4 md:flex-row">
             <div className="relative flex-1">
@@ -817,6 +849,14 @@ export default function AdminOrdersPage() {
                             className="border-emerald-300 bg-emerald-50 text-xs font-semibold text-emerald-900"
                           >
                             {formatPosPaymentSummary(order.paymentMethod, order.paymentBreakdown)}
+                          </Badge>
+                        )}
+                        {order.scheduledFor && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-300 bg-amber-50 text-xs font-bold text-amber-950"
+                          >
+                            ⏰ Programado: {formatScheduledForLabel(order.scheduledFor)}
                           </Badge>
                         )}
                         {isDeliveryOrder(order) && order.deliveryZoneName && (

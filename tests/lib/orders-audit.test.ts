@@ -17,6 +17,17 @@ const productReference = { id: "fresa" };
 
 vi.mock("@/lib/firebase-admin", () => ({ getAdminDb: () => ({ collection, runTransaction }) }));
 vi.mock("@/lib/firestore/products", () => ({ getProductById, productFromData }));
+vi.mock("@/lib/firestore/configuration", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/firestore/configuration")>();
+  return {
+    ...actual,
+    getStoreConfiguration: vi.fn(async () => ({
+      ...actual.DEFAULT_STORE_CONFIGURATION,
+      businessHours: [],
+      emergencyPause: { active: false },
+    })),
+  };
+});
 
 import { createOrder } from "@/lib/firestore/orders";
 

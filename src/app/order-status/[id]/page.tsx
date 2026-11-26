@@ -20,6 +20,7 @@ import {
   validateClientProofFile,
 } from '@/lib/orders/payment-verification';
 import { useAuth } from '@/hooks/use-auth';
+import { formatScheduledForLabel } from '@/lib/orders/store-schedule';
 import { buildWhatsAppMessage } from '@/lib/orders/whatsapp-message';
 import type {
   OnlinePaymentGatewayOption,
@@ -320,6 +321,14 @@ export default function OrderStatusPage({ params }: { params: Promise<{ id: stri
             <div className="mt-10 grid grid-cols-1 gap-4 border-t pt-8 sm:grid-cols-2">
               <div className="space-y-1"><div className="flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3 w-3" /> Total</div><p className="text-sm font-bold">${order.total.toLocaleString()}</p></div>
               <div className="space-y-1"><div className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> Entrega en</div><p className="truncate text-sm font-bold">{order.address}</p></div>
+              {order.scheduledFor && (
+                <div className="space-y-1 sm:col-span-2">
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3 w-3" /> Horario programado</div>
+                  <p className="text-sm font-bold text-primary">
+                    {formatScheduledForLabel(order.scheduledFor, configuration?.timezone)}
+                  </p>
+                </div>
+              )}
               {order.deliveryZoneName && (
                 <div className="space-y-1">
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">Zona de cobertura</div>

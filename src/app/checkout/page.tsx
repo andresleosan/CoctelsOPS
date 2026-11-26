@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import { useCart } from '@/context/cart-context';
 import { Button } from '@/components/ui/button';
@@ -11,10 +11,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useRouter } from 'next/navigation';
 import {
+  CalendarClock,
   Check,
   CheckCircle2,
+  Clock,
   Copy,
   CreditCard,
+  PauseCircle,
   Wallet,
   Truck,
   ArrowLeft,
@@ -37,6 +40,11 @@ import {
   hasConfiguredDynamicZones,
   resolveDeliveryZones,
 } from '@/lib/orders/delivery-zones';
+import {
+  evaluateStoreAvailability,
+  getAvailableScheduledSlots,
+  type ScheduledSlot,
+} from '@/lib/orders/store-schedule';
 import { validateClientProofFile } from '@/lib/orders/payment-verification';
 import {
   formatGatewayProviderName,
@@ -80,6 +88,10 @@ export default function CheckoutPage() {
 
   const [serviceType, setServiceType] = useState<ServiceType>('delivery');
   const [tableNumber, setTableNumber] = useState('');
+  const [fulfillmentMode, setFulfillmentMode] = useState<'now' | 'scheduled'>('now');
+  const [selectedDayKey, setSelectedDayKey] = useState('');
+  const [scheduledFor, setScheduledFor] = useState('');
+  const [scheduleError, setScheduleError] = useState('');
   const [selectedZoneId, setSelectedZoneId] = useState('');
   const [zoneError, setZoneError] = useState('');
   const [formData, setFormData] = useState({
@@ -120,7 +132,22 @@ export default function CheckoutPage() {
   }, [authLoading, isVerified, router, user]);
 
   useEffect(() => {
-    void fetch('/api/configuration')
+    let configPath = '/api/configuration';
+    try {
+      if (typeof window !== 'undefined') {
+        const tenantSlug = window.sessionStorage.getItem('coctels_ops_service_tenant_slug')?.trim();
+        const negocioId = window.sessionStorage.getItem('coctels_ops_service_negocio_id')?.trim();
+        if (tenantSlug) {
+          configPath = `/api/configuration?slug=${encodeURIComponent(tenantSlug)}`;
+        } else if (negocioId && negocioId !== 'coctels-ops') {
+          configPath = `/api/configuration?negocioId=${encodeURIComponent(negocioId)}`;
+        }
+      }
+    } catch {
+      // sessionStorage restringido
+    }
+
+    void fetch(configPath)
       .then(async (response) => {
         if (!response.ok) return;
         const data = (await response.json()) as { configuration?: StoreConfiguration };
@@ -282,6 +309,25 @@ export default function CheckoutPage() {
       }
     };
   }, [paymentProofPreview]);
+
+  const availability = useMemo(() => evaluateStoreAvailability(configuration), [configuration]);
+  const scheduledSlots = useMemo(() => getAvailableScheduledSlots(configuration), [configuration]);
+
+  useEffect(() => {
+    if (serviceType === 'mesa') {
+      if (fulfillmentMode !== 'now') setFulfillmentMode('now');
+      if (scheduledFor) setScheduledFor('');
+      return;
+    }
+
+    if (!availability.isOpenNow && availability.canScheduleOrders && scheduledSlots.length > 0) {
+      setFulfillmentMode('scheduled');
+      if (!scheduledFor || !scheduledSlots.some((slot) => slot.iso === scheduledFor)) {
+        setScheduledFor(scheduledSlots[0].iso);
+        setSelectedDayKey(scheduledSlots[0].dateKey);
+      }
+    }
+  }, [availability.canScheduleOrders, availability.isOpenNow, fulfillmentMode, scheduledFor, scheduledSlots, serviceType]);
 
   if (authLoading || !user || !isVerified) {
     return (
@@ -445,9 +491,41 @@ export default function CheckoutPage() {
     setPaymentProofError('');
   };
 
+  const slotDays = scheduledSlots.reduce<
+    Array<{ dateKey: string; dayLabel: string; slots: ScheduledSlot[] }>
+  >((groups, slot) => {
+    const existing = groups.find((group) => group.dateKey === slot.dateKey);
+    if (existing) {
+      existing.slots.push(slot);
+    } else {
+      groups.push({ dateKey: slot.dateKey, dayLabel: slot.dayLabel, slots: [slot] });
+    }
+    return groups;
+  }, []);
+  const activeDayKey = slotDays.some((day) => day.dateKey === selectedDayKey)
+    ? selectedDayKey
+    : (slotDays[0]?.dateKey ?? '');
+  const activeDaySlots = slotDays.find((day) => day.dateKey === activeDayKey)?.slots ?? [];
+  const selectedSlot = scheduledSlots.find((slot) => slot.iso === scheduledFor) ?? null;
+  const immediateOrderBlocked = fulfillmentMode === 'now' && !availability.isOpenNow;
+  const missingScheduledSlot =
+    fulfillmentMode === 'scheduled' && (serviceType === 'mesa' || !selectedSlot);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+
+    if (immediateOrderBlocked) {
+      setScheduleError(availability.summaryText);
+      return;
+    }
+
+    if (missingScheduledSlot) {
+      setScheduleError('Selecciona una franja horaria disponible para programar tu pedido.');
+      return;
+    }
+
+    setScheduleError('');
 
     if (
       serviceType === 'delivery' &&
@@ -490,6 +568,9 @@ export default function CheckoutPage() {
             : {}),
           notes: formData.notes,
           items: getCheckoutItems(),
+          ...(fulfillmentMode === 'scheduled' && selectedSlot
+            ? { scheduledFor: selectedSlot.iso }
+            : {}),
           paymentMethod:
             paymentMethod === 'transferencia'
               ? transferChannel
@@ -696,6 +777,167 @@ export default function CheckoutPage() {
                     <span className="text-xs">Domicilio</span>
                   </button>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Horario / Pausa / Pedido Programado */}
+            <Card
+              data-testid="checkout-schedule-card"
+              className={`border-none shadow-md bg-card/60 backdrop-blur-sm border ${
+                !availability.isOpenNow ? 'border-amber-400/40' : 'border-primary/15'
+              }`}
+            >
+              <CardHeader className="p-5 md:p-6 pb-3">
+                <CardTitle className="flex items-center gap-2 text-sm md:text-base font-bold uppercase tracking-wider text-primary">
+                  <CalendarClock className="w-5 h-5" /> ¿Cuándo deseas tu pedido?
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-5 md:p-6 pt-0 space-y-3">
+                {!availability.isOpenNow && (
+                  <div
+                    role="status"
+                    data-testid="checkout-unavailable-alert"
+                    className={`flex items-start gap-2.5 rounded-xl border p-3.5 text-xs ${
+                      availability.status === 'paused'
+                        ? 'border-amber-400/50 bg-amber-950/40 text-amber-100'
+                        : 'border-rose-400/50 bg-rose-950/40 text-rose-100'
+                    }`}
+                  >
+                    {availability.status === 'paused' ? (
+                      <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                    ) : (
+                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" />
+                    )}
+                    <div className="space-y-0.5">
+                      <p className="font-bold uppercase tracking-wide">
+                        {availability.status === 'paused'
+                          ? 'Barra saturada · Pedidos inmediatos en pausa'
+                          : 'Fuera de horario de atención'}
+                      </p>
+                      <p className="text-slate-200">{availability.summaryText}</p>
+                    </div>
+                  </div>
+                )}
+
+                {serviceType === 'mesa' ? (
+                  <p className="text-xs text-muted-foreground">
+                    Los pedidos en mesa se preparan de forma inmediata mientras estás en el local.
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label="Momento de entrega">
+                      <button
+                        type="button"
+                        data-testid="checkout-fulfillment-now"
+                        disabled={!availability.isOpenNow}
+                        onClick={() => {
+                          setFulfillmentMode('now');
+                          setScheduleError('');
+                          idempotencyKey.current = null;
+                        }}
+                        aria-pressed={fulfillmentMode === 'now'}
+                        className={`flex min-h-[52px] items-center justify-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs font-bold transition-all ${
+                          !availability.isOpenNow
+                            ? 'cursor-not-allowed border-white/10 bg-background/20 text-slate-500 opacity-60'
+                            : fulfillmentMode === 'now'
+                              ? 'border-primary bg-primary/20 text-white shadow-[0_0_15px_rgba(229,25,110,0.25)]'
+                              : 'border-white/15 bg-background/40 text-slate-200 hover:border-primary/40'
+                        }`}
+                      >
+                        <Clock className="h-4 w-4 shrink-0 text-primary" />
+                        <span>Lo antes posible</span>
+                      </button>
+
+                      {availability.canScheduleOrders && (
+                        <button
+                          type="button"
+                          data-testid="checkout-fulfillment-scheduled"
+                          onClick={() => {
+                            setFulfillmentMode('scheduled');
+                            setScheduleError('');
+                            if (!scheduledFor && scheduledSlots[0]) {
+                              setScheduledFor(scheduledSlots[0].iso);
+                              setSelectedDayKey(scheduledSlots[0].dateKey);
+                            }
+                            idempotencyKey.current = null;
+                          }}
+                          aria-pressed={fulfillmentMode === 'scheduled'}
+                          className={`flex min-h-[52px] items-center justify-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs font-bold transition-all ${
+                            fulfillmentMode === 'scheduled'
+                              ? 'border-cyan-400 bg-cyan-500/20 text-white shadow-[0_0_15px_rgba(0,188,212,0.25)]'
+                              : 'border-white/15 bg-background/40 text-slate-200 hover:border-cyan-400/50'
+                          }`}
+                        >
+                          <CalendarClock className="h-4 w-4 shrink-0 text-cyan-400" />
+                          <span>Programar pedido</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {fulfillmentMode === 'scheduled' && slotDays.length > 0 && (
+                      <div className="space-y-3 rounded-xl border border-cyan-500/30 bg-cyan-950/20 p-3.5 animate-in fade-in duration-200">
+                        <div className="flex flex-wrap gap-2" role="group" aria-label="Día programado">
+                          {slotDays.map((day) => {
+                            const isSelectedDay = day.dateKey === activeDayKey;
+                            return (
+                              <button
+                                key={day.dateKey}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDayKey(day.dateKey);
+                                  if (day.slots[0]) {
+                                    setScheduledFor(day.slots[0].iso);
+                                  }
+                                  idempotencyKey.current = null;
+                                }}
+                                aria-pressed={isSelectedDay}
+                                className={`min-h-[44px] rounded-xl border px-3.5 text-xs font-bold transition-all ${
+                                  isSelectedDay
+                                    ? 'border-cyan-400 bg-cyan-500 text-slate-950'
+                                    : 'border-white/15 bg-black/40 text-slate-200 hover:border-cyan-400/50'
+                                }`}
+                              >
+                                {day.dayLabel}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="group" aria-label="Franja horaria">
+                          {activeDaySlots.map((slot) => {
+                            const isSelectedSlot = selectedSlot?.iso === slot.iso;
+                            return (
+                              <button
+                                key={slot.iso}
+                                type="button"
+                                data-testid={`checkout-schedule-slot-${slot.dateKey}-${slot.time24}`}
+                                onClick={() => {
+                                  setScheduledFor(slot.iso);
+                                  setScheduleError('');
+                                  idempotencyKey.current = null;
+                                }}
+                                aria-pressed={isSelectedSlot}
+                                className={`min-h-[44px] rounded-xl border px-2.5 py-2 text-xs font-bold transition-all ${
+                                  isSelectedSlot
+                                    ? 'border-primary bg-primary text-white shadow-[0_0_12px_rgba(229,25,110,0.35)]'
+                                    : 'border-white/15 bg-black/40 text-slate-200 hover:border-primary/50'
+                                }`}
+                              >
+                                {slot.timeLabel}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {scheduleError && (
+                  <p role="alert" className="text-xs font-bold text-rose-400">
+                    {scheduleError}
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -1446,6 +1688,18 @@ export default function CheckoutPage() {
                   </div>
                 )}
 
+                {fulfillmentMode === 'scheduled' && selectedSlot && (
+                  <div
+                    data-testid="checkout-summary-scheduled"
+                    className="flex items-center gap-2.5 rounded-2xl border border-cyan-300/40 bg-black/25 px-4 py-3 text-xs font-bold text-cyan-100"
+                  >
+                    <CalendarClock className="w-4 h-4 shrink-0 text-cyan-300" />
+                    <span>
+                      Programado: {selectedSlot.dayLabel} · {selectedSlot.timeLabel}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-2.5 rounded-2xl border border-white/15 bg-black/20 px-4 py-3 text-xs font-bold text-white">
                   {paymentMethod === 'transferencia' ? (
                     <Landmark className="w-4 h-4 shrink-0 text-cyan-200" />
@@ -1467,17 +1721,29 @@ export default function CheckoutPage() {
                   type="submit"
                   size="lg"
                   className="w-full bg-white text-primary hover:bg-white/90 font-black py-7 md:py-10 text-xl md:text-2xl rounded-full shadow-2xl transition-all active:scale-95"
-                  disabled={isSubmitting || isUploadingProof || isInitiatingGateway}
+                  disabled={
+                    isSubmitting ||
+                    isUploadingProof ||
+                    isInitiatingGateway ||
+                    immediateOrderBlocked ||
+                    missingScheduledSlot
+                  }
                 >
-                  {isInitiatingGateway
-                    ? `ABRIENDO ${formatGatewayProviderName(selectedGatewayProvider).toUpperCase()}...`
-                    : isUploadingProof
-                      ? 'SUBIENDO COMPROBANTE...'
-                      : isSubmitting
-                        ? 'PROCESANDO...'
-                        : paymentMethod === 'online'
-                          ? `PAGAR CON ${formatGatewayProviderName(selectedGatewayProvider).toUpperCase()}`
-                          : 'CONFIRMAR PEDIDO'}
+                  {immediateOrderBlocked
+                    ? availability.status === 'paused'
+                      ? 'BARRA EN PAUSA'
+                      : 'LOCAL CERRADO'
+                    : isInitiatingGateway
+                      ? `ABRIENDO ${formatGatewayProviderName(selectedGatewayProvider).toUpperCase()}...`
+                      : isUploadingProof
+                        ? 'SUBIENDO COMPROBANTE...'
+                        : isSubmitting
+                          ? 'PROCESANDO...'
+                          : paymentMethod === 'online'
+                            ? `PAGAR CON ${formatGatewayProviderName(selectedGatewayProvider).toUpperCase()}`
+                            : fulfillmentMode === 'scheduled'
+                              ? 'CONFIRMAR PEDIDO PROGRAMADO'
+                              : 'CONFIRMAR PEDIDO'}
                 </Button>
                 {submitError && (
                   <p role="alert" className="text-center text-sm font-bold text-white">

@@ -5,6 +5,7 @@ import { RefreshCw, Save } from "lucide-react";
 
 import { AdminGuard } from "@/components/admin/AdminGuard";
 import { DeliveryZonesEditor } from "@/components/admin/DeliveryZonesEditor";
+import { EmergencyPauseControl } from "@/components/admin/EmergencyPauseControl";
 import { PermissionGate } from "@/components/admin/PermissionGate";
 import { QrGeneratorCard } from "@/components/admin/QrGeneratorCard";
 import { Button } from "@/components/ui/button";
@@ -17,8 +18,13 @@ import {
   syncLegacyDeliveryZones,
 } from "@/lib/orders/delivery-zones";
 import {
+  DEFAULT_STORE_TIMEZONE,
+  resolveScheduledOrdersConfig,
+} from "@/lib/orders/store-schedule";
+import {
   DEFAULT_STORE_CONFIGURATION,
   type DeliveryZoneConfig,
+  type ScheduledOrdersConfig,
   type StoreConfiguration,
 } from "@/types/operations";
 
@@ -51,12 +57,23 @@ export default function ConfigurationPage() {
   }, [load]);
 
   const editableZones = resolveDeliveryZones(configuration, { includeInactive: true });
+  const scheduledConfig = resolveScheduledOrdersConfig(configuration);
 
   function handleZonesChange(nextZones: DeliveryZoneConfig[]) {
     setConfiguration({
       ...configuration,
       deliveryZoneRates: nextZones,
       deliveryZones: syncLegacyDeliveryZones(nextZones),
+    });
+  }
+
+  function updateScheduledConfig(patch: Partial<ScheduledOrdersConfig>) {
+    setConfiguration({
+      ...configuration,
+      scheduledOrders: {
+        ...scheduledConfig,
+        ...patch,
+      },
     });
   }
 
@@ -69,6 +86,8 @@ export default function ConfigurationPage() {
       const normalizedRates = resolveDeliveryZones(configuration, { includeInactive: true });
       const payload: StoreConfiguration = {
         ...configuration,
+        timezone: configuration.timezone?.trim() || DEFAULT_STORE_TIMEZONE,
+        scheduledOrders: scheduledConfig,
         deliveryZoneRates: normalizedRates,
         deliveryZones: syncLegacyDeliveryZones(normalizedRates),
       };
@@ -118,6 +137,16 @@ export default function ConfigurationPage() {
           </p>
         )}
 
+        {/* Control de Pausa de Emergencia ("Barra Saturada") */}
+        <PermissionGate permission="configuracion.write">
+          <EmergencyPauseControl
+            mode="card"
+            configuration={configuration}
+            onConfigurationUpdated={setConfiguration}
+            getAuthToken={async () => (user ? user.getIdToken() : "")}
+          />
+        </PermissionGate>
+
         {/* Generador de Códigos QR para Mesas y Barra */}
         <section aria-label="Generador de Códigos QR">
           <QrGeneratorCard defaultSlug="principal" storeName="Coctels OPS" />
@@ -135,6 +164,7 @@ export default function ConfigurationPage() {
                   <Label htmlFor="whatsapp">WhatsApp internacional</Label>
                   <Input
                     id="whatsapp"
+                    className="border-slate-300 bg-white text-slate-900"
                     value={configuration.whatsappNumber}
                     onChange={(event) =>
                       setConfiguration({ ...configuration, whatsappNumber: event.target.value })
@@ -148,6 +178,7 @@ export default function ConfigurationPage() {
                     type="number"
                     min="1"
                     max="240"
+                    className="border-slate-300 bg-white text-slate-900"
                     value={configuration.estimatedDeliveryMinutes}
                     onChange={(event) =>
                       setConfiguration({
@@ -173,12 +204,44 @@ export default function ConfigurationPage() {
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {configuration.businessHours.map((hour, index) => (
-                  <div key={hour.day} className="rounded-lg border p-3">
-                    <p className="mb-2 text-sm font-semibold">{hour.day}</p>
+                  <div
+                    key={hour.day}
+                    className={`rounded-lg border p-3 ${
+                      hour.closed
+                        ? "border-slate-200 bg-slate-100 text-slate-500"
+                        : "border-slate-200 bg-white text-slate-900"
+                    }`}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">{hour.day}</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        aria-pressed={!hour.closed}
+                        onClick={() =>
+                          setConfiguration({
+                            ...configuration,
+                            businessHours: configuration.businessHours.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, closed: !item.closed } : item,
+                            ),
+                          })
+                        }
+                        className={`min-h-[36px] px-2.5 text-xs font-bold ${
+                          hour.closed
+                            ? "border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100"
+                            : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                        }`}
+                      >
+                        {hour.closed ? "Cerrado" : "Abierto"}
+                      </Button>
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
                       <Input
                         aria-label={`${hour.day} apertura`}
                         type="time"
+                        disabled={Boolean(hour.closed)}
+                        className="border-slate-300 bg-white text-slate-900"
                         value={hour.open}
                         onChange={(event) =>
                           setConfiguration({
@@ -192,6 +255,8 @@ export default function ConfigurationPage() {
                       <Input
                         aria-label={`${hour.day} cierre`}
                         type="time"
+                        disabled={Boolean(hour.closed)}
+                        className="border-slate-300 bg-white text-slate-900"
                         value={hour.close}
                         onChange={(event) =>
                           setConfiguration({
@@ -205,6 +270,73 @@ export default function ConfigurationPage() {
                     </div>
                   </div>
                 ))}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="text-lg">Pedidos programados</CardTitle>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-pressed={scheduledConfig.enabled}
+                    onClick={() => updateScheduledConfig({ enabled: !scheduledConfig.enabled })}
+                    className={`min-h-[44px] px-3 font-bold ${
+                      scheduledConfig.enabled
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                        : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                    }`}
+                  >
+                    {scheduledConfig.enabled ? "Habilitados" : "Deshabilitados"}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <Label htmlFor="slotInterval">Intervalo de franjas (min)</Label>
+                  <select
+                    id="slotInterval"
+                    value={scheduledConfig.slotIntervalMinutes}
+                    onChange={(event) =>
+                      updateScheduledConfig({ slotIntervalMinutes: Number(event.target.value) })
+                    }
+                    className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900"
+                  >
+                    <option value={15}>Cada 15 minutos</option>
+                    <option value={30}>Cada 30 minutos</option>
+                    <option value={60}>Cada 60 minutos</option>
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="minLead">Anticipación mínima (min)</Label>
+                  <Input
+                    id="minLead"
+                    type="number"
+                    min="15"
+                    max="240"
+                    className="mt-1 h-11 border-slate-300 bg-white text-slate-900"
+                    value={scheduledConfig.minLeadMinutes}
+                    onChange={(event) =>
+                      updateScheduledConfig({ minLeadMinutes: Number(event.target.value) })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="maxDays">Días máximos a futuro</Label>
+                  <Input
+                    id="maxDays"
+                    type="number"
+                    min="1"
+                    max="7"
+                    className="mt-1 h-11 border-slate-300 bg-white text-slate-900"
+                    value={scheduledConfig.maxDaysAhead}
+                    onChange={(event) =>
+                      updateScheduledConfig({ maxDaysAhead: Number(event.target.value) })
+                    }
+                  />
+                </div>
               </CardContent>
             </Card>
 

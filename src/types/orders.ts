@@ -15,6 +15,9 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export const SERVICE_TYPES = ["delivery", "mesa", "pickup"] as const;
 export type ServiceType = (typeof SERVICE_TYPES)[number];
 
+export const ORDER_FULFILLMENT_MODES = ["now", "scheduled"] as const;
+export type OrderFulfillmentMode = (typeof ORDER_FULFILLMENT_MODES)[number];
+
 export const POS_PAYMENT_METHODS = [
   "efectivo",
   "transferencia",
@@ -170,6 +173,7 @@ export type CreateOrderInput = {
   deliveryZoneId?: string;
   deliveryZoneName?: string;
   items: CheckoutItemInput[];
+  scheduledFor?: string;
   promotionCode?: string;
   loyaltyRewardId?: LoyaltyRewardId;
   paymentMethod?: PosPaymentMethod;
@@ -249,6 +253,8 @@ export type Order = {
   deliveryZoneName?: string;
   deliveryFee?: number;
   estimatedDeliveryMinutes?: number;
+  fulfillmentMode?: OrderFulfillmentMode;
+  scheduledFor?: string;
   assignedDriver?: OrderAssignedDriver;
   rating?: OrderRating;
   negocioId?: string;

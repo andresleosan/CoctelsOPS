@@ -208,7 +208,8 @@ describe("Server-side delivery zone calculation & driver assignment API", () => 
       { idempotencyKey: "zone-key-mesa" },
     );
 
-    expect(getStoreConfiguration).not.toHaveBeenCalled();
+    expect(mesaOrder.deliveryZoneId).toBeUndefined();
+    expect(mesaOrder.deliveryZoneName).toBeUndefined();
     expect(mesaOrder.deliveryFee).toBeUndefined();
     expect(mesaOrder.total).toBe(15000);
   });

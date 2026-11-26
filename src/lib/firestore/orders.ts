@@ -8,6 +8,7 @@ import { getProductById, productFromData } from "@/lib/firestore/products";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { writeAuditInTransaction } from "@/lib/firestore/audit";
 import { getStoreConfiguration } from "@/lib/firestore/configuration";
+import { getNegocioById } from "@/lib/firestore/tenant";
 import {
   calculateEarnedPoints,
   calculateLoyaltyRedemption,
@@ -26,6 +27,7 @@ import {
   getEffectivePaymentVerificationStatus,
   isDigitalTransferMethod,
 } from "@/lib/orders/payment-verification";
+import { validateOrderSchedule } from "@/lib/orders/store-schedule";
 import {
   assertOrderOwnership,
   assertValidTransition,
@@ -38,10 +40,11 @@ import {
   verifyOrderPaymentSchema,
 } from "@/lib/validation/orders";
 import type { VerifiedUser } from "@/types/auth";
-import type { DeliveryZoneConfig } from "@/types/operations";
+import type { DeliveryZoneConfig, StoreConfiguration } from "@/types/operations";
 import type { OrderEscandalloSummary } from "@/types/recipes";
 import { DEFAULT_TENANT_ID } from "@/types/tenant";
 import {
+  ORDER_FULFILLMENT_MODES,
   PAYMENT_GATEWAY_PROVIDERS,
   PAYMENT_GATEWAY_STATUSES,
   PAYMENT_VERIFICATION_STATUSES,
@@ -52,6 +55,7 @@ import {
   type CustomerOrder,
   type Order,
   type OrderAssignedDriver,
+  type OrderFulfillmentMode,
   type OrderPaymentBreakdown,
   type OrderPaymentGateway,
   type OrderPaymentProof,
@@ -79,7 +83,7 @@ export class OrderNotFoundError extends Error {
   }
 }
 
-export type OrderCreationOptions = { idempotencyKey?: string };
+export type OrderCreationOptions = { idempotencyKey?: string; now?: Date };
 
 function stableOrderId(uid: string, idempotencyKey: string): string {
   return createHash("sha256").update(`${uid}:${idempotencyKey}`).digest("hex").slice(0, 32);
@@ -352,6 +356,13 @@ function toOrder(id: string, data: Record<string, unknown>): Order {
     data.estimatedDeliveryMinutes > 0
       ? { estimatedDeliveryMinutes: Math.round(data.estimatedDeliveryMinutes) }
       : {}),
+    ...(typeof data.fulfillmentMode === "string" &&
+    (ORDER_FULFILLMENT_MODES as readonly string[]).includes(data.fulfillmentMode)
+      ? { fulfillmentMode: data.fulfillmentMode as OrderFulfillmentMode }
+      : {}),
+    ...(typeof data.scheduledFor === "string" && data.scheduledFor.trim()
+      ? { scheduledFor: data.scheduledFor.trim() }
+      : {}),
     ...(parseAssignedDriver(data.assignedDriver)
       ? { assignedDriver: parseAssignedDriver(data.assignedDriver) }
       : {}),
@@ -439,6 +450,44 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     loyaltyPointsRedeemed = redemption.pointsCost;
     loyaltyDiscount = redemption.discount;
   }
+  const derivedNegocioId = availableProducts
+    .map((product) => (typeof product.negocioId === "string" ? product.negocioId.trim() : ""))
+    .find(Boolean);
+
+  let effectiveConfig: StoreConfiguration;
+  if (derivedNegocioId && derivedNegocioId !== DEFAULT_TENANT_ID) {
+    const negocio = await getNegocioById(derivedNegocioId);
+    effectiveConfig = negocio?.configuracion
+      ? { ...negocio.configuracion }
+      : await getStoreConfiguration({ allowDefaults: true });
+  } else {
+    effectiveConfig = await getStoreConfiguration({ allowDefaults: true });
+  }
+
+  const isInternalBarStaff = Boolean(
+    user.profile?.active &&
+      (user.profile.accountType === "admin" || user.profile.accountType === "staff"),
+  );
+  const scheduleNow = options.now ?? new Date();
+  const scheduleValidation = validateOrderSchedule({
+    config: effectiveConfig,
+    scheduledFor: validated.scheduledFor,
+    serviceType: validated.serviceType ?? "delivery",
+    now: scheduleNow,
+  });
+
+  if (!scheduleValidation.allowed && !(isInternalBarStaff && !validated.scheduledFor)) {
+    throw new OrderValidationError(scheduleValidation.reason);
+  }
+
+  const resolvedFulfillmentMode: OrderFulfillmentMode = scheduleValidation.allowed
+    ? scheduleValidation.fulfillmentMode
+    : "now";
+  const resolvedScheduledFor =
+    scheduleValidation.allowed && scheduleValidation.fulfillmentMode === "scheduled"
+      ? scheduleValidation.scheduledFor
+      : undefined;
+
   const sanitizedPaymentBreakdown = validated.paymentBreakdown
     ? sanitizePaymentBreakdown(validated.paymentBreakdown)
     : undefined;
@@ -447,11 +496,9 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     validated.serviceType !== "pickup" &&
     Boolean(validated.deliveryZoneId?.trim() || validated.deliveryZoneName?.trim());
   let matchedDeliveryZone: DeliveryZoneConfig | null = null;
-  let fallbackDeliveryMinutes = 45;
+  const fallbackDeliveryMinutes = effectiveConfig.estimatedDeliveryMinutes ?? 45;
   if (wantsDeliveryZone) {
-    const config = await getStoreConfiguration({ allowDefaults: true });
-    fallbackDeliveryMinutes = config.estimatedDeliveryMinutes;
-    matchedDeliveryZone = findDeliveryZone(resolveDeliveryZones(config), {
+    matchedDeliveryZone = findDeliveryZone(resolveDeliveryZones(effectiveConfig), {
       id: validated.deliveryZoneId,
       name: validated.deliveryZoneName,
     });
@@ -467,9 +514,6 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
         fallbackEstimatedMinutes: fallbackDeliveryMinutes,
       })
     : null;
-  const derivedNegocioId = availableProducts
-    .map((product) => (typeof product.negocioId === "string" ? product.negocioId.trim() : ""))
-    .find(Boolean);
   const now = new Date().toISOString();
   const data = {
     clienteUid: user.uid,
@@ -480,6 +524,8 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
     ...(validated.notes ? { notes: validated.notes } : {}),
     ...(validated.serviceType ? { serviceType: validated.serviceType } : {}),
     ...(validated.tableNumber ? { tableNumber: validated.tableNumber } : {}),
+    fulfillmentMode: resolvedFulfillmentMode,
+    ...(resolvedScheduledFor ? { scheduledFor: resolvedScheduledFor } : {}),
     ...(matchedDeliveryZone && initialDeliveryQuote
       ? {
           deliveryZoneId: matchedDeliveryZone.id,
@@ -617,6 +663,9 @@ export async function createOrder(user: VerifiedUser, input: CreateOrderInput, o
         total: orderData.total,
         itemCount: orderData.items.length,
         ...(orderData.promotionCode ? { promotionCode: orderData.promotionCode } : {}),
+        ...(resolvedScheduledFor
+          ? { fulfillmentMode: resolvedFulfillmentMode, scheduledFor: resolvedScheduledFor }
+          : {}),
         ...(matchedDeliveryZone && transactionDeliveryQuote
           ? {
               deliveryZoneName: matchedDeliveryZone.name,
