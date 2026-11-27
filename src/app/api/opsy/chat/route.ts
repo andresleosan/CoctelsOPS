@@ -5,7 +5,10 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { getRateLimitIdentity, hashRateLimitIdentity, reserveAIRateLimit } from "@/lib/ai/ai-rate-limit";
 import { listActiveProducts, listActiveProductsByNegocio } from "@/lib/firestore/products";
 import { getStoreConfiguration } from "@/lib/firestore/configuration";
-import { processOpsyChat } from "@/lib/ai/opsy-guardrails";
+import { getActivePromotions } from "@/lib/firestore/promotions";
+import { getNegocioById, getNegocioBySlug } from "@/lib/firestore/tenant";
+import { processOpsyChat, type OpsyStoreConfig } from "@/lib/ai/opsy-guardrails";
+import type { Negocio } from "@/types/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +28,15 @@ const opsyChatRequestSchema = z.object({
     .max(8, "El historial no puede exceder 8 turnos")
     .optional()
     .default([]),
-  negocioId: z.string().trim().optional(),
+  negocioId: z.string().trim().max(80).optional(),
+  tenantSlug: z.string().trim().max(80).optional(),
+  preferences: z
+    .object({
+      alcoholFree: z.boolean().optional(),
+      flavorProfile: z.enum(["all", "citrico", "dulce", "tropical", "frutal"]).optional(),
+      happyHourOnly: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export async function POST(request: Request): Promise<Response> {
@@ -48,7 +59,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const { message, history, negocioId } = parseResult.data;
+  const { message, history, negocioId, tenantSlug, preferences } = parseResult.data;
 
   // Rate Limiting atómico en servidor (5 consultas cada 10 min por IP)
   const identity = getRateLimitIdentity(request.headers);
@@ -79,23 +90,50 @@ export async function POST(request: Request): Promise<Response> {
     }
   } catch (error) {
     console.error("[Opsy Bot API] Error verificando rate limit:", error);
-    // En caso de fallo transitorio en DB de rate limit, continuamos con fallback seguro
   }
 
   try {
-    // Carga de catálogo activo respetando multi-tenant si se provee negocioId
-    const products = negocioId
-      ? await listActiveProductsByNegocio(negocioId)
+    let negocio: Negocio | null = null;
+    if (negocioId) {
+      negocio = await getNegocioById(negocioId).catch(() => null);
+    } else if (tenantSlug) {
+      negocio = await getNegocioBySlug(tenantSlug).catch(() => null);
+    }
+
+    const effectiveNegocioId = negocioId || negocio?.id;
+    let products = effectiveNegocioId
+      ? await listActiveProductsByNegocio(effectiveNegocioId)
       : await listActiveProducts();
 
-    // Carga de configuración pública
-    const config = await getStoreConfiguration({ allowDefaults: true }).catch(() => null);
+    if (!negocioId && negocio && products.length === 0) {
+      products = await listActiveProducts();
+    }
+
+    const [fallbackConfig, promotionsData] = await Promise.all([
+      negocio?.configuracion
+        ? Promise.resolve<OpsyStoreConfig>(negocio.configuracion)
+        : getStoreConfiguration({ allowDefaults: true }).catch(() => null),
+      getActivePromotions().catch(() => ({ activeHappyHours: [], todayScheduled: [] })),
+    ]);
+
+    const tenantContext =
+      negocio || effectiveNegocioId || tenantSlug
+        ? {
+            ...(effectiveNegocioId ? { id: effectiveNegocioId } : {}),
+            ...(negocio?.slug || tenantSlug ? { slug: negocio?.slug ?? tenantSlug } : {}),
+            ...(negocio?.name ? { name: negocio.name } : {}),
+          }
+        : undefined;
 
     const chatReply = await processOpsyChat({
       message,
       history,
       products,
-      config,
+      config: fallbackConfig,
+      activePromotions: promotionsData.activeHappyHours,
+      todayScheduledPromotions: promotionsData.todayScheduled,
+      preferences,
+      tenant: tenantContext,
     });
 
     return Response.json(chatReply, {
@@ -117,4 +155,3 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 }
-

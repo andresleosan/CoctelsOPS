@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   listActiveProducts: vi.fn(),
   listActiveProductsByNegocio: vi.fn(),
   getStoreConfiguration: vi.fn(),
+  getActivePromotions: vi.fn(),
+  getNegocioById: vi.fn(),
+  getNegocioBySlug: vi.fn(),
   processOpsyChat: vi.fn(),
 }));
 
@@ -30,6 +33,15 @@ vi.mock("@/lib/firestore/configuration", () => ({
   getStoreConfiguration: mocks.getStoreConfiguration,
 }));
 
+vi.mock("@/lib/firestore/promotions", () => ({
+  getActivePromotions: mocks.getActivePromotions,
+}));
+
+vi.mock("@/lib/firestore/tenant", () => ({
+  getNegocioById: mocks.getNegocioById,
+  getNegocioBySlug: mocks.getNegocioBySlug,
+}));
+
 vi.mock("@/lib/ai/opsy-guardrails", () => ({
   processOpsyChat: mocks.processOpsyChat,
 }));
@@ -45,6 +57,9 @@ describe("POST /api/opsy/chat", () => {
     mocks.listActiveProducts.mockResolvedValue([]);
     mocks.listActiveProductsByNegocio.mockResolvedValue([]);
     mocks.getStoreConfiguration.mockResolvedValue(null);
+    mocks.getActivePromotions.mockResolvedValue({ activeHappyHours: [], todayScheduled: [] });
+    mocks.getNegocioById.mockResolvedValue(null);
+    mocks.getNegocioBySlug.mockResolvedValue(null);
     mocks.processOpsyChat.mockResolvedValue({
       reply: "¡Qué más parce! Te recomiendo un granizado.",
       suggestions: [
@@ -149,6 +164,67 @@ describe("POST /api/opsy/chat", () => {
     expect(response.status).toBe(200);
     expect(mocks.listActiveProductsByNegocio).toHaveBeenCalledWith("negocio-la-parada");
     expect(mocks.listActiveProducts).not.toHaveBeenCalled();
+  });
+
+  it("resuelve tenantSlug, carga promociones Happy Hour en vivo y pasa preferencias sin licor", async () => {
+    const tenantConfig = {
+      whatsappNumber: "573009998877",
+      businessHours: [{ day: "Lunes a Domingo", open: "12:00", close: "23:00" }],
+      deliveryZones: ["El Poblado"],
+      estimatedDeliveryMinutes: 25,
+      messages: { orderReceived: "OK", orderStatus: "OK", unavailable: "Cerrado" },
+    };
+    const activePromo = {
+      id: "hh-1",
+      code: "HH2X1",
+      active: true,
+      discountType: "2x1",
+      discountValue: 0,
+      minimumSubtotal: 0,
+      startsAt: "2026-01-01T00:00:00.000Z",
+      endsAt: "2027-01-01T00:00:00.000Z",
+      usageCount: 0,
+    };
+
+    mocks.getNegocioBySlug.mockResolvedValueOnce({
+      id: "neg-poblado",
+      slug: "coctels-poblado",
+      name: "Coctels OPS Poblado",
+      configuracion: tenantConfig,
+    });
+    mocks.listActiveProductsByNegocio.mockResolvedValueOnce([{ id: "p-1", name: "Fresa" }]);
+    mocks.getActivePromotions.mockResolvedValueOnce({
+      activeHappyHours: [activePromo],
+      todayScheduled: [activePromo],
+    });
+
+    const request = new Request("http://localhost:9002/api/opsy/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        message: "¿Qué tienen sin licor?",
+        tenantSlug: "coctels-poblado",
+        preferences: { alcoholFree: true, flavorProfile: "citrico" },
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(mocks.getNegocioBySlug).toHaveBeenCalledWith("coctels-poblado");
+    expect(mocks.listActiveProductsByNegocio).toHaveBeenCalledWith("neg-poblado");
+    expect(mocks.processOpsyChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: tenantConfig,
+        activePromotions: [activePromo],
+        todayScheduledPromotions: [activePromo],
+        preferences: { alcoholFree: true, flavorProfile: "citrico" },
+        tenant: {
+          id: "neg-poblado",
+          slug: "coctels-poblado",
+          name: "Coctels OPS Poblado",
+        },
+      })
+    );
   });
 });
 

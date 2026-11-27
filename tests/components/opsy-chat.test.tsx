@@ -310,4 +310,88 @@ describe("OpsyChat UI Component", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("envía tenantSlug en /m/[slug], filtros Sin licor/Cítrico y arma combo 2x1 directo al carrito", async () => {
+    usePathname.mockReturnValue("/m/coctels-poblado");
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        reply: "¡Parce, tenemos Happy Hour 2x1 activo en Granizado Fresa!",
+        tenant: {
+          id: "neg-poblado",
+          slug: "coctels-poblado",
+          name: "Coctels OPS Poblado",
+        },
+        activePromotions: [
+          {
+            id: "hh-1",
+            code: "HAPPY2X1",
+            title: "Happy Hour Granizados",
+            discountLabel: "2x1 en Barra",
+            is2x1: true,
+            endsAtTime: "20:00",
+          },
+        ],
+        suggestions: [
+          {
+            id: "prod-fresa",
+            name: "Granizado Fresa",
+            category: "granizado",
+            priceCop: 15000,
+            defaultSize: "16 oz",
+            stock: 4,
+            alcoholFree: true,
+            promoBadge: "2x1 Happy Hour",
+            recommendedQuantity: 2,
+            href: "/m/coctels-poblado?product=prod-fresa",
+          },
+        ],
+      }),
+    });
+    global.fetch = fetchMock;
+
+    renderOpsyChat();
+    fireEvent.click(screen.getByRole("button", { name: /abrir asistente opsy bot/i }));
+
+    expect(screen.getByText("coctels-poblado")).toBeInTheDocument();
+
+    // Activar filtro Sin licor + sabor Cítrico
+    fireEvent.click(screen.getByRole("button", { name: /sin licor/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Cítrico$/i }));
+
+    const input = screen.getByPlaceholderText(/pregúntale a opsy/i);
+    fireEvent.change(input, { target: { value: "Quiero algo en promo" } });
+    fireEvent.click(screen.getByRole("button", { name: /enviar mensaje/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("opsy-happy-hour-strip")).toBeInTheDocument();
+    });
+
+    const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(payload.tenantSlug).toBe("coctels-poblado");
+    expect(payload.preferences).toEqual({
+      alcoholFree: true,
+      flavorProfile: "citrico",
+    });
+
+    expect(screen.getByText("Coctels OPS Poblado")).toBeInTheDocument();
+    expect(screen.getByText("¡Quedan 4!")).toBeInTheDocument();
+    expect(screen.getByText("2x1 Happy Hour")).toBeInTheDocument();
+
+    // Armar combo 2x1 directo al carrito en 1 tap
+    fireEvent.click(screen.getByRole("button", { name: /agregar combo granizado fresa al carrito/i }));
+
+    const miniCart = await screen.findByTestId("opsy-mini-cart");
+    expect(miniCart).toHaveTextContent("Tu pedido (2 productos)");
+    expect(miniCart).toHaveTextContent("$30.000 COP");
+
+    const saved = JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || "[]");
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({
+      productId: "prod-fresa",
+      quantity: 2,
+      price: 15000,
+    });
+  });
 });

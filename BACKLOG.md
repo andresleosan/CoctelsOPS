@@ -301,10 +301,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Mejorar `/admin/negocios` (y su acceso en navegación) para clonar una carta inicial en 1 clic, subir logo a R2 y asignar staff por `negocioId` sin configuración manual.
   - **Archivos:** `src/types/tenant.ts`, `src/lib/validation/tenant.ts`, `src/lib/catalog/image-hosts.ts`, `src/lib/catalog/image-validation.ts`, `src/lib/catalog/starter-template.ts`, `src/lib/catalog/storage-core.ts`, `src/lib/catalog/storage.ts`, `src/lib/firestore/users.ts`, `src/lib/firestore/tenant.ts`, `src/app/api/admin/negocios/route.ts`, `src/app/api/admin/negocios/[id]/clone-catalog/route.ts`, `src/app/api/admin/negocios/[id]/logo/route.ts`, `src/app/api/admin/negocios/[id]/staff/route.ts`, `src/components/admin/admin-navigation.ts`, `src/components/admin/NegocioOnboardingPanel.tsx`, `src/app/admin/negocios/page.tsx`, `tests/lib/tenant-onboarding.test.ts`, `tests/api/admin-negocios-onboarding.test.ts`, `tests/components/admin-negocios-onboarding.test.tsx`.
 
-- [ ] **TASK-41: Opsy Bot v2 Multi-Tenant: Happy Hour en Vivo, Filtro "Sin Licor" y Armado Directo al Carrito**
+- [x] **TASK-41: Opsy Bot v2 Multi-Tenant: Happy Hour en Vivo, Filtro "Sin Licor" y Armado Directo al Carrito**
   - **Nivel Recomendado:** `Argon (Medium)`
   - **Objetivo:** Conectar `/api/opsy/chat` con promociones activas, stock real del tenant y preferencias de licor/sabor para que Opsy recomiende combos vigentes con botón directo de agregar al carrito.
-  - **Archivos:** `src/app/api/opsy/chat/route.ts`, `src/lib/ai/opsy-guardrails.ts`, `src/components/opsy/OpsyChat.tsx`.
+  - **Archivos:** `src/lib/ai/opsy-guardrails.ts`, `src/app/api/opsy/chat/route.ts`, `src/components/opsy/OpsyChat.tsx`, `tests/lib/opsy-guardrails.test.ts`, `tests/api/opsy-chat.test.ts`, `tests/components/opsy-chat.test.tsx`.
 
 - [ ] **TASK-42: Suite E2E de Fase 12, Auditoría de Seguridad y Release `v1.8.0`**
   - **Nivel Recomendado:** `3.8 Flash (Medium)`

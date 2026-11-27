@@ -5,11 +5,13 @@ import {
   buildOpsySystemPrompt,
   extractAndValidateSuggestions,
   getOpsyFallbackResponse,
+  isAlcoholFreeProduct,
   processOpsyChat,
   MAX_MESSAGE_CHARS,
 } from "@/lib/ai/opsy-guardrails";
 import type { Product } from "@/types/catalog";
 import type { StoreConfiguration } from "@/types/operations";
+import type { Promotion } from "@/types/promotions";
 
 const mockProducts: Product[] = [
   {
@@ -295,6 +297,94 @@ describe("opsy-guardrails: processOpsyChat Integración y Fallback", () => {
 
     expect(result.reply).toContain("Opsy");
     expect(result.suggestions.length).toBeGreaterThan(0);
+  });
+});
+
+const happyHour2x1Promo: Promotion = {
+  id: "promo-hh-2x1",
+  code: "HAPPY2X1",
+  title: "Happy Hour Granizados 2x1",
+  description: "Lleva 2 granizados y paga 1 en barra.",
+  active: true,
+  type: "happy_hour",
+  startsAt: "2026-01-01T00:00:00.000Z",
+  endsAt: "2027-01-01T00:00:00.000Z",
+  discountType: "2x1",
+  discountValue: 0,
+  minimumSubtotal: 0,
+  categoryIds: ["granizado"],
+  usageCount: 0,
+  isAutomatic: true,
+  schedule: {
+    daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+    startTime: "16:00",
+    endTime: "20:00",
+    timezone: "America/Bogota",
+  },
+};
+
+describe("opsy-guardrails v2: Multi-Tenant, Happy Hour en Vivo y Filtro Sin Licor", () => {
+  it("clasifica correctamente productos con licor y sin licor", () => {
+    expect(isAlcoholFreeProduct(mockProducts[0]!)).toBe(true);
+    expect(isAlcoholFreeProduct(mockProducts[1]!)).toBe(false);
+    expect(isAlcoholFreeProduct(mockProducts[2]!)).toBe(true);
+  });
+
+  it("bloquea bebidas con licor en extractAndValidateSuggestions y fallback cuando alcoholFree es true", () => {
+    const rawReply =
+      "Prueba ambos:\n[SUGERENCIAS: prod-coctel-ops-ron, prod-granizado-maracuya]";
+    const { suggestions } = extractAndValidateSuggestions(rawReply, mockProducts, {
+      preferences: { alcoholFree: true },
+      tenantSlug: "coctels-poblado",
+    });
+
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]?.id).toBe("prod-granizado-maracuya");
+    expect(suggestions[0]?.alcoholFree).toBe(true);
+    expect(suggestions[0]?.href).toBe("/m/coctels-poblado?product=prod-granizado-maracuya");
+
+    const onlyAlcohol = [mockProducts[1]!];
+    const emptySafe = getOpsyFallbackResponse({
+      message: "Recomiéndame algo",
+      products: onlyAlcohol,
+      preferences: { alcoholFree: true },
+    });
+    expect(emptySafe.suggestions).toEqual([]);
+    expect(emptySafe.reply).toContain("sin licor");
+  });
+
+  it("recomienda combos Happy Hour 2x1 en vivo con cantidad recomendada 2 y contexto en prompt", () => {
+    const context = buildCatalogContext(mockProducts, mockConfig, {
+      activePromotions: [happyHour2x1Promo],
+      preferences: { alcoholFree: true, flavorProfile: "citrico" },
+      tenant: { id: "neg-poblado", slug: "coctels-poblado", name: "Coctels OPS Poblado" },
+    });
+
+    expect(context).toContain("Coctels OPS Poblado");
+    expect(context).toContain("HAPPY HOUR Y PROMOCIONES VIGENTES");
+    expect(context).toContain("Happy Hour Granizados 2x1");
+    expect(context).toContain("SOLO BEBIDAS SIN LICOR");
+    expect(context).not.toContain("Cóctel Explosión OPS");
+
+    const fallback = getOpsyFallbackResponse({
+      message: "¿Qué hay en Happy Hour hoy?",
+      products: mockProducts,
+      config: mockConfig,
+      activePromotions: [happyHour2x1Promo],
+      preferences: { alcoholFree: true, happyHourOnly: true },
+      tenant: { id: "neg-poblado", slug: "coctels-poblado", name: "Coctels OPS Poblado" },
+    });
+
+    expect(fallback.reply).toContain("Happy Hour Granizados 2x1");
+    expect(fallback.activePromotions).toHaveLength(1);
+    expect(fallback.suggestions[0]).toMatchObject({
+      id: "prod-granizado-maracuya",
+      promoBadge: "2x1 Happy Hour",
+      promoCode: "HAPPY2X1",
+      recommendedQuantity: 2,
+      alcoholFree: true,
+      href: "/m/coctels-poblado?product=prod-granizado-maracuya",
+    });
   });
 });
 

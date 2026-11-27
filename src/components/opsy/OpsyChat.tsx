@@ -16,9 +16,35 @@ import {
   Minus,
   Check,
   ExternalLink,
+  Flame,
+  ShieldCheck,
+  Store,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCart, generateCartItemId } from "@/context/cart-context";
+
+export type ChatFlavorProfile = "all" | "citrico" | "dulce" | "tropical";
+
+export type ChatPreferences = {
+  alcoholFree?: boolean;
+  flavorProfile?: ChatFlavorProfile;
+  happyHourOnly?: boolean;
+};
+
+export type ChatActivePromotion = {
+  id: string;
+  code: string;
+  title: string;
+  discountLabel: string;
+  is2x1: boolean;
+  endsAtTime?: string;
+};
+
+export type ChatTenantContext = {
+  id?: string;
+  slug?: string;
+  name?: string;
+};
 
 export type ChatSuggestionSize = {
   label: string;
@@ -35,6 +61,11 @@ export type ChatSuggestion = {
   defaultSize?: string;
   image?: string;
   href: string;
+  stock?: number;
+  alcoholFree?: boolean;
+  promoBadge?: string;
+  recommendedQuantity?: number;
+  promoCode?: string;
 };
 
 export type ChatMessage = {
@@ -49,6 +80,13 @@ const RATE_LIMIT_ERROR_MESSAGE =
   "¡Parce, te tomaste muchos tragos de preguntas! Espera unos minutos y volvemos a parchar 🐼⏱️";
 const DEFAULT_ERROR_MESSAGE =
   "Opsy se embolató un segundo en la barra. ¡Prueba otra vez!";
+
+const FLAVOR_CHIPS: Array<{ id: ChatFlavorProfile; label: string }> = [
+  { id: "all", label: "Todos" },
+  { id: "citrico", label: "Cítrico" },
+  { id: "dulce", label: "Dulce" },
+  { id: "tropical", label: "Tropical" },
+];
 
 type RawWorkerProduct = {
   id?: unknown;
@@ -79,6 +117,26 @@ type RawLegacySuggestion = {
   }>;
   image?: unknown;
   href?: unknown;
+  stock?: unknown;
+  alcoholFree?: unknown;
+  promoBadge?: unknown;
+  recommendedQuantity?: unknown;
+  promoCode?: unknown;
+};
+
+type RawActivePromotion = {
+  id?: unknown;
+  code?: unknown;
+  title?: unknown;
+  discountLabel?: unknown;
+  is2x1?: unknown;
+  endsAtTime?: unknown;
+};
+
+type RawTenant = {
+  id?: unknown;
+  slug?: unknown;
+  name?: unknown;
 };
 
 type RawOpsyResponse = {
@@ -87,6 +145,8 @@ type RawOpsyResponse = {
   error?: unknown;
   suggestions?: unknown;
   products?: unknown;
+  activePromotions?: unknown;
+  tenant?: unknown;
 };
 
 function clampChatText(text: string): string {
@@ -112,9 +172,7 @@ function sanitizeImage(value: unknown): string | undefined {
   return undefined;
 }
 
-function extractValidSizes(
-  rawSizes: unknown
-): ChatSuggestionSize[] {
+function extractValidSizes(rawSizes: unknown): ChatSuggestionSize[] {
   if (!Array.isArray(rawSizes)) return [];
   const parsed: ChatSuggestionSize[] = [];
   for (const entry of rawSizes) {
@@ -142,9 +200,46 @@ function extractValidSizes(
   return parsed;
 }
 
+function extractActivePromotions(rawPromos: unknown): ChatActivePromotion[] {
+  if (!Array.isArray(rawPromos)) return [];
+  const promos: ChatActivePromotion[] = [];
+  for (const item of rawPromos as RawActivePromotion[]) {
+    if (!item || typeof item !== "object") continue;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const code = typeof item.code === "string" ? item.code.trim() : "";
+    const title = typeof item.title === "string" ? item.title.trim() : "";
+    const discountLabel = typeof item.discountLabel === "string" ? item.discountLabel.trim() : "";
+    if (!id || !title) continue;
+
+    promos.push({
+      id,
+      code,
+      title,
+      discountLabel: discountLabel || "Promo activa",
+      is2x1: item.is2x1 === true,
+      ...(typeof item.endsAtTime === "string" && item.endsAtTime.trim()
+        ? { endsAtTime: item.endsAtTime.trim() }
+        : {}),
+    });
+  }
+  return promos;
+}
+
+function extractTenant(rawTenant: unknown): ChatTenantContext | undefined {
+  if (!rawTenant || typeof rawTenant !== "object") return undefined;
+  const candidate = rawTenant as RawTenant;
+  const id = typeof candidate.id === "string" && candidate.id.trim() ? candidate.id.trim() : undefined;
+  const slug = typeof candidate.slug === "string" && candidate.slug.trim() ? candidate.slug.trim() : undefined;
+  const name = typeof candidate.name === "string" && candidate.name.trim() ? candidate.name.trim() : undefined;
+  if (!id && !slug && !name) return undefined;
+  return { id, slug, name };
+}
+
 function normalizeOpsyResponse(data: unknown): {
   content: string;
   suggestions: ChatSuggestion[];
+  activePromotions: ChatActivePromotion[];
+  tenant?: ChatTenantContext;
 } {
   if (!data || typeof data !== "object") {
     throw new Error(DEFAULT_ERROR_MESSAGE);
@@ -161,6 +256,9 @@ function normalizeOpsyResponse(data: unknown): {
   if (!content) {
     throw new Error(DEFAULT_ERROR_MESSAGE);
   }
+
+  const activePromotions = extractActivePromotions(raw.activePromotions);
+  const tenant = extractTenant(raw.tenant);
 
   if (Array.isArray(raw.suggestions)) {
     const suggestions: ChatSuggestion[] = [];
@@ -185,6 +283,26 @@ function normalizeOpsyResponse(data: unknown): {
           ? item.defaultSize.trim()
           : sizes[0]?.label ?? "Estándar";
 
+      const stock =
+        typeof item.stock === "number" && Number.isFinite(item.stock) && item.stock >= 0
+          ? item.stock
+          : undefined;
+      const alcoholFree = typeof item.alcoholFree === "boolean" ? item.alcoholFree : undefined;
+      const promoBadge =
+        typeof item.promoBadge === "string" && item.promoBadge.trim()
+          ? item.promoBadge.trim()
+          : undefined;
+      const recommendedQuantity =
+        typeof item.recommendedQuantity === "number" &&
+        Number.isInteger(item.recommendedQuantity) &&
+        item.recommendedQuantity > 1
+          ? item.recommendedQuantity
+          : undefined;
+      const promoCode =
+        typeof item.promoCode === "string" && item.promoCode.trim()
+          ? item.promoCode.trim()
+          : undefined;
+
       suggestions.push({
         id,
         name,
@@ -195,9 +313,14 @@ function normalizeOpsyResponse(data: unknown): {
         defaultSize,
         image: sanitizeImage(item.image),
         href: sanitizeHref(item.href, id),
+        ...(stock !== undefined ? { stock } : {}),
+        ...(alcoholFree !== undefined ? { alcoholFree } : {}),
+        ...(promoBadge ? { promoBadge } : {}),
+        ...(recommendedQuantity ? { recommendedQuantity } : {}),
+        ...(promoCode ? { promoCode } : {}),
       });
     }
-    return { content, suggestions };
+    return { content, suggestions, activePromotions, tenant };
   }
 
   if (Array.isArray(raw.products)) {
@@ -227,24 +350,25 @@ function normalizeOpsyResponse(data: unknown): {
         href: sanitizeHref(product.href, id),
       });
     }
-    return { content, suggestions };
+    return { content, suggestions, activePromotions, tenant };
   }
 
-  return { content, suggestions: [] };
+  return { content, suggestions: [], activePromotions, tenant };
 }
 
 const INITIAL_MESSAGE: ChatMessage = {
   id: "initial-opsy-greeting",
   role: "assistant",
   content:
-    "¡Qué más pues, parce! Soy Opsy 🐼✨, el panda bartender de Coctels OPS. ¿Qué sabor o antojo tienes hoy? Cuéntame y te recomiendo el mejor granizado o cóctel neón de la casa.",
+    "¡Qué más pues, parce! Soy Opsy 🐼✨, el panda bartender de Coctels OPS. ¿Qué sabor o antojo tienes hoy? Cuéntame y te recomiendo el mejor granizado, combo Happy Hour o bebida sin licor.",
 };
 
-const QUICK_PROMPTS = [
-  "🍹 ¿Qué me recomiendas cítrico?",
-  "🍧 Granizados más pedidos",
-  "🛵 ¿Tienen domicilios a mi zona?",
-  "🍸 Cócteles sin alcohol",
+const QUICK_PROMPTS: Array<{ label: string; preferences?: Partial<ChatPreferences> }> = [
+  { label: "🔥 Happy Hour y combos hoy", preferences: { happyHourOnly: true } },
+  { label: "🍹 ¿Qué me recomiendas cítrico?" },
+  { label: "🍧 Granizados más pedidos" },
+  { label: "🛵 ¿Tienen domicilios a mi zona?" },
+  { label: "🍸 Cócteles sin alcohol", preferences: { alcoholFree: true } },
 ];
 
 export default function OpsyChat() {
@@ -257,6 +381,11 @@ export default function OpsyChat() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [justAddedKey, setJustAddedKey] = useState<string | null>(null);
 
+  const [alcoholFree, setAlcoholFree] = useState(false);
+  const [flavorProfile, setFlavorProfile] = useState<ChatFlavorProfile>("all");
+  const [livePromotions, setLivePromotions] = useState<ChatActivePromotion[]>([]);
+  const [activeTenant, setActiveTenant] = useState<ChatTenantContext | undefined>(undefined);
+
   const launcherRef = useRef<HTMLButtonElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -264,6 +393,12 @@ export default function OpsyChat() {
 
   // Ocultar Opsy Bot en las rutas administrativas y en pantalla pública TV
   const isAdminRoute = pathname?.startsWith("/admin") || pathname?.startsWith("/pantalla");
+
+  // Detectar sede multi-tenant desde /m/[slug]
+  const tenantSlugMatch = pathname?.match(/^\/m\/([^/?#]+)/);
+  const detectedTenantSlug = tenantSlugMatch?.[1]
+    ? decodeURIComponent(tenantSlugMatch[1])
+    : undefined;
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -278,7 +413,7 @@ export default function OpsyChat() {
   }, []);
 
   const handleAddSuggestionToCart = useCallback(
-    (item: ChatSuggestion, sizeOverride?: ChatSuggestionSize) => {
+    (item: ChatSuggestion, sizeOverride?: ChatSuggestionSize, quantityOverride = 1) => {
       const chosenSize = sizeOverride ?? item.sizes?.[0];
       const sizeLabel = chosenSize?.label || item.defaultSize || "Estándar";
       const unitPrice = chosenSize?.priceCop ?? item.priceCop;
@@ -287,11 +422,13 @@ export default function OpsyChat() {
         return;
       }
 
+      const quantity = Math.max(1, Math.floor(quantityOverride));
+
       addItem({
         productId: item.id,
         name: item.name,
         price: unitPrice,
-        quantity: 1,
+        quantity,
         image: item.image || "/catalog-placeholder.svg",
         customization: {
           size: sizeLabel,
@@ -300,7 +437,7 @@ export default function OpsyChat() {
         },
       });
 
-      const feedbackKey = `${item.id}::${sizeLabel}`;
+      const feedbackKey = `${item.id}::${sizeLabel}${quantity > 1 ? `::x${quantity}` : ""}`;
       setJustAddedKey(feedbackKey);
       if (feedbackTimerRef.current) {
         clearTimeout(feedbackTimerRef.current);
@@ -359,7 +496,10 @@ export default function OpsyChat() {
     return null;
   }
 
-  const handleSendMessage = async (textToSend?: string) => {
+  const handleSendMessage = async (
+    textToSend?: string,
+    preferencesOverride?: Partial<ChatPreferences>
+  ) => {
     const rawText = textToSend || inputValue;
     const trimmed = clampChatText(rawText);
     if (!trimmed || isLoading) return;
@@ -378,7 +518,6 @@ export default function OpsyChat() {
     setIsLoading(true);
 
     try {
-      // Tomar hasta 6 turnos previos (máximo 5 en history) respetando límites de caracteres
       const historyPayload = nextMessages
         .filter((m) => m.id !== "initial-opsy-greeting")
         .slice(-6)
@@ -388,6 +527,13 @@ export default function OpsyChat() {
         }))
         .filter((m) => m.content.length > 0);
 
+      const mergedPreferences: ChatPreferences = {
+        ...(alcoholFree ? { alcoholFree: true } : {}),
+        ...(flavorProfile !== "all" ? { flavorProfile } : {}),
+        ...preferencesOverride,
+      };
+      const hasPreferences = Object.keys(mergedPreferences).length > 0;
+
       const requestInit: RequestInit = {
         method: "POST",
         headers: {
@@ -395,7 +541,9 @@ export default function OpsyChat() {
         },
         body: JSON.stringify({
           message: trimmed,
-          history: historyPayload.slice(0, -1), // Excluir el mensaje recién agregado que va en message
+          history: historyPayload.slice(0, -1),
+          ...(detectedTenantSlug ? { tenantSlug: detectedTenantSlug } : {}),
+          ...(hasPreferences ? { preferences: mergedPreferences } : {}),
         }),
         cache: "no-store",
       };
@@ -428,6 +576,13 @@ export default function OpsyChat() {
       const data: unknown = await response.json();
       const normalized = normalizeOpsyResponse(data);
 
+      if (normalized.activePromotions.length > 0) {
+        setLivePromotions(normalized.activePromotions);
+      }
+      if (normalized.tenant) {
+        setActiveTenant(normalized.tenant);
+      }
+
       const assistantMessage: ChatMessage = {
         id: `opsy-${Date.now()}`,
         role: "assistant",
@@ -452,6 +607,9 @@ export default function OpsyChat() {
     setErrorMessage(null);
     inputRef.current?.focus();
   };
+
+  const tenantLabel = activeTenant?.name || detectedTenantSlug;
+  const primaryPromo = livePromotions[0];
 
   return (
     <>
@@ -488,12 +646,12 @@ export default function OpsyChat() {
         <aside
           role="dialog"
           aria-label="Chat con Opsy Bot"
-          className="fixed bottom-0 right-0 sm:bottom-6 sm:right-6 z-50 w-full sm:w-[400px] h-[85vh] sm:h-[560px] max-h-[600px] flex flex-col bg-slate-950/95 border-t sm:border border-purple-500/30 sm:rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] backdrop-blur-xl animate-in slide-in-from-bottom-5 duration-300 overflow-hidden"
+          className="fixed bottom-0 right-0 sm:bottom-6 sm:right-6 z-50 w-full sm:w-[410px] h-[88vh] sm:h-[590px] max-h-[640px] flex flex-col bg-slate-950/95 border-t sm:border border-purple-500/30 sm:rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] backdrop-blur-xl animate-in slide-in-from-bottom-5 duration-300 overflow-hidden"
         >
           {/* Cabecera del Chat */}
           <header className="px-4 py-3 bg-gradient-to-r from-purple-950/90 via-slate-900 to-pink-950/80 border-b border-purple-500/20 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-primary shadow-[0_0_12px_rgba(233,30,99,0.5)] bg-black/50">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-primary shadow-[0_0_12px_rgba(233,30,99,0.5)] bg-black/50 shrink-0">
                 <Image
                   src="/opsy/opsy-bot.png"
                   alt="Opsy Avatar"
@@ -502,12 +660,18 @@ export default function OpsyChat() {
                   className="object-cover"
                 />
               </div>
-              <div>
-                <div className="flex items-center gap-1.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <h3 className="font-bold text-sm sm:text-base text-white tracking-wide flex items-center gap-1">
                     Opsy Bot
                     <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
                   </h3>
+                  {tenantLabel && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 border border-cyan-400/30 px-2 py-0.5 text-[10px] font-bold text-cyan-200 truncate max-w-[140px]">
+                      <Store className="w-3 h-3 shrink-0" />
+                      {tenantLabel}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-purple-300/80 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
@@ -516,14 +680,14 @@ export default function OpsyChat() {
               </div>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={handleReset}
                 title="Reiniciar chat"
                 aria-label="Reiniciar conversación"
-                className="w-8 h-8 rounded-full text-slate-300 hover:text-white hover:bg-white/10"
+                className="w-9 h-9 rounded-full text-slate-300 hover:text-white hover:bg-white/10"
               >
                 <RotateCcw className="w-4 h-4" />
               </Button>
@@ -535,12 +699,71 @@ export default function OpsyChat() {
                   launcherRef.current?.focus();
                 }}
                 aria-label="Cerrar chat"
-                className="w-8 h-8 rounded-full text-slate-300 hover:text-white hover:bg-white/10"
+                className="w-9 h-9 rounded-full text-slate-300 hover:text-white hover:bg-white/10"
               >
                 <X className="w-4 h-4" />
               </Button>
             </div>
           </header>
+
+          {/* Barra de Filtros Rápidos: Sin Licor y Perfil de Sabor */}
+          <div className="px-3 py-2 bg-slate-950/90 border-b border-purple-500/20 flex items-center gap-1.5 overflow-x-auto">
+            <button
+              type="button"
+              aria-pressed={alcoholFree}
+              onClick={() => setAlcoholFree((prev) => !prev)}
+              className={`inline-flex items-center gap-1 shrink-0 min-h-[36px] px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all active:scale-95 ${
+                alcoholFree
+                  ? "bg-cyan-500/20 border-cyan-400 text-cyan-200 shadow-[0_0_12px_rgba(0,188,212,0.3)]"
+                  : "bg-slate-900 border-slate-700 text-slate-300 hover:border-cyan-400/50 hover:text-white"
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Sin licor
+            </button>
+
+            <span className="h-4 w-px bg-white/10 shrink-0" aria-hidden="true" />
+
+            {FLAVOR_CHIPS.map((chip) => {
+              const active = flavorProfile === chip.id;
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setFlavorProfile(chip.id)}
+                  className={`shrink-0 min-h-[36px] px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all active:scale-95 ${
+                    active
+                      ? "bg-primary/25 border-primary text-white"
+                      : "bg-slate-900 border-purple-500/25 text-slate-300 hover:border-primary/50 hover:text-white"
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Franja de Happy Hour en Vivo */}
+          {primaryPromo && (
+            <div
+              data-testid="opsy-happy-hour-strip"
+              className="px-3 py-2 bg-gradient-to-r from-pink-950/80 via-purple-950/70 to-slate-950 border-b border-pink-500/30 flex items-center justify-between gap-2 text-xs"
+            >
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Flame className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+                <span className="font-bold text-pink-200 truncate">{primaryPromo.title}</span>
+                <span className="rounded bg-pink-500/25 px-1.5 py-0.5 text-[10px] font-black text-pink-200 shrink-0">
+                  {primaryPromo.discountLabel}
+                </span>
+              </div>
+              {primaryPromo.endsAtTime && (
+                <span className="text-[10px] font-mono text-cyan-300 shrink-0">
+                  Hasta {primaryPromo.endsAtTime}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Área de Mensajes */}
           <div
@@ -587,6 +810,13 @@ export default function OpsyChat() {
                             .reduce((sum, entry) => sum + entry.quantity, 0);
                           const isDefaultJustAdded =
                             justAddedKey === `${item.id}::${defaultSizeLabel}`;
+                          const comboQty = item.recommendedQuantity;
+                          const isComboJustAdded =
+                            comboQty && comboQty > 1
+                              ? justAddedKey === `${item.id}::${defaultSizeLabel}::x${comboQty}`
+                              : false;
+                          const isLowStock =
+                            typeof item.stock === "number" && item.stock > 0 && item.stock <= 5;
 
                           return (
                             <div
@@ -741,6 +971,57 @@ export default function OpsyChat() {
                                 </div>
                               </div>
 
+                              {/* Badges de Happy Hour, Sin Licor, Stock y Botón Combo 1-Tap */}
+                              {(item.promoBadge ||
+                                item.alcoholFree ||
+                                isLowStock ||
+                                (canQuickAdd && comboQty && comboQty > 1)) && (
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                  {item.promoBadge && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-pink-500/20 border border-pink-500/40 px-2 py-0.5 text-[10px] font-bold text-pink-200">
+                                      <Flame className="w-3 h-3 text-pink-400" />
+                                      {item.promoBadge}
+                                    </span>
+                                  )}
+                                  {item.alcoholFree && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 border border-cyan-400/35 px-2 py-0.5 text-[10px] font-semibold text-cyan-200">
+                                      Sin licor
+                                    </span>
+                                  )}
+                                  {isLowStock && (
+                                    <span className="inline-flex items-center rounded-full bg-amber-500/15 border border-amber-400/35 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
+                                      ¡Quedan {item.stock}!
+                                    </span>
+                                  )}
+                                  {canQuickAdd && comboQty && comboQty > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleAddSuggestionToCart(item, undefined, comboQty)
+                                      }
+                                      aria-label={`Agregar combo ${item.name} al carrito`}
+                                      className={`ml-auto inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all active:scale-95 ${
+                                        isComboJustAdded
+                                          ? "bg-emerald-500 text-white"
+                                          : "bg-gradient-to-r from-pink-600 to-purple-600 text-white hover:opacity-95 shadow-[0_0_10px_rgba(229,25,110,0.4)]"
+                                      }`}
+                                    >
+                                      {isComboJustAdded ? (
+                                        <>
+                                          <Check className="w-3 h-3" />
+                                          Combo +{comboQty}
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Sparkles className="w-3 h-3" />
+                                          Combo 2x1 (+{comboQty})
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
                               {/* Selector rápido de tamaños para productos con múltiples presentaciones */}
                               {hasSelectableSizes && item.sizes && (
                                 <div className="mt-2 pt-2 border-t border-white/10 flex flex-wrap gap-1.5">
@@ -819,13 +1100,13 @@ export default function OpsyChat() {
             <div className="px-4 py-2 flex flex-wrap items-center gap-1.5 border-t border-white/5">
               {QUICK_PROMPTS.map((prompt) => (
                 <button
-                  key={prompt}
+                  key={prompt.label}
                   type="button"
-                  onClick={() => handleSendMessage(prompt)}
+                  onClick={() => handleSendMessage(prompt.label, prompt.preferences)}
                   disabled={isLoading}
                   className="whitespace-nowrap text-xs bg-purple-950/50 hover:bg-purple-900/60 border border-purple-500/30 text-purple-200 px-2.5 py-1.5 rounded-full transition-colors active:scale-95 disabled:opacity-50"
                 >
-                  {prompt}
+                  {prompt.label}
                 </button>
               ))}
             </div>
@@ -909,4 +1190,3 @@ export default function OpsyChat() {
     </>
   );
 }
-
