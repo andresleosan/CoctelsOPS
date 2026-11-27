@@ -9,8 +9,28 @@ export const negocioSlugSchema = z
 
 export const negocioPlanSchema = z.enum(["starter", "pro", "enterprise"]);
 
+function isSafeBrandingLogoUrl(value: string): boolean {
+  if (value === "/catalog-placeholder.svg" || value === "/logo.png") return true;
+  if (value.startsWith("/") || /\s/.test(value)) return false;
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" && !parsed.username && !parsed.password;
+  } catch {
+    return false;
+  }
+}
+
 export const negocioBrandingSchema = z.object({
-  logoUrl: z.string().trim().min(1, "El logo es obligatorio"),
+  logoUrl: z
+    .string()
+    .trim()
+    .min(1, "El logo es obligatorio")
+    .max(500, "La URL del logo no puede superar 500 caracteres")
+    .refine(
+      isSafeBrandingLogoUrl,
+      "El logo debe usar una URL HTTPS válida o el placeholder oficial",
+    ),
   bannerUrl: z.string().trim().optional(),
   primaryColor: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Color primario hexadecimal inválido").optional(),
   accentColor: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Color de acento hexadecimal inválido").optional(),
@@ -84,4 +104,49 @@ export const usuarioNegocioSchema = z.object({
   role: z.enum(["owner", "staff", "admin"]),
   active: z.boolean(),
 });
+
+export const cloneCatalogSourceSchema = z.enum(["starter", "default-tenant"]);
+
+export const negocioCreateRequestSchema = negocioInputSchema.extend({
+  cloneStarterCatalog: z.boolean().optional(),
+  cloneSource: cloneCatalogSourceSchema.optional(),
+});
+
+export const cloneCatalogRequestSchema = z.object({
+  source: cloneCatalogSourceSchema.default("starter"),
+  overwrite: z.boolean().default(false),
+});
+
+export const assignNegocioStaffSchema = z
+  .object({
+    uid: z.string().trim().min(1).max(128).optional(),
+    email: z.string().trim().email("Ingresa un correo electrónico válido").max(160).optional(),
+    displayName: z.string().trim().max(120).optional(),
+    password: z
+      .string()
+      .trim()
+      .refine(
+        (value) => value.length === 0 || value.length >= 8,
+        "La contraseña debe tener al menos 8 caracteres",
+      )
+      .refine((value) => value.length <= 128, "La contraseña excede el límite permitido")
+      .optional(),
+    role: z.enum(["owner", "staff", "admin"]).default("staff"),
+    rolePresetId: z
+      .enum([
+        "barra-pedidos",
+        "solo-productos",
+        "inventario-caja",
+        "solo-lectura",
+        "local-manager",
+      ])
+      .optional(),
+    active: z.boolean().default(true),
+  })
+  .refine(
+    (value) => Boolean(value.uid || value.email),
+    "Debes indicar el correo electrónico o UID del miembro de staff",
+  );
+
+export type AssignNegocioStaffInput = z.infer<typeof assignNegocioStaffSchema>;
 

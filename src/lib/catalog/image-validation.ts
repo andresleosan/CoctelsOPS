@@ -1,7 +1,11 @@
 import path from "node:path";
 
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-export const DEFAULT_CATALOG_PLACEHOLDER = "/catalog-placeholder.svg";
+import {
+  DEFAULT_CATALOG_PLACEHOLDER,
+  MAX_IMAGE_BYTES,
+} from "@/lib/catalog/image-hosts";
+
+export { DEFAULT_CATALOG_PLACEHOLDER, MAX_IMAGE_BYTES };
 
 const IMAGE_CONTENT_TYPES = new Map([
   [".jpg", "image/jpeg"],

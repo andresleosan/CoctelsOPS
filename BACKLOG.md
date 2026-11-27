@@ -296,10 +296,10 @@ Para maximizar la eficiencia de tokens y precisión técnica, cada tarea y cada 
   - **Objetivo:** Pantalla oscura neón optimizada para TV/tablet que muestra pedidos "En preparación" y "Listo para recoger" (ideal con música alta), junto a un tablero visual de estado de mesas (libre, ocupada, pidiendo cuenta).
   - **Archivos:** `src/types/display.ts`, `src/lib/orders/bar-display.ts`, `src/lib/tabs/table-map.ts`, `src/lib/firestore/orders.ts`, `src/app/api/pantalla/route.ts`, `src/components/orders/BarDisplayBoard.tsx`, `src/app/pantalla/page.tsx`, `src/components/layout/Header.tsx`, `src/components/layout/Footer.tsx`, `src/components/opsy/OpsyChat.tsx`, `src/components/admin/TableMapBoard.tsx`, `src/components/admin/BarTabsBoard.tsx`, `src/components/admin/admin-navigation.ts`, `src/components/admin/AppSidebar.tsx`, `src/app/admin/pedidos/page.tsx`, `tests/lib/bar-display-and-table-map.test.ts`, `tests/api/pantalla.test.ts`, `tests/components/bar-display-and-table-map.test.tsx`.
 
-- [ ] **TASK-40: Onboarding SaaS de Nuevos Locales: Plantilla de Carta Base, Branding R2 y Staff por Local**
+- [x] **TASK-40: Onboarding SaaS de Nuevos Locales: Plantilla de Carta Base, Branding R2 y Staff por Local**
   - **Nivel Recomendado:** `Argon (High)`
   - **Objetivo:** Mejorar `/admin/negocios` (y su acceso en navegación) para clonar una carta inicial en 1 clic, subir logo a R2 y asignar staff por `negocioId` sin configuración manual.
-  - **Archivos:** `src/app/admin/negocios/page.tsx`, `src/components/admin/admin-navigation.ts`, `src/app/api/admin/negocios/route.ts`, `src/lib/firestore/tenant.ts`.
+  - **Archivos:** `src/types/tenant.ts`, `src/lib/validation/tenant.ts`, `src/lib/catalog/image-hosts.ts`, `src/lib/catalog/image-validation.ts`, `src/lib/catalog/starter-template.ts`, `src/lib/catalog/storage-core.ts`, `src/lib/catalog/storage.ts`, `src/lib/firestore/users.ts`, `src/lib/firestore/tenant.ts`, `src/app/api/admin/negocios/route.ts`, `src/app/api/admin/negocios/[id]/clone-catalog/route.ts`, `src/app/api/admin/negocios/[id]/logo/route.ts`, `src/app/api/admin/negocios/[id]/staff/route.ts`, `src/components/admin/admin-navigation.ts`, `src/components/admin/NegocioOnboardingPanel.tsx`, `src/app/admin/negocios/page.tsx`, `tests/lib/tenant-onboarding.test.ts`, `tests/api/admin-negocios-onboarding.test.ts`, `tests/components/admin-negocios-onboarding.test.tsx`.
 
 - [ ] **TASK-41: Opsy Bot v2 Multi-Tenant: Happy Hour en Vivo, Filtro "Sin Licor" y Armado Directo al Carrito**
   - **Nivel Recomendado:** `Argon (Medium)`

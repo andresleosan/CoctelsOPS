@@ -28,6 +28,15 @@ export class UserNotFoundError extends Error {
 const accountTypes = new Set<AccountType>(["customer", "staff", "admin"]);
 
 function toProfile(uid: string, data: Record<string, unknown>): UserProfile {
+  const negocioId =
+    typeof data.negocioId === "string" && data.negocioId.trim()
+      ? data.negocioId.trim()
+      : undefined;
+  const negocioRole =
+    data.negocioRole === "owner" || data.negocioRole === "staff" || data.negocioRole === "admin"
+      ? data.negocioRole
+      : undefined;
+
   return {
     uid,
     email: typeof data.email === "string" ? data.email : "",
@@ -39,6 +48,8 @@ function toProfile(uid: string, data: Record<string, unknown>): UserProfile {
     accountType: accountTypes.has(data.accountType as AccountType) ? (data.accountType as AccountType) : "customer",
     roleIds: Array.isArray(data.roleIds) ? data.roleIds.filter((role): role is string => typeof role === "string") : ["customer"],
     permissions: Array.isArray(data.permissions) ? data.permissions.filter((permission): permission is `${string}.${string}` => typeof permission === "string") : [],
+    ...(negocioId ? { negocioId } : {}),
+    ...(negocioRole ? { negocioRole } : {}),
     createdAt: (data.createdAt as UserProfile["createdAt"]) ?? new Date().toISOString(),
     lastLoginAt: (data.lastLoginAt as UserProfile["lastLoginAt"]) ?? new Date().toISOString(),
   };
@@ -68,6 +79,8 @@ export async function syncUser(uid: string, data: AuthProfile): Promise<UserProf
     accountType: (esEmailAdmin(data.email) && data.emailVerified === true) ? "admin" : (current?.accountType ?? "customer"),
     roleIds: (esEmailAdmin(data.email) && data.emailVerified === true) ? ["admin"] : (current?.roleIds?.length ? current.roleIds : ["customer"]),
     permissions: current?.permissions ?? [],
+    ...(current?.negocioId ? { negocioId: current.negocioId } : {}),
+    ...(current?.negocioRole ? { negocioRole: current.negocioRole } : {}),
     createdAt: current?.createdAt ?? now,
     lastLoginAt: now,
   };

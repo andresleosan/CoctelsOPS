@@ -22,7 +22,7 @@ export function catalogImageKey(productId: string, filename: string, negocioId?:
   return `catalog/products/${productId}/${randomUUID()}-${cleanFilename}`;
 }
 
-function sanitizeProofFilename(filename: string): string {
+function sanitizeAssetFilename(filename: string, fallbackStem: string): string {
   assertSafeImageFilename(filename);
   const normalized = filename.replaceAll("\\", "/");
   const base = path.posix.basename(normalized);
@@ -34,14 +34,14 @@ function sanitizeProofFilename(filename: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9_-]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 40) || "comprobante";
+      .slice(0, 40) || fallbackStem;
 
   return `${cleanStem}${ext}`;
 }
 
 export function paymentProofImageKey(orderId: string, filename: string, negocioId?: string): string {
   assertPaymentProofOrderId(orderId);
-  const safeFile = sanitizeProofFilename(filename);
+  const safeFile = sanitizeAssetFilename(filename, "comprobante");
 
   if (negocioId && negocioId !== "coctels-ops") {
     assertSafeTenantSegment(negocioId);
@@ -49,6 +49,16 @@ export function paymentProofImageKey(orderId: string, filename: string, negocioI
   }
 
   return `orders/payment-proofs/${orderId}/${randomUUID()}-${safeFile}`;
+}
+
+export function tenantBrandingImageKey(
+  negocioId: string,
+  filename: string,
+  assetType: "logo" | "banner" = "logo",
+): string {
+  assertSafeTenantSegment(negocioId);
+  const safeFile = sanitizeAssetFilename(filename, assetType);
+  return `tenants/${negocioId}/branding/${assetType}/${randomUUID()}-${safeFile}`;
 }
 
 export async function uploadCatalogImageBytes(
@@ -77,6 +87,24 @@ export async function uploadPaymentProofImageBytes(
 ): Promise<{ key: string; url: string }> {
   validateProductImageBytes(input);
   const key = paymentProofImageKey(orderId, input.filename, options?.negocioId);
+
+  await store.put({
+    key,
+    bytes: input.bytes,
+    contentType: input.contentType,
+  });
+
+  return { key, url: store.publicUrl(key) };
+}
+
+export async function uploadTenantBrandingImageBytes(
+  input: { bytes: Uint8Array; filename: string; contentType: string },
+  negocioId: string,
+  store: CatalogImageStore,
+  options?: { assetType?: "logo" | "banner" },
+): Promise<{ key: string; url: string }> {
+  validateProductImageBytes(input);
+  const key = tenantBrandingImageKey(negocioId, input.filename, options?.assetType ?? "logo");
 
   await store.put({
     key,

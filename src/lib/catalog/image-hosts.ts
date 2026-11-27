@@ -1,3 +1,6 @@
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_CATALOG_PLACEHOLDER = "/catalog-placeholder.svg";
+
 export const CATALOG_IMAGE_HOSTS = [
   "firebasestorage.googleapis.com",
 ] as const;

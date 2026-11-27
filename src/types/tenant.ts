@@ -70,3 +70,37 @@ export type UsuarioNegocio = {
   active: boolean;
   assignedAt: string;
 };
+
+export type NegocioStaffMember = {
+  uid: string;
+  email: string;
+  displayName: string | null;
+  negocioId: string;
+  role: UsuarioNegocioRole;
+  active: boolean;
+  assignedAt: string;
+  accountType: "customer" | "staff" | "admin";
+  roleIds: string[];
+};
+
+export type NegocioOnboardingSummary = {
+  productCount: number;
+  staffCount: number;
+};
+
+export type CloneCatalogSource = "starter" | "default-tenant";
+
+export type CloneCatalogResult = {
+  negocioId: string;
+  source: CloneCatalogSource;
+  createdCount: number;
+  skippedCount: number;
+  productIds: string[];
+};
+
+export type TenantStaffRolePresetId =
+  | "barra-pedidos"
+  | "solo-productos"
+  | "inventario-caja"
+  | "solo-lectura"
+  | "local-manager";

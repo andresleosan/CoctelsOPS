@@ -6,6 +6,7 @@ import {
   deleteCatalogImage,
   uploadCatalogImageBytes,
   uploadPaymentProofImageBytes,
+  uploadTenantBrandingImageBytes,
 } from "@/lib/catalog/storage-core";
 
 export {
@@ -19,7 +20,11 @@ export {
   validateProductImageContent,
 } from "@/lib/catalog/image-validation";
 
-export { catalogImageKey, paymentProofImageKey } from "@/lib/catalog/storage-core";
+export {
+  catalogImageKey,
+  paymentProofImageKey,
+  tenantBrandingImageKey,
+} from "@/lib/catalog/storage-core";
 
 export async function validateLocalProductImage(imageFile: string): Promise<void> {
   await readValidatedLocalProductImage(imageFile);
@@ -46,6 +51,19 @@ export async function uploadOrderPaymentProofBytes(
 }
 
 export async function deleteOrderPaymentProof(key: string): Promise<void> {
+  return deleteCatalogImage(key, getR2CatalogImageStore());
+}
+
+export async function uploadTenantLogoBytes(
+  input: { bytes: Uint8Array; filename: string; contentType: string },
+  negocioId: string,
+): Promise<{ key: string; url: string }> {
+  return uploadTenantBrandingImageBytes(input, negocioId, getR2CatalogImageStore(), {
+    assetType: "logo",
+  });
+}
+
+export async function deleteTenantLogo(key: string): Promise<void> {
   return deleteCatalogImage(key, getR2CatalogImageStore());
 }
 
