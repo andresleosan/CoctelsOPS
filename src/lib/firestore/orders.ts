@@ -17,6 +17,7 @@ import {
 import { calculatePromotion, getPromotionByCode, toPromotion } from "@/lib/firestore/promotions";
 import { prepareOrderSupplyDepletion } from "@/lib/firestore/recipes";
 import { toCustomerOrder } from "@/lib/orders/customer-order";
+import { buildBarDisplayColumns } from "@/lib/orders/bar-display";
 import {
   calculateDeliveryQuote,
   findDeliveryZone,
@@ -40,6 +41,7 @@ import {
   verifyOrderPaymentSchema,
 } from "@/lib/validation/orders";
 import type { VerifiedUser } from "@/types/auth";
+import type { BarDisplayTicket } from "@/types/display";
 import type { DeliveryZoneConfig, StoreConfiguration } from "@/types/operations";
 import type { OrderEscandalloSummary } from "@/types/recipes";
 import { DEFAULT_TENANT_ID } from "@/types/tenant";
@@ -1237,4 +1239,28 @@ export async function assignOrderDriver(
 
   if (!updated) throw new Error("No fue posible asignar el domiciliario");
   return updated;
+}
+
+export async function listPublicBarDisplayOrders(
+  negocioId: string = DEFAULT_TENANT_ID,
+  options: { nowMs?: number } = {},
+): Promise<{ preparing: BarDisplayTicket[]; ready: BarDisplayTicket[] }> {
+  const cleanNegocioId = negocioId.trim() || DEFAULT_TENANT_ID;
+
+  if (cleanNegocioId !== DEFAULT_TENANT_ID) {
+    const snapshot = await ordersCollection()
+      .where("negocioId", "==", cleanNegocioId)
+      .get();
+    const orders = snapshot.docs
+      .map((document) => toOrder(document.id, (document.data() ?? {}) as Record<string, unknown>))
+      .filter((order) => (order.negocioId?.trim() || DEFAULT_TENANT_ID) === cleanNegocioId);
+    return buildBarDisplayColumns(orders, { nowMs: options.nowMs });
+  }
+
+  const snapshot = await ordersCollection().orderBy("createdAt", "desc").limit(80).get();
+  const orders = snapshot.docs
+    .map((document) => toOrder(document.id, (document.data() ?? {}) as Record<string, unknown>))
+    .filter((order) => (order.negocioId?.trim() || DEFAULT_TENANT_ID) === DEFAULT_TENANT_ID);
+
+  return buildBarDisplayColumns(orders, { nowMs: options.nowMs });
 }

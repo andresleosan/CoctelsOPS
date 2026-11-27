@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Timer,
+  Tv,
   WifiOff,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -681,6 +682,12 @@ export default function AdminOrdersPage() {
             <Button variant="outline" size="sm" asChild className="min-h-11 border-slate-300 bg-white text-slate-900 hover:bg-slate-50">
               <Link href="/repartidor">
                 <Bike className="h-4 w-4 text-cyan-700" /> Tablero Reparto
+              </Link>
+            </Button>
+
+            <Button variant="outline" size="sm" asChild className="min-h-11 border-slate-300 bg-white text-slate-900 hover:bg-slate-50">
+              <Link href="/pantalla" target="_blank" rel="noreferrer">
+                <Tv className="h-4 w-4 text-pink-600" /> Pantalla TV
               </Link>
             </Button>
 

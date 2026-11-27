@@ -12,7 +12,10 @@ export default function Footer() {
   const pathname = usePathname();
   const [configuration, setConfiguration] = useState<StoreConfiguration | null>(null);
 
+  const isHiddenRoute = pathname?.startsWith('/admin') || pathname?.startsWith('/pantalla');
+
   useEffect(() => {
+    if (isHiddenRoute) return;
     let active = true;
 
     void fetch('/api/configuration').then(async (response) => {
@@ -22,9 +25,9 @@ export default function Footer() {
     }).catch(() => undefined);
 
     return () => { active = false; };
-  }, []);
+  }, [isHiddenRoute]);
 
-  if (pathname.startsWith('/admin')) return null;
+  if (isHiddenRoute) return null;
 
   const whatsappHref = configuration ? buildWhatsAppLink(configuration.whatsappNumber) : null;
 

@@ -17,6 +17,7 @@ export const ADMIN_NAVIGATION: AdminNavigationItem[] = [
 
 export const ADVANCED_ADMIN_NAVIGATION: AdminNavigationItem[] = [
   { href: "/admin/mesas", label: "Mesas y Cuentas", permission: "pedidos.update" },
+  { href: "/pantalla", label: "Pantalla TV Barra", permission: "pedidos.update" },
   { href: "/admin/caja", label: "Caja y Turnos", permission: "pedidos.update" },
   { href: "/repartidor", label: "Tablero Reparto", permission: "pedidos.update" },
   { href: "/admin/inventario", label: "Inventario", permission: "inventario.read" },

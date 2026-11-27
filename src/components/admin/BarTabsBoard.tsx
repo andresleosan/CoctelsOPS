@@ -3,14 +3,18 @@
 import {
   CheckCircle2,
   Clock,
+  LayoutGrid,
   Layers,
+  Map as MapIcon,
   Plus,
   Receipt,
   RefreshCw,
   Search,
   Send,
   Split,
+  Timer,
   Trash2,
+  Tv,
   Users,
   UtensilsCrossed,
   X,
@@ -19,6 +23,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PermissionGate } from "@/components/admin/PermissionGate";
+import { TableMapBoard } from "@/components/admin/TableMapBoard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +51,7 @@ import {
   calculateEqualSplitShares,
   validateBarTabPayments,
 } from "@/lib/tabs/calculator";
+import { buildTableMapSlots, summarizeTableMap } from "@/lib/tabs/table-map";
 import type { Product } from "@/types/catalog";
 import type { OrderCustomization, PosPaymentMethod } from "@/types/orders";
 import type {
@@ -90,6 +96,9 @@ export function BarTabsBoard() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [viewMode, setViewMode] = useState<"mapa" | "tarjetas">("mapa");
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [selectedTabId, setSelectedTabId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; message: string } | null>(null);
 
   // Abrir mesa
@@ -154,8 +163,21 @@ export function BarTabsBoard() {
     void loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (!autoRefresh || !user) return;
+    const timer = window.setInterval(() => {
+      void loadData();
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [autoRefresh, loadData, user]);
+
   const openTabs = useMemo(() => tabs.filter((tab) => tab.status === "abierta"), [tabs]);
   const closedTabs = useMemo(() => tabs.filter((tab) => tab.status !== "abierta").slice(0, 10), [tabs]);
+
+  const mapSummary = useMemo(
+    () => summarizeTableMap(buildTableMapSlots(tabs)),
+    [tabs],
+  );
 
   const totalOpenAmount = useMemo(
     () => openTabs.reduce((sum, tab) => sum + tab.total, 0),
@@ -466,25 +488,77 @@ export function BarTabsBoard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Cuentas Abiertas por Mesa (Bar Tabs)
+            Mapa de Mesas y Cuentas (Bar Tabs)
           </h1>
           <p className="text-sm text-slate-600">
-            Acumula rondas en vivo hacia el KDS y cierra cuentas con pago único, dividido o mixto.
+            Visualiza mesas libres, ocupadas y pidiendo cuenta; envía rondas al KDS y cobra en 1 tap.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void loadData()}
-          disabled={loading}
-          className="min-h-11 border-slate-300 text-slate-800"
-        >
-          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Actualizar
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm"
+            role="group"
+            aria-label="Modo de vista de mesas"
+          >
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === "mapa" ? "default" : "ghost"}
+              onClick={() => setViewMode("mapa")}
+              className="min-h-9"
+            >
+              <MapIcon className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Mapa Visual
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === "tarjetas" ? "default" : "ghost"}
+              onClick={() => setViewMode("tarjetas")}
+              className="min-h-9"
+            >
+              <LayoutGrid className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Tarjetas Detalladas
+            </Button>
+          </div>
+
+          <Button
+            type="button"
+            variant={autoRefresh ? "default" : "outline"}
+            onClick={() => setAutoRefresh((prev) => !prev)}
+            aria-pressed={autoRefresh}
+            className="min-h-11 border-slate-300"
+          >
+            <Timer className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            Auto 15s
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            asChild
+            className="min-h-11 border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+          >
+            <Link href="/pantalla" target="_blank" rel="noreferrer">
+              <Tv className="mr-1.5 h-4 w-4 text-pink-600" aria-hidden="true" />
+              Pantalla TV
+            </Link>
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void loadData()}
+            disabled={loading}
+            className="min-h-11 border-slate-300 text-slate-800"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Actualizar
+          </Button>
+        </div>
       </div>
 
       {feedback ? (
@@ -501,25 +575,44 @@ export function BarTabsBoard() {
       ) : null}
 
       {/* KPIs */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="border-slate-200 bg-white">
           <CardHeader className="pb-2">
-            <CardDescription className="text-slate-500">Mesas Abiertas</CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">{openTabs.length}</CardTitle>
+            <CardDescription className="text-slate-600">Mesas Libres</CardDescription>
+            <CardTitle className="text-2xl font-bold text-emerald-700">{mapSummary.free}</CardTitle>
           </CardHeader>
         </Card>
         <Card className="border-slate-200 bg-white">
           <CardHeader className="pb-2">
-            <CardDescription className="text-slate-500">Saldo Abierto en Sala</CardDescription>
-            <CardTitle className="text-2xl font-bold text-pink-600">
-              {formatCop(totalOpenAmount)}
+            <CardDescription className="text-slate-600">Mesas Ocupadas</CardDescription>
+            <CardTitle className="text-2xl font-bold text-cyan-700">
+              {openTabs.length}
+              <span className="ml-2 text-xs font-medium text-slate-500">
+                ({totalOpenRounds} rondas)
+              </span>
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card
+          className={
+            mapSummary.requestingBill > 0
+              ? "border-pink-300 bg-pink-50"
+              : "border-slate-200 bg-white"
+          }
+        >
+          <CardHeader className="pb-2">
+            <CardDescription className="text-slate-600">Pidiendo Cuenta</CardDescription>
+            <CardTitle className="text-2xl font-bold text-pink-700">
+              {mapSummary.requestingBill}
             </CardTitle>
           </CardHeader>
         </Card>
         <Card className="border-slate-200 bg-white">
           <CardHeader className="pb-2">
-            <CardDescription className="text-slate-500">Rondas Activas en KDS</CardDescription>
-            <CardTitle className="text-2xl font-bold text-cyan-700">{totalOpenRounds}</CardTitle>
+            <CardDescription className="text-slate-600">Saldo Abierto en Sala</CardDescription>
+            <CardTitle className="text-2xl font-bold text-slate-900">
+              {formatCop(totalOpenAmount)}
+            </CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -610,161 +703,174 @@ export function BarTabsBoard() {
         </Card>
       </PermissionGate>
 
-      {/* Mesas Abiertas */}
-      <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">
-          Cuentas Abiertas ({openTabs.length})
-        </h2>
+      {/* Vista Principal: Mapa Visual o Tarjetas Detalladas */}
+      {viewMode === "mapa" ? (
+        <TableMapBoard
+          tabs={tabs}
+          selectedTabId={selectedTabId}
+          submitting={submitting}
+          onOpenTable={handleOpenTab}
+          onSelectTab={(tab) => setSelectedTabId((prev) => (prev === tab.id ? null : tab.id))}
+          onAddRound={openRoundDialog}
+          onCloseTab={openCloseDialog}
+          onCancelEmptyTab={handleCancelEmptyTab}
+        />
+      ) : (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-slate-900">
+            Cuentas Abiertas ({openTabs.length})
+          </h2>
 
-        {openTabs.length === 0 ? (
-          <Card className="border-dashed border-slate-300 bg-white">
-            <CardContent className="py-10 text-center text-sm text-slate-500">
-              No hay cuentas abiertas en este momento. Abre una mesa arriba para comenzar a cargar rondas.
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {openTabs.map((tab) => (
-              <Card key={tab.id} className="border-slate-200 bg-white shadow-sm">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <CardTitle className="flex items-center gap-2 text-xl text-slate-900">
-                        {tab.tableNumber}
-                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
-                          Abierta
-                        </Badge>
-                      </CardTitle>
-                      <CardDescription className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                        {tab.customerName ? <span>{tab.customerName}</span> : null}
-                        <span className="inline-flex items-center gap-1">
-                          <Users className="h-3.5 w-3.5" /> {tab.guestCount}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5" /> {formatElapsed(tab.openedAt)} (
-                          {formatTimeShort(tab.openedAt)})
-                        </span>
-                      </CardDescription>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-medium uppercase text-slate-500">Total acumulado</p>
-                      <p className="text-2xl font-bold text-slate-900">{formatCop(tab.total)}</p>
-                    </div>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="space-y-4">
-                  {tab.billRequest ? (
-                    <div
-                      role="status"
-                      className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-950"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-1 font-bold">
-                        <span>Cuenta solicitada por cliente</span>
-                        <span>{formatTimeShort(tab.billRequest.requestedAt)}</span>
+          {openTabs.length === 0 ? (
+            <Card className="border-dashed border-slate-300 bg-white">
+              <CardContent className="py-10 text-center text-sm text-slate-500">
+                No hay cuentas abiertas en este momento. Abre una mesa arriba para comenzar a cargar rondas.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {openTabs.map((tab) => (
+                <Card key={tab.id} className="border-slate-200 bg-white shadow-sm">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-xl text-slate-900">
+                          {tab.tableNumber}
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                            Abierta
+                          </Badge>
+                        </CardTitle>
+                        <CardDescription className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                          {tab.customerName ? <span>{tab.customerName}</span> : null}
+                          <span className="inline-flex items-center gap-1">
+                            <Users className="h-3.5 w-3.5" /> {tab.guestCount}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5" /> {formatElapsed(tab.openedAt)} (
+                            {formatTimeShort(tab.openedAt)})
+                          </span>
+                        </CardDescription>
                       </div>
-                      <p className="mt-1">
-                        {tab.billRequest.splitMode === "equal"
-                          ? `Dividida entre ${tab.billRequest.guestCount} personas (${formatCop(
-                              tab.billRequest.perPersonAmount ??
-                                calculateEqualSplitShares(tab.total, tab.billRequest.guestCount)[0] ??
-                                0,
-                            )} c/u)`
-                          : `Pago único (${formatCop(tab.total)})`}
-                        {tab.billRequest.preferredMethod
-                          ? ` · Medio preferido: ${POS_PAYMENT_METHOD_LABELS[tab.billRequest.preferredMethod]}`
-                          : ""}
-                      </p>
+                      <div className="text-right">
+                        <p className="text-xs font-medium uppercase text-slate-500">Total acumulado</p>
+                        <p className="text-2xl font-bold text-slate-900">{formatCop(tab.total)}</p>
+                      </div>
                     </div>
-                  ) : null}
+                  </CardHeader>
 
-                  {/* Rondas */}
-                  {tab.rounds.length === 0 ? (
-                    <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-xs text-slate-500">
-                      Sin rondas enviadas aún. Agrega la primera ronda para despachar al KDS.
-                    </p>
-                  ) : (
-                    <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
-                      {tab.rounds.map((round) => (
-                        <div
-                          key={`${tab.id}-r-${round.roundNumber}`}
-                          className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs"
-                        >
-                          <div className="flex items-center justify-between font-semibold text-slate-800">
-                            <span className="inline-flex items-center gap-1.5">
-                              <Layers className="h-3.5 w-3.5 text-cyan-700" />
-                              Ronda #{round.roundNumber} · {formatTimeShort(round.createdAt)}
-                              {round.source === "cliente_qr" ? (
-                                <Badge className="border-cyan-300 bg-cyan-50 text-cyan-900">
-                                  QR Mesa
-                                </Badge>
-                              ) : null}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <span>{formatCop(round.subtotal)}</span>
-                              {round.orderId ? (
-                                <Link
-                                  href={`/admin/pedidos/${round.orderId}`}
-                                  className="text-cyan-700 underline hover:text-cyan-900"
-                                >
-                                  Ver KDS
-                                </Link>
-                              ) : null}
-                            </div>
-                          </div>
-                          <ul className="mt-1 space-y-0.5 text-slate-600">
-                            {round.items.map((item, idx) => (
-                              <li key={`${round.orderId}-${idx}`}>
-                                {item.quantity}x {item.name} ({item.customization.size}) —{" "}
-                                {formatCop(item.subtotal)}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Acciones */}
-                  <PermissionGate permission="pedidos.update">
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Button
-                        type="button"
-                        onClick={() => openRoundDialog(tab)}
-                        className="min-h-11 flex-1 bg-cyan-600 text-white hover:bg-cyan-700"
+                  <CardContent className="space-y-4">
+                    {tab.billRequest ? (
+                      <div
+                        role="status"
+                        className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-950"
                       >
-                        <Plus className="mr-1.5 h-4 w-4" />
-                        Ronda al KDS
-                      </Button>
-                      {tab.rounds.length > 0 ? (
+                        <div className="flex flex-wrap items-center justify-between gap-1 font-bold">
+                          <span>Cuenta solicitada por cliente</span>
+                          <span>{formatTimeShort(tab.billRequest.requestedAt)}</span>
+                        </div>
+                        <p className="mt-1">
+                          {tab.billRequest.splitMode === "equal"
+                            ? `Dividida entre ${tab.billRequest.guestCount} personas (${formatCop(
+                                tab.billRequest.perPersonAmount ??
+                                  calculateEqualSplitShares(tab.total, tab.billRequest.guestCount)[0] ??
+                                  0,
+                              )} c/u)`
+                            : `Pago único (${formatCop(tab.total)})`}
+                          {tab.billRequest.preferredMethod
+                            ? ` · Medio preferido: ${POS_PAYMENT_METHOD_LABELS[tab.billRequest.preferredMethod]}`
+                            : ""}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {/* Rondas */}
+                    {tab.rounds.length === 0 ? (
+                      <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-xs text-slate-500">
+                        Sin rondas enviadas aún. Agrega la primera ronda para despachar al KDS.
+                      </p>
+                    ) : (
+                      <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                        {tab.rounds.map((round) => (
+                          <div
+                            key={`${tab.id}-r-${round.roundNumber}`}
+                            className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs"
+                          >
+                            <div className="flex items-center justify-between font-semibold text-slate-800">
+                              <span className="inline-flex items-center gap-1.5">
+                                <Layers className="h-3.5 w-3.5 text-cyan-700" />
+                                Ronda #{round.roundNumber} · {formatTimeShort(round.createdAt)}
+                                {round.source === "cliente_qr" ? (
+                                  <Badge className="border-cyan-300 bg-cyan-50 text-cyan-900">
+                                    QR Mesa
+                                  </Badge>
+                                ) : null}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span>{formatCop(round.subtotal)}</span>
+                                {round.orderId ? (
+                                  <Link
+                                    href={`/admin/pedidos/${round.orderId}`}
+                                    className="text-cyan-700 underline hover:text-cyan-900"
+                                  >
+                                    Ver KDS
+                                  </Link>
+                                ) : null}
+                              </div>
+                            </div>
+                            <ul className="mt-1 space-y-0.5 text-slate-600">
+                              {round.items.map((item, idx) => (
+                                <li key={`${round.orderId}-${idx}`}>
+                                  {item.quantity}x {item.name} ({item.customization.size}) —{" "}
+                                  {formatCop(item.subtotal)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Acciones */}
+                    <PermissionGate permission="pedidos.update">
+                      <div className="flex flex-wrap gap-2 pt-1">
                         <Button
                           type="button"
-                          onClick={() => openCloseDialog(tab)}
-                          className="min-h-11 flex-1 bg-slate-900 text-white hover:bg-slate-800"
+                          onClick={() => openRoundDialog(tab)}
+                          className="min-h-11 flex-1 bg-cyan-600 text-white hover:bg-cyan-700"
                         >
-                          <Split className="mr-1.5 h-4 w-4" />
-                          Dividir / Cerrar
+                          <Plus className="mr-1.5 h-4 w-4" />
+                          Ronda al KDS
                         </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={submitting}
-                          onClick={() => void handleCancelEmptyTab(tab)}
-                          className="min-h-11 border-rose-300 text-rose-700 hover:bg-rose-50"
-                        >
-                          <Trash2 className="mr-1.5 h-4 w-4" />
-                          Liberar
-                        </Button>
-                      )}
-                    </div>
-                  </PermissionGate>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
+                        {tab.rounds.length > 0 ? (
+                          <Button
+                            type="button"
+                            onClick={() => openCloseDialog(tab)}
+                            className="min-h-11 flex-1 bg-slate-900 text-white hover:bg-slate-800"
+                          >
+                            <Split className="mr-1.5 h-4 w-4" />
+                            Dividir / Cerrar
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={submitting}
+                            onClick={() => void handleCancelEmptyTab(tab)}
+                            className="min-h-11 border-rose-300 text-rose-700 hover:bg-rose-50"
+                          >
+                            <Trash2 className="mr-1.5 h-4 w-4" />
+                            Liberar
+                          </Button>
+                        )}
+                      </div>
+                    </PermissionGate>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Historial Reciente */}
       {closedTabs.length > 0 ? (

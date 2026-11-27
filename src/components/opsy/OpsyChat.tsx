@@ -262,8 +262,8 @@ export default function OpsyChat() {
   const inputRef = useRef<HTMLInputElement>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Ocultar Opsy Bot en las rutas administrativas
-  const isAdminRoute = pathname?.startsWith("/admin");
+  // Ocultar Opsy Bot en las rutas administrativas y en pantalla pública TV
+  const isAdminRoute = pathname?.startsWith("/admin") || pathname?.startsWith("/pantalla");
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
